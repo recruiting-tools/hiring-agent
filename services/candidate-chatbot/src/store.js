@@ -372,9 +372,9 @@ export class InMemoryHiringStore {
         return new Date(pm.auto_send_after) <= now;
       })
       .map((pm) => {
-        // Resolve channel_thread_id via conversations
         const conv = this.conversations.get(pm.conversation_id);
-        return { ...pm, channel_thread_id: conv?.channel_thread_id ?? pm.conversation_id };
+        if (!conv) throw new Error(`Missing conversation for planned_message ${pm.planned_message_id}`);
+        return { ...pm, channel_thread_id: conv.channel_thread_id };
       });
   }
 
