@@ -426,7 +426,12 @@ export class InMemoryHiringStore {
     if (pm) {
       pm.review_status = "sent";
       pm.sent_at = sent_at;
-      pm.hh_message_id = hh_message_id ?? null;
+    }
+    if (hh_message_id) {
+      const attempt = this.deliveryAttempts.find(
+        (a) => a.planned_message_id === planned_message_id && a.status === "delivered"
+      );
+      if (attempt) attempt.hh_message_id = hh_message_id;
     }
   }
 
