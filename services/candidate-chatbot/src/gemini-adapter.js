@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { buildPrompt } from "./prompt-builder.js";
 
 export class GeminiAdapter {
-  constructor({ apiKey, model = "gemini-2.0-flash" }) {
+  constructor({ apiKey, model = "gemini-2.5-flash-preview-04-17" }) {
     this.genAI = new GoogleGenerativeAI(apiKey);
     this.modelName = model;
   }
