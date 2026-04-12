@@ -13,7 +13,8 @@
     "test:moderation": "node --test tests/integration/moderation-ui.test.js",
     "test:tenant": "node --test tests/integration/multi-tenant.test.js",
     "test:telegram": "node --test tests/integration/telegram-notifications.test.js",
-    "seed:dev": "node scripts/seed-dev-db.js"
+    "seed:dev": "node scripts/seed-dev-db.js",
+    "test:all": "node --test tests/**/*.test.js"
   },
   "workspaces": [
     "services/*",

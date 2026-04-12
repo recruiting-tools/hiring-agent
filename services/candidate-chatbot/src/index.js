@@ -5,6 +5,9 @@ import { createCandidateChatbot } from "./handlers.js";
 import { createHttpServer } from "./http-server.js";
 import { InMemoryHiringStore } from "./store.js";
 import { PostgresHiringStore } from "./postgres-store.js";
+import { NotificationDispatcher } from "./notification-dispatcher.js";
+import { FakeTelegramClient } from "./fake-telegram-client.js";
+import { TelegramNotifier } from "./telegram-notifier.js";
 
 let store;
 
@@ -34,7 +37,19 @@ if (process.env.GEMINI_API_KEY) {
   console.log("Using FakeLlmAdapter (fake LLM)");
 }
 
-const app = createCandidateChatbot({ store, llmAdapter });
+const telegramClient = process.env.TELEGRAM_BOT_TOKEN
+  ? new TelegramNotifier(process.env.TELEGRAM_BOT_TOKEN)
+  : new FakeTelegramClient();
+
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  console.log("Using TelegramNotifier (real Telegram)");
+} else {
+  console.log("Using FakeTelegramClient (fake Telegram)");
+}
+
+const notificationDispatcher = new NotificationDispatcher(store, telegramClient);
+
+const app = createCandidateChatbot({ store, llmAdapter, notificationDispatcher });
 
 const port = Number(process.env.PORT ?? 3000);
 createHttpServer(app).listen(port, () => {

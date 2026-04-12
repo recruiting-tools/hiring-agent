@@ -14,7 +14,7 @@ export class NotificationDispatcher {
   }
 
   async _handleStepEvent(event) {
-    const run = this.store.findRunById(event.pipeline_run_id);
+    const run = await this.store.findRunById(event.pipeline_run_id);
     if (!run) return;
 
     const job = this.store.getJob(run.job_id);
@@ -23,13 +23,13 @@ export class NotificationDispatcher {
       : null;
     const stepIndex = templateStep?.step_index ?? null;
 
-    const subs = this.store.getSubscriptionsForStep(run.job_id, stepIndex, event.event_type);
+    const subs = await this.store.getSubscriptionsForStep(run.job_id, stepIndex, event.event_type);
 
     for (const sub of subs) {
-      const recruiter = this.store.getRecruiterById(sub.recruiter_id);
+      const recruiter = await this.store.getRecruiterById(sub.recruiter_id);
       if (!recruiter?.tg_chat_id) continue;  // null tg_chat_id → skip gracefully
 
-      const candidate = this.store.getCandidate(run.candidate_id);
+      const candidate = await this.store.getCandidate(run.candidate_id);
       const message = this._buildMessage(event, job, candidate, templateStep);
       await this.telegramClient.notify(recruiter.tg_chat_id, message);
     }
