@@ -528,10 +528,10 @@ export class PostgresHiringStore {
     `;
   }
 
-  async markPlannedMessageSent({ planned_message_id, sent_at }) {
+  async markPlannedMessageSent({ planned_message_id, sent_at, hh_message_id }) {
     await this.sql`
       UPDATE chatbot.planned_messages
-      SET review_status = 'sent', sent_at = ${sent_at}
+      SET review_status = 'sent', sent_at = ${sent_at}, hh_message_id = ${hh_message_id ?? null}
       WHERE planned_message_id = ${planned_message_id}
     `;
   }

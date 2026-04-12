@@ -426,6 +426,7 @@ export class InMemoryHiringStore {
     if (pm) {
       pm.review_status = "sent";
       pm.sent_at = sent_at;
+      pm.hh_message_id = hh_message_id ?? null;
     }
   }
 
