@@ -46,17 +46,19 @@ try {
 
     const sql = await readFile(join(migrationsDir, filename), "utf8");
     console.log(`  apply ${filename}...`);
-    await client.query("BEGIN");
+    // CONCURRENTLY index creation cannot run inside a transaction
+    const needsTransaction = !sql.includes("CONCURRENTLY");
     try {
+      if (needsTransaction) await client.query("BEGIN");
       await client.query(sql);
       await client.query(
         "INSERT INTO public.schema_migrations (filename) VALUES ($1)",
         [filename]
       );
-      await client.query("COMMIT");
+      if (needsTransaction) await client.query("COMMIT");
       console.log(`  done  ${filename}`);
     } catch (err) {
-      await client.query("ROLLBACK");
+      if (needsTransaction) await client.query("ROLLBACK");
       throw new Error(`Migration ${filename} failed: ${err.message}`);
     }
   }
