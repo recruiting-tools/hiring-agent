@@ -249,6 +249,30 @@ test('tg: notification message contains job title and candidate name', async () 
   assert.ok(tg.sent[0].message.includes('Tg Candidate'),     'message should include candidate name');
 });
 
+test('tg: addSubscription rejects cross-tenant subscription (tenant isolation)', () => {
+  const seed = JSON.parse(JSON.stringify(seed6));
+  seed.clients.push({ client_id: 'client-beta-001', name: 'Beta Corp' });
+  seed.recruiters.push({
+    recruiter_id:    'rec-beta-001',
+    client_id:       'client-beta-001',
+    email:           'beta@beta.test',
+    recruiter_token: 'rec-tok-beta-001',
+    tg_chat_id:      111111111
+  });
+  const store = new InMemoryHiringStore(seed);
+
+  // rec-beta-001 (client-beta-001) tries to subscribe to job-tg-dev (client-alpha-001)
+  assert.throws(
+    () => store.addSubscription({
+      recruiter_id: 'rec-beta-001',
+      job_id:       'job-tg-dev',
+      step_index:   1,
+      event_type:   'step_completed'
+    }),
+    /Tenant isolation/
+  );
+});
+
 test('tg: existing postWebhookMessage works without notificationDispatcher (no crash)', async () => {
   const store = new InMemoryHiringStore(seed6);
   // notificationDispatcher not passed

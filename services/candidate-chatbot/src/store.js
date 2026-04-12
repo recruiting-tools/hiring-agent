@@ -292,6 +292,14 @@ export class InMemoryHiringStore {
 
   addSubscription(sub) {
     // sub: { recruiter_id, job_id, step_index, event_type }
+    // Tenant isolation: recruiter must belong to the same client as the job
+    const recruiter = this.getRecruiterById(sub.recruiter_id);
+    const job = this.jobs.get(sub.job_id) ?? null;
+    if (!recruiter || !job || recruiter.client_id !== job.client_id) {
+      throw new Error(
+        `Tenant isolation: recruiter ${sub.recruiter_id} cannot subscribe to job ${sub.job_id}`
+      );
+    }
     const existing = this.recruiterSubscriptions.find(
       s => s.recruiter_id === sub.recruiter_id &&
            s.job_id === sub.job_id &&

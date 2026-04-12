@@ -752,6 +752,17 @@ export class PostgresHiringStore {
   // ─── Telegram subscriptions ──────────────────────────────────────────────────
 
   async addSubscription({ recruiter_id, job_id, step_index, event_type }) {
+    // Tenant isolation: recruiter must belong to the same client as the job
+    const check = await this.sql`
+      SELECT 1 FROM chatbot.recruiters r
+      JOIN chatbot.jobs j ON j.client_id = r.client_id
+      WHERE r.recruiter_id = ${recruiter_id} AND j.job_id = ${job_id}
+    `;
+    if (check.length === 0) {
+      throw new Error(
+        `Tenant isolation: recruiter ${recruiter_id} cannot subscribe to job ${job_id}`
+      );
+    }
     await this.sql`
       INSERT INTO management.recruiter_subscriptions
         (recruiter_id, job_id, step_index, event_type)
