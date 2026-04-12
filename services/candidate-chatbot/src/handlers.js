@@ -3,7 +3,7 @@ import { validateLlmOutput } from "./validator.js";
 export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
   return {
     async postWebhookMessage(request) {
-      const conversation = store.findConversation(request.conversation_id);
+      const conversation = await store.findConversation(request.conversation_id);
       if (!conversation) {
         return {
           status: 404,
@@ -13,9 +13,9 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
         };
       }
 
-      const run = store.findActiveRunForConversation(conversation);
+      const run = await store.findActiveRunForConversation(conversation);
       if (!run) {
-        const existingRun = store.findRunForConversation(conversation);
+        const existingRun = await store.findRunForConversation(conversation);
         return {
           status: 409,
           body: {
@@ -27,9 +27,9 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
       }
 
       const job = store.getJob(conversation.job_id);
-      const candidate = store.candidates.get(conversation.candidate_id);
-      const inboundMessage = store.addInboundMessage(request, conversation);
-      const pendingSteps = store.getPendingSteps(run.pipeline_run_id);
+      const candidate = await store.getCandidate(conversation.candidate_id);
+      const inboundMessage = await store.addInboundMessage(request, conversation);
+      const pendingSteps = await store.getPendingSteps(run.pipeline_run_id);
       const pendingTemplateSteps = pendingSteps.map((step) => store.getTemplateStep(job.job_id, step.step_id)).filter(Boolean);
 
       const rawLlmOutput = await llmAdapter.evaluate({
@@ -40,17 +40,17 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
         inboundMessage,
         pendingSteps,
         pendingTemplateSteps,
-        history: store.getHistory(conversation.conversation_id)
+        history: await store.getHistory(conversation.conversation_id)
       });
 
       const validation = validateLlmOutput(rawLlmOutput, {
         pendingSteps,
         pendingTemplateSteps,
-        lastOutboundBody: store.getLastOutboundBody(conversation.conversation_id)
+        lastOutboundBody: await store.getLastOutboundBody(conversation.conversation_id)
       }, validatorConfig);
 
       if (!validation.ok) {
-        store.markManualReview({
+        await store.markManualReview({
           run,
           candidateId: conversation.candidate_id,
           reason: validation.reason,
@@ -71,7 +71,7 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
         };
       }
 
-      const plannedMessage = store.applyLlmDecision({
+      const plannedMessage = await store.applyLlmDecision({
         run,
         job,
         llmOutput: validation.output,
@@ -92,10 +92,10 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
       };
     },
 
-    getPendingQueue() {
+    async getPendingQueue() {
       return {
         status: 200,
-        body: store.getPendingQueue()
+        body: await store.getPendingQueue()
       };
     }
   };

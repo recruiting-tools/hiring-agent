@@ -11,7 +11,7 @@ export function createHttpServer(app) {
       }
 
       if (request.method === "GET" && request.url === "/queue/pending") {
-        const result = app.getPendingQueue();
+        const result = await app.getPendingQueue();
         writeJson(response, result.status, result.body);
         return;
       }

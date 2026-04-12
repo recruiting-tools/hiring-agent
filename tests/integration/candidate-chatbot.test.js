@@ -167,7 +167,7 @@ test("pending queue returns created planned message", async () => {
     "conv-zakup-001",
     seed.candidate_fixtures[0].inbound_text
   ));
-  const queueResponse = app.getPendingQueue();
+  const queueResponse = await app.getPendingQueue();
 
   assert.equal(queueResponse.status, 200);
   assert.equal(queueResponse.body.items.length, 1);

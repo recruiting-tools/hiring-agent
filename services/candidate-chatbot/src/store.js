@@ -77,6 +77,10 @@ export class InMemoryHiringStore {
     return job;
   }
 
+  getCandidate(candidateId) {
+    return this.candidates.get(candidateId) ?? null;
+  }
+
   findConversation(conversationId) {
     return this.conversations.get(conversationId) ?? null;
   }
