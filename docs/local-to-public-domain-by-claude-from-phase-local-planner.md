@@ -168,20 +168,29 @@ gcloud run deploy candidate-chatbot-v2 \
 
 ### 2D — DNS
 
-> ⚠️ **Важно**: прямой CNAME на `*.run.app` не даёт HTTPS на кастомном домене — SSL-сертификат не матчится.
-> Нужен Cloud Run **domain mapping**, который требует верификацию домена через Google Search Console (интерактивный браузер).
+> ⚠️ **Аккаунты**: domain mapping создаётся от имени **`ludmilachramcova@gmail.com`** — только на нём верифицирован `recruiter-assistant.com`.
+> `vladimir@skillset.ae` и `kobzevvv@gmail.com` — НЕ подходят для domain mapping.
 >
-> Один раз: открыть https://search.google.com/search-console как `vladimir@skillset.ae` → добавить `recruiter-assistant.com`.
-> TXT-запись верификации уже есть в DNS, поэтому верификация пройдёт мгновенно.
+> DNS-зона `recruiter-assistant` управляется в проекте `skillset-analytics-487510`.
+> CNAME `candidate-chatbot.recruiter-assistant.com → ghs.googlehosted.com` — уже стоит (не трогать).
 
 ```bash
-# Получить Cloud Run URL после deploy, затем:
-gcloud dns record-sets create candidate-chatbot.recruiter-assistant.com. \
-  --zone=recruiter-assistant \
-  --type=CNAME \
-  --ttl=300 \
-  --rrdatas=<cloud-run-url>.
+# Переключиться на аккаунт с верифицированным доменом
+gcloud config set account ludmilachramcova@gmail.com
+
+# Создать domain mapping (один раз — уже сделано 2026-04-12)
+gcloud beta run domain-mappings create \
+  --service=candidate-chatbot-v2 \
+  --domain=candidate-chatbot.recruiter-assistant.com \
+  --region=europe-west1 \
+  --project=project-5d8dd8a0-67af-44ba-b6e
+
+# Вернуть основной аккаунт
+gcloud config set account vladimir@skillset.ae
 ```
+
+> SSL-сертификат выпускается автоматически (~15–60 мин после создания маппинга). Проверить статус:
+> `gcloud beta run domain-mappings describe --domain=candidate-chatbot.recruiter-assistant.com --region=europe-west1 --project=project-5d8dd8a0-67af-44ba-b6e`
 
 ### 2E — Post-deploy SHA verification
 
