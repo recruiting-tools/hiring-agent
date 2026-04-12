@@ -52,6 +52,8 @@ const LOGIN_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+const SEED_VERSION = "sandbox-v1";
+
 const MODERATION_HTML = `<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -175,11 +177,15 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, inte
       }
 
       if (request.method === "GET" && request.url === "/health") {
+        const deploySha = process.env.DEPLOY_SHA || "unknown";
         writeJson(response, 200, {
           service: "candidate-chatbot",
           status: "ok",
-          commit: process.env.DEPLOY_SHA || "unknown",
-          deployed_at: process.env.DEPLOY_TIME || null
+          commit: deploySha,
+          deployed_at: process.env.DEPLOY_TIME || null,
+          app_env: process.env.APP_ENV || "development",
+          deploy_sha: deploySha,
+          seed_version: SEED_VERSION
         });
         return;
       }

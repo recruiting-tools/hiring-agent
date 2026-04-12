@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 
-const baseUrl = (process.env.SANDBOX_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+const baseUrl = (
+  process.env.BASE_URL
+  ?? process.env.SANDBOX_URL
+  ?? process.env.SANDBOX_BASE_URL
+  ?? "http://localhost:3000"
+).replace(/\/$/, "");
 const demoEmail = process.env.SANDBOX_DEMO_EMAIL ?? process.env.DEMO_EMAIL ?? "demo@hiring-agent.app";
 const demoPassword = process.env.SANDBOX_DEMO_PASSWORD ?? process.env.DEMO_PASSWORD;
 const recruiterToken = process.env.SANDBOX_DEMO_RECRUITER_TOKEN ?? process.env.DEMO_RECRUITER_TOKEN ?? "rec-tok-demo-001";

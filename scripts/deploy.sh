@@ -12,10 +12,17 @@ DEPLOY_SHA=$(git rev-parse HEAD)
 DEPLOY_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 CALLBACK_URL="${DEPLOY_CALLBACK_URL:-}"
 PUBLIC_URL="${DEPLOY_PUBLIC_URL:-https://candidate-chatbot.recruiter-assistant.com}"
-SERVICE="candidate-chatbot-v2"
+SERVICE="${SERVICE:-candidate-chatbot-v2}"
 PROJECT="project-5d8dd8a0-67af-44ba-b6e"
 REGION="europe-west1"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT/cloud-run-source-deploy/$SERVICE"
+APP_ENV="${APP_ENV:-production}"
+EXTERNAL_MODE="${EXTERNAL_MODE:-live}"
+LLM_MODE="${LLM_MODE:-live}"
+DB_SECRET_ENV="${DB_SECRET_ENV:-V2_PROD_NEON_URL}"
+DB_SECRET_NAME="${DB_SECRET_NAME:-$DB_SECRET_ENV}"
+ENV_VARS="USE_REAL_DB=true,NODE_ENV=production,HH_SEND_ENABLED=false,OUTBOUND_SEND_ENABLED=false,DEPLOY_SHA=$DEPLOY_SHA,DEPLOY_TIME=$DEPLOY_TIME,APP_ENV=$APP_ENV,EXTERNAL_MODE=$EXTERNAL_MODE,LLM_MODE=$LLM_MODE"
+SECRETS="GEMINI_API_KEY=GEMINI_API_KEY:latest,$DB_SECRET_ENV=$DB_SECRET_NAME:latest,SESSION_SECRET=SESSION_SECRET:latest,HH_CLIENT_ID=HH_CLIENT_ID:latest,HH_CLIENT_SECRET=HH_CLIENT_SECRET:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest"
 
 echo "Deploying $SERVICE @ $DEPLOY_SHA..."
 
@@ -45,8 +52,8 @@ deploy_output=$(gcloud run deploy "$SERVICE" \
   --image "$IMAGE:latest" \
   --region "$REGION" \
   --project "$PROJECT" \
-  --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest,V2_PROD_NEON_URL=V2_PROD_NEON_URL:latest,SESSION_SECRET=SESSION_SECRET:latest,HH_CLIENT_ID=HH_CLIENT_ID:latest,HH_CLIENT_SECRET=HH_CLIENT_SECRET:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest" \
-  --set-env-vars "USE_REAL_DB=true,NODE_ENV=production,HH_SEND_ENABLED=false,OUTBOUND_SEND_ENABLED=false,DEPLOY_SHA=$DEPLOY_SHA,DEPLOY_TIME=$DEPLOY_TIME" \
+  --set-secrets "$SECRETS" \
+  --set-env-vars "$ENV_VARS" \
   --allow-unauthenticated \
   --port 8080 \
   --memory 512Mi \
