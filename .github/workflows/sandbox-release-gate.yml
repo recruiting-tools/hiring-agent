@@ -1,0 +1,73 @@
+name: Sandbox Release Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:all
+      - run: pnpm test:sandbox
+
+  migration-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Check for migration changes
+        id: check
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -q 'services/candidate-chatbot/migrations/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.changed == 'true'
+        with:
+          node-version: 22
+      - name: Install neonctl
+        if: steps.check.outputs.changed == 'true'
+        run: npm install -g neonctl
+      - name: Create ephemeral Neon branch
+        if: steps.check.outputs.changed == 'true'
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: |
+          neonctl branches create \
+            --project-id round-leaf-16031956 \
+            --org-id org-bold-wave-46400152 \
+            --name pr-${{ github.run_id }} \
+            --parent br-dry-river-anv7f0z0
+      - name: Get connection string
+        if: steps.check.outputs.changed == 'true'
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: |
+          EPHEMERAL_DB_URL=$(neonctl connection-string \
+            --project-id round-leaf-16031956 \
+            --org-id org-bold-wave-46400152 \
+            --branch pr-${{ github.run_id }} \
+            --pooled)
+          echo "Ephemeral branch ready."
+          # TODO: run migrations against EPHEMERAL_DB_URL once migration runner is wired up
+      - name: Delete ephemeral Neon branch
+        if: always()
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: |
+          if [ "${{ steps.check.outputs.changed }}" = "true" ]; then
+            neonctl branches delete \
+              --project-id round-leaf-16031956 \
+              --org-id org-bold-wave-46400152 \
+              pr-${{ github.run_id }}
+          fi
