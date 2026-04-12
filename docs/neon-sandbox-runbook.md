@@ -108,21 +108,23 @@ Org ID: `org-bold-wave-46400152`
 Проверить проекты в нужной организации:
 
 ```bash
-/Users/vova/.nvm/versions/node/v24.13.0/bin/neonctl projects list \
+neonctl projects list \
   --org-id org-bold-wave-46400152
 ```
 
 Показать branch list для dev project `v2-dev-client`:
 
 ```bash
-/Users/vova/.nvm/versions/node/v24.13.0/bin/neonctl branches list \
+neonctl branches list \
+  --org-id org-bold-wave-46400152 \
   --project-id round-leaf-16031956
 ```
 
 Получить pooled connection string для постоянной `sandbox` branch:
 
 ```bash
-/Users/vova/.nvm/versions/node/v24.13.0/bin/neonctl connection-string sandbox \
+neonctl connection-string sandbox \
+  --org-id org-bold-wave-46400152 \
   --project-id round-leaf-16031956 \
   --pooled
 ```
@@ -130,7 +132,8 @@ Org ID: `org-bold-wave-46400152`
 Создать ephemeral branch `pr-123` от `sandbox`:
 
 ```bash
-/Users/vova/.nvm/versions/node/v24.13.0/bin/neonctl branches create \
+neonctl branches create \
+  --org-id org-bold-wave-46400152 \
   --project-id round-leaf-16031956 \
   --name pr-123 \
   --parent br-dry-river-anv7f0z0
@@ -139,7 +142,8 @@ Org ID: `org-bold-wave-46400152`
 Получить connection string для `pr-123`:
 
 ```bash
-/Users/vova/.nvm/versions/node/v24.13.0/bin/neonctl connection-string pr-123 \
+neonctl connection-string pr-123 \
+  --org-id org-bold-wave-46400152 \
   --project-id round-leaf-16031956 \
   --pooled
 ```
@@ -147,7 +151,8 @@ Org ID: `org-bold-wave-46400152`
 Удалить ephemeral branch `pr-123` после merge/close:
 
 ```bash
-/Users/vova/.nvm/versions/node/v24.13.0/bin/neonctl branches delete pr-123 \
+neonctl branches delete pr-123 \
+  --org-id org-bold-wave-46400152 \
   --project-id round-leaf-16031956
 ```
 
@@ -172,15 +177,18 @@ pnpm smoke:sandbox
 4. Прогнать migrations и seed.
 
 ```bash
-/Users/vova/.nvm/versions/node/v24.13.0/bin/neonctl branches delete sandbox \
+neonctl branches delete sandbox \
+  --org-id org-bold-wave-46400152 \
   --project-id round-leaf-16031956
 
-/Users/vova/.nvm/versions/node/v24.13.0/bin/neonctl branches create \
+neonctl branches create \
+  --org-id org-bold-wave-46400152 \
   --project-id round-leaf-16031956 \
   --name sandbox \
   --parent br-soft-block-an1vqw6o
 
-/Users/vova/.nvm/versions/node/v24.13.0/bin/neonctl connection-string sandbox \
+neonctl connection-string sandbox \
+  --org-id org-bold-wave-46400152 \
   --project-id round-leaf-16031956 \
   --pooled
 
