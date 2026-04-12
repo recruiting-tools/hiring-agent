@@ -15,6 +15,9 @@ export class PostgresHiringStore {
   async reset() {
     await this.sql`
       TRUNCATE TABLE
+        chatbot.message_delivery_attempts,
+        chatbot.hh_poll_state,
+        chatbot.hh_negotiations,
         chatbot.planned_messages,
         chatbot.pipeline_events,
         chatbot.pipeline_step_state,
@@ -388,6 +391,159 @@ export class PostgresHiringStore {
       ORDER BY created_at ASC
     `;
     return { items: rows };
+  }
+
+  // ─── HH Negotiations ────────────────────────────────────────────────────────
+
+  async findHhNegotiation(hhNegotiationId) {
+    const rows = await this.sql`
+      SELECT hh_negotiation_id, job_id, candidate_id, hh_vacancy_id, hh_collection, channel_thread_id, created_at, updated_at
+      FROM chatbot.hh_negotiations WHERE hh_negotiation_id = ${hhNegotiationId}
+    `;
+    return rows[0] ?? null;
+  }
+
+  async upsertHhNegotiation({ hh_negotiation_id, job_id, candidate_id, hh_vacancy_id, hh_collection, channel_thread_id }) {
+    const rows = await this.sql`
+      INSERT INTO chatbot.hh_negotiations
+        (hh_negotiation_id, job_id, candidate_id, hh_vacancy_id, hh_collection, channel_thread_id)
+      VALUES (${hh_negotiation_id}, ${job_id}, ${candidate_id}, ${hh_vacancy_id}, ${hh_collection}, ${channel_thread_id})
+      ON CONFLICT (hh_negotiation_id) DO UPDATE SET
+        hh_vacancy_id = EXCLUDED.hh_vacancy_id,
+        hh_collection = EXCLUDED.hh_collection,
+        channel_thread_id = EXCLUDED.channel_thread_id,
+        updated_at = now()
+      RETURNING *
+    `;
+    return rows[0];
+  }
+
+  async findHhNegotiationByChannelThreadId(channelThreadId) {
+    const rows = await this.sql`
+      SELECT hh_negotiation_id, job_id, candidate_id, hh_vacancy_id, hh_collection, channel_thread_id, created_at, updated_at
+      FROM chatbot.hh_negotiations WHERE channel_thread_id = ${channelThreadId}
+      LIMIT 1
+    `;
+    return rows[0] ?? null;
+  }
+
+  async getHhNegotiationsDue() {
+    const rows = await this.sql`
+      SELECT n.hh_negotiation_id, n.job_id, n.candidate_id, n.hh_vacancy_id, n.hh_collection, n.channel_thread_id
+      FROM chatbot.hh_negotiations n
+      LEFT JOIN chatbot.hh_poll_state ps ON ps.hh_negotiation_id = n.hh_negotiation_id
+      WHERE ps.hh_negotiation_id IS NULL OR ps.next_poll_at <= now()
+    `;
+    return rows;
+  }
+
+  // ─── HH Poll State ───────────────────────────────────────────────────────────
+
+  async getHhPollState(hhNegotiationId) {
+    const rows = await this.sql`
+      SELECT hh_negotiation_id, last_polled_at, hh_updated_at, last_sender, awaiting_reply, no_response_streak, next_poll_at
+      FROM chatbot.hh_poll_state WHERE hh_negotiation_id = ${hhNegotiationId}
+    `;
+    return rows[0] ?? null;
+  }
+
+  async upsertHhPollState(hhNegotiationId, { last_polled_at, hh_updated_at, last_sender, awaiting_reply, next_poll_at }) {
+    const rows = await this.sql`
+      INSERT INTO chatbot.hh_poll_state
+        (hh_negotiation_id, last_polled_at, hh_updated_at, last_sender, awaiting_reply, next_poll_at)
+      VALUES (${hhNegotiationId}, ${last_polled_at}, ${hh_updated_at}, ${last_sender}, ${awaiting_reply}, ${next_poll_at})
+      ON CONFLICT (hh_negotiation_id) DO UPDATE SET
+        last_polled_at = EXCLUDED.last_polled_at,
+        hh_updated_at = EXCLUDED.hh_updated_at,
+        last_sender = EXCLUDED.last_sender,
+        awaiting_reply = EXCLUDED.awaiting_reply,
+        next_poll_at = EXCLUDED.next_poll_at
+      RETURNING *
+    `;
+    return rows[0];
+  }
+
+  // ─── Cron Sender ─────────────────────────────────────────────────────────────
+
+  async getPlannedMessagesDue(now) {
+    const rows = await this.sql`
+      SELECT pm.*, c.channel_thread_id
+      FROM chatbot.planned_messages pm
+      JOIN chatbot.conversations c ON c.conversation_id = pm.conversation_id
+      WHERE pm.review_status IN ('pending', 'approved')
+        AND pm.auto_send_after <= ${now.toISOString()}
+        AND pm.sent_at IS NULL
+    `;
+    return rows;
+  }
+
+  // ─── Delivery Attempts ───────────────────────────────────────────────────────
+
+  async recordDeliveryAttempt({ attempt_id, planned_message_id, hh_negotiation_id, status }) {
+    const rows = await this.sql`
+      INSERT INTO chatbot.message_delivery_attempts
+        (attempt_id, planned_message_id, hh_negotiation_id, status)
+      VALUES (${attempt_id}, ${planned_message_id}, ${hh_negotiation_id}, ${status})
+      RETURNING *
+    `;
+    return rows[0];
+  }
+
+  async getSuccessfulDeliveryAttempt(plannedMessageId) {
+    const rows = await this.sql`
+      SELECT * FROM chatbot.message_delivery_attempts
+      WHERE planned_message_id = ${plannedMessageId} AND status = 'delivered'
+      LIMIT 1
+    `;
+    return rows[0] ?? null;
+  }
+
+  async markDeliveryAttemptDelivered({ attempt_id, hh_message_id }) {
+    await this.sql`
+      UPDATE chatbot.message_delivery_attempts
+      SET status = 'delivered', hh_message_id = ${hh_message_id}
+      WHERE attempt_id = ${attempt_id}
+    `;
+  }
+
+  async markDeliveryAttemptFailed({ attempt_id, error_body }) {
+    await this.sql`
+      UPDATE chatbot.message_delivery_attempts
+      SET status = 'failed', error_body = ${error_body}
+      WHERE attempt_id = ${attempt_id}
+    `;
+  }
+
+  async markPlannedMessageSent({ planned_message_id, sent_at }) {
+    await this.sql`
+      UPDATE chatbot.planned_messages
+      SET review_status = 'sent', sent_at = ${sent_at}
+      WHERE planned_message_id = ${planned_message_id}
+    `;
+  }
+
+  // ─── Alert ───────────────────────────────────────────────────────────────────
+
+  async getAwaitingReplyStaleConversations(staleMinutes) {
+    const rows = await this.sql`
+      SELECT
+        ps.hh_negotiation_id,
+        n.channel_thread_id,
+        MAX(a.attempted_at) AS last_sent_at,
+        EXTRACT(EPOCH FROM (now() - MAX(a.attempted_at))) / 60 AS awaiting_since_minutes
+      FROM chatbot.hh_poll_state ps
+      JOIN chatbot.hh_negotiations n ON n.hh_negotiation_id = ps.hh_negotiation_id
+      JOIN chatbot.message_delivery_attempts a ON a.hh_negotiation_id = ps.hh_negotiation_id AND a.status = 'delivered'
+      WHERE ps.awaiting_reply = true
+      GROUP BY ps.hh_negotiation_id, n.channel_thread_id
+      HAVING EXTRACT(EPOCH FROM (now() - MAX(a.attempted_at))) / 60 >= ${staleMinutes}
+    `;
+    return rows.map((r) => ({
+      hh_negotiation_id: r.hh_negotiation_id,
+      channel_thread_id: r.channel_thread_id,
+      last_sent_at: r.last_sent_at,
+      awaiting_since_minutes: Math.floor(Number(r.awaiting_since_minutes))
+    }));
   }
 
   async rebuildStepStateFromEvents(pipelineRunId) {
