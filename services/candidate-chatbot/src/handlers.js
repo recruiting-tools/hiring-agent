@@ -115,7 +115,12 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
       const pm = await store.findPlannedMessage(plannedMessageId);
       if (!pm) return { status: 404, body: { error: "planned_message_not_found" } };
       if (pm.review_status === "sent") return { status: 409, body: { error: "already_sent" } };
-      await store.blockMessage(plannedMessageId);
+      try {
+        await store.blockMessage(plannedMessageId);
+      } catch (e) {
+        if (e.message === "already_sent") return { status: 409, body: { error: "already_sent" } };
+        throw e;
+      }
       return { status: 200, body: { planned_message_id: plannedMessageId, review_status: "blocked" } };
     },
 
@@ -125,7 +130,12 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
       const pm = await store.findPlannedMessage(plannedMessageId);
       if (!pm) return { status: 404, body: { error: "planned_message_not_found" } };
       if (pm.review_status === "sent") return { status: 409, body: { error: "already_sent" } };
-      await store.approveAndSendNow(plannedMessageId);
+      try {
+        await store.approveAndSendNow(plannedMessageId);
+      } catch (e) {
+        if (e.message === "already_sent") return { status: 409, body: { error: "already_sent" } };
+        throw e;
+      }
       const updated = await store.findPlannedMessage(plannedMessageId);
       return {
         status: 200,

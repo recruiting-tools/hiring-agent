@@ -31,6 +31,15 @@ const MODERATION_HTML = `<!DOCTYPE html>
     const TOKEN = location.pathname.split('/')[2];
     let items = [];
 
+    function esc(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;');
+    }
+
     async function fetchQueue() {
       const r = await fetch('/recruiter/' + TOKEN + '/queue');
       if (!r.ok) { document.getElementById('status').textContent = 'Ошибка загрузки'; return; }
@@ -46,15 +55,16 @@ const MODERATION_HTML = `<!DOCTYPE html>
         const tr = document.createElement('tr');
         tr.dataset.id = item.planned_message_id;
         tr.dataset.sendAfter = item.auto_send_after;
+        const preview = item.body.slice(0, 120) + (item.body.length > 120 ? '...' : '');
         tr.innerHTML =
-          '<td>' + item.candidate_display_name + '</td>' +
-          '<td>' + item.job_title + '</td>' +
-          '<td>' + item.active_step_goal + '</td>' +
+          '<td>' + esc(item.candidate_display_name) + '</td>' +
+          '<td>' + esc(item.job_title) + '</td>' +
+          '<td>' + esc(item.active_step_goal) + '</td>' +
           '<td class="countdown"></td>' +
-          '<td class="body-preview">' + item.body.slice(0, 120) + (item.body.length > 120 ? '...' : '') + '</td>' +
+          '<td class="body-preview">' + esc(preview) + '</td>' +
           '<td>' +
-            '<button onclick="doBlock(\\'' + item.planned_message_id + '\\')">Заблокировать</button>' +
-            '<button onclick="doSendNow(\\'' + item.planned_message_id + '\\')">Отправить сейчас</button>' +
+            '<button onclick="doBlock(\\'' + esc(item.planned_message_id) + '\\')">Заблокировать</button>' +
+            '<button onclick="doSendNow(\\'' + esc(item.planned_message_id) + '\\')">Отправить сейчас</button>' +
           '</td>';
         tbody.appendChild(tr);
       }
