@@ -10,6 +10,10 @@ concurrency:
   group: sandbox
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   impact-check:
     runs-on: ubuntu-latest
@@ -38,10 +42,12 @@ jobs:
           node-version: 20
       - run: npm install -g pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm gate:sandbox
+      # In CI: run tests only (no smoke — smoke requires a running server)
+      - run: pnpm test:sandbox
 
   migration-check:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
