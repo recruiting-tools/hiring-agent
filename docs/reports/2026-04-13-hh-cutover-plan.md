@@ -2,149 +2,202 @@
 
 Date: 2026-04-13
 
-Scope: full cutover preparation for 4 HH vacancies into `hiring-agent`, with review-first workflow, Neon DB branching for dry runs, and moderated outbound sending.
+Scope: cutover preparation for 4 HH vacancies into `hiring-agent`, with review-first workflow, Neon dry run, and moderated outbound sending.
 
 ## Vacancies In Scope
 
-- `131345849` — менеджер по закупкам из Китая
-- `131532142` — дизайнер
-- `131812494` — дизайнер
-- `132032392` — менеджер по продажам
+- `131345849` — China procurement
+- `131532142` — designer
+- `131812494` — designer
+- `132032392` — sales
 
 ## Migration Boundary
 
-- Import only candidates whose dialogs had activity in the last 5 days.
-- Freeze the export window with absolute dates during each run.
-- For the current planning pass, use `2026-04-08 00:00` through the export timestamp.
-- For selected candidates, import the full dialog history, not only recent messages.
-- Initial cutover target is reviewable planned messages in UI with premoderation before any real send.
+- Import only candidates with dialog activity in the last 5 days.
+- Freeze both start and end of the export window per run.
+- For the current pass, start is `2026-04-08 00:00`.
+- `export timestamp` means the timestamp captured at export start and held constant for that run.
+- Import full message history for selected candidates into DB.
+- Runtime prompt context may stay bounded even if DB stores full history.
+- First target outcome: planned outbound messages visible in moderation UI before any real sending.
 
-## Why Use Both Git Branches And Neon Branches
+## Git And Neon Model
 
 ### Git branch
 
-Use a dedicated feature branch and draft PR to review:
+Use a dedicated feature branch and draft PR for:
 
 - runtime changes
-- schema migrations
+- migrations
 - import/export scripts
-- vacancy pipeline configs
-- moderation UI changes
-- tests and smoke flows
+- vacancy mappings/configs
+- moderation UI
+- tests
 
 ### Neon branch
 
-Use a dedicated Neon branch to validate on a production-like Postgres copy:
+Use a dedicated Neon branch to validate schema, import, and UI behavior on a safe copy.
 
-- migrations
-- idempotent imports
-- HH negotiation state
-- moderation queue behavior
-- simulated dialog continuations
+- default project: `v2-dev-client`
+- Neon project id: `round-leaf-16031956`
+- default parent branch: `sandbox`
 
-Rule: code review happens in GitHub PR; migration safety and data validation happen in Neon branches.
+Code review happens in GitHub PR. Data safety and migration validation happen in Neon branches.
 
-## Target Operating Model
+## Source Systems
 
-1. Feature branch in git contains all code and docs for the cutover slice.
-2. Draft PR is opened immediately and remains the main review surface.
-3. A dedicated Neon branch is created from the target Postgres environment for dry run work.
-4. All migrations and imports are first executed on the Neon branch.
-5. UI and runtime behavior are reviewed against the Neon branch environment.
-6. Only after successful dry run and reviewer sign-off do we repeat the final import on the target environment and merge the PR.
+- Primary export source: live HH API for the 4 in-scope vacancy IDs.
+- Secondary read-only source: legacy data only for stage/state cross-checking if needed.
+- We do not depend on write access to legacy repos.
 
-## Workstreams
+## Net-New Import Requirement
 
-### 1. Code And Review Workstream
+This cutover requires a new importer in this repo.
 
-- Create a dedicated feature branch.
-- Open a draft PR early.
-- Keep the plan, assumptions, and acceptance criteria in dated docs inside the repo.
-- Commit in small logical slices:
-  - plan/docs
-  - runtime/schema
-  - moderation UI
-  - import/export
-  - vacancy configs
-  - tests
+- planned entrypoint: `syncHHApplicants()` or equivalent
+- planned responsibility:
+  - call `listNegotiations()` per vacancy
+  - filter by frozen window
+  - upsert candidate, conversation, messages, pipeline state, HH negotiation, HH poll state
+  - keep import idempotent
 
-### 2. Neon Dry Run Workstream
+## Neon Dry Run Workstream
 
-- Create a dedicated Neon branch for this cutover.
-- Run all pending migrations there.
-- Seed or configure the target recruiter/test auth as needed.
-- Import only the in-scope HH dialogs.
+- Create `pr-<N>` Neon branch from `sandbox` in project `round-leaf-16031956`.
+- Run all migrations there.
+- Keep `hh_import=false` and `hh_send=false` at start.
+- Import only the in-scope dialogs.
 - Validate row counts before and after import.
-- Use this branch as the environment for UI review and dialog simulation.
+- Use this branch for UI review and dialog simulation.
 
-### 3. Vacancy Configuration Workstream
+## Moderation Workstream
 
-- Ensure all 4 HH vacancies map cleanly to V2 jobs.
-- Keep the two designer HH vacancies as separate vacancy mappings even if they share one template.
-- Finalize executable pipeline templates for:
-  - China procurement
-  - Designer
-  - Sales
-- Confirm all links, scripts, and step metadata needed by runtime and UI.
-
-### 4. Moderation Workstream
-
-- Change premoderation timer from hardcoded `10 minutes` to configurable `2 hours`.
-- Show full planned message body in UI, not only preview.
-- Show human-readable step goal in UI, not only `step_id`.
-- Show candidate, vacancy, send deadline, reason, and review state.
-- Keep `block` and `send-now` paths working.
-
-### 5. Import / Export Workstream
-
-- Export candidate set from the legacy side by:
-  - HH vacancy ID
-  - recent activity window
-- Import into V2:
+- Replace hardcoded `10 minutes` with configurable `2 hours`.
+- Planned config direction:
+  - env var `MODERATION_AUTO_SEND_DELAY_HOURS`
+  - wired through both `store.js` and `postgres-store.js`
+- UI must show:
+  - full message body
+  - human-readable step goal
   - candidate
-  - conversation
-  - messages
-  - pipeline run
-  - step state
-  - HH negotiation
-  - HH poll state
-- Keep the import idempotent.
-- Reconstruct the active step in a deterministic way.
+  - vacancy
+  - send deadline
+  - reason
+  - review state
+- Keep `block` and `send-now` working.
 
-### 6. Runtime Safety Workstream
+## Vacancy Mapping Table
+
+| HH vacancy ID | Role | Target V2 job/config id | Notes |
+| --- | --- | --- | --- |
+| `131345849` | China procurement | `job-china-procurement-v1` | one vacancy → one V2 config |
+| `131532142` | Designer | `job-wb-card-designer-v1` | dedicated HH mapping row |
+| `131812494` | Designer | `job-wb-card-designer-v1` | second HH mapping row to same config initially |
+| `132032392` | Sales | `job-sales-skolkovo-v1` | sales flow target |
+
+## Vacancy Config Decision
+
+- Executable configs must live in versioned repo data, not only prose docs.
+- Initial storage format:
+  - committed JSON seed/config files
+  - one canonical mapping source for the 4 HH vacancy IDs
+
+## Import Rules
+
+- Export artifact must be a dated manifest with:
+  - source environment
+  - vacancy IDs
+  - window start
+  - window end
+  - export timestamp
+  - candidate count
+  - message count
+- Duplicate candidate policy:
+  - same resume across different HH vacancy IDs remains separate conversation/import rows
+  - do not deduplicate across vacancies in the first cutover slice
+
+## Active Step Reconstruction
+
+Planned deterministic reconstruction order:
+
+1. explicit mapped legacy stage when available
+2. else infer from imported HH collection and known outbound scripts
+3. else infer from imported message history and submission artifacts
+4. else place candidate into manual review instead of guessing
+
+## Runtime Safety
 
 - Verify HH message sorting by `created_at`.
 - Separate import flow from reply-processing flow.
-- Add freeze-protection fallback:
-  - if pre-filter skips a negotiation but local DB still has unanswered inbound, process it anyway
 - Verify `awaiting_reply`, `hh_updated_at`, `next_poll_at`, `no_response_streak`.
-- Keep `hh_send=false` during dry run until UI review is complete.
+- Add freeze-protection fallback only if explicitly implemented and tested.
 
-### 7. Simulation And QA Workstream
+## Testing Requirements
 
-- Simulate several continuations per vacancy on the Neon branch DB.
-- Confirm planned messages appear in moderation UI.
-- Review copy quality, branching, homework detection, AI interview handling, and sales handoff.
-- Fix obvious issues before handing over for human review.
+Add automated coverage for:
+
+- configurable moderation delay
+- readable step goal in moderation queue
+- importer idempotency
+- active-step reconstruction fallback to manual review
+
+## Rollback Strategy
+
+- Do not touch target environment until Neon dry run is accepted.
+- Final import must produce a dated manifest and row-count report.
+- If target import validation fails:
+  - keep `hh_send=false`
+  - keep old agent as active sender
+  - remove imported rows via manifest keys or restore from Neon recovery point
+- No live sending before post-import validation passes.
+
+## Flag Procedure
+
+- Before dry run:
+  - `hh_import=false`
+  - `hh_send=false`
+- Before live polling after validated import:
+  - enable `hh_import`
+- Before any real outbound sending:
+  - keep `hh_send=false` through UI review
+  - enable `hh_send` only after explicit sign-off
+
+Expected SQL shape:
+
+```sql
+UPDATE management.feature_flags
+SET enabled = false, updated_at = now()
+WHERE flag IN ('hh_import', 'hh_send');
+
+UPDATE management.feature_flags
+SET enabled = true, updated_at = now()
+WHERE flag = 'hh_import';
+
+UPDATE management.feature_flags
+SET enabled = true, updated_at = now()
+WHERE flag = 'hh_send';
+```
 
 ## Execution Order
 
 1. Finalize plan and open draft PR.
-2. Implement the minimum runtime and UI changes needed for dry run.
+2. Implement minimum runtime and UI changes needed for dry run.
 3. Create Neon branch and run migrations there.
-4. Export and import in-scope dialogs into the Neon branch DB.
-5. Run simulated dialogs and moderation review on that environment.
-6. Fix issues found in self-review and external review.
-7. Re-run dry run if needed until behavior is stable.
+4. Implement importer and import in-scope dialogs into Neon branch DB.
+5. Simulate dialogs and review moderation UI there.
+6. Fix issues from self-review and external review.
+7. Re-run dry run until stable.
 8. Perform final target-environment import.
-9. Enable cutover with premoderation-first sending.
-10. Merge PR only after the cutover checklist is green.
+9. Enable cutover with moderation-first sending.
+10. Merge PR only after final checklist is green.
 
 ## Acceptance Criteria Before Human Review
 
-- All 4 HH vacancies are mapped in V2.
-- Import filter by recent activity works with absolute date boundaries.
-- Import is idempotent on the Neon branch DB.
+- All 4 HH vacancy mappings exist.
+- Source DB and Neon project are explicitly identified.
+- Import filter by recent activity uses frozen absolute dates.
+- Import is idempotent on Neon branch DB.
+- Reconstruction rules for active step are documented and testable.
 - Planned messages appear in moderation UI for simulated dialogs.
 - UI shows full message text and readable step context.
 - Premoderation timer is `2 hours`.
@@ -152,19 +205,29 @@ Rule: code review happens in GitHub PR; migration safety and data validation hap
 
 ## Acceptance Criteria Before Merge
 
-- Dry run completed on a dedicated Neon branch.
+- Dry run completed on dedicated Neon branch.
 - Row counts and sample dialogs checked after import.
 - Simulated dialogs for procurement, designer, and sales reviewed.
 - Self-review fixes applied.
 - External review feedback applied or explicitly deferred.
-- Final cutover checklist prepared for the target environment.
+- Rollback path documented and owned.
+- Enable/disable procedure for `hh_import` and `hh_send` documented.
 
-## Explicitly Out Of Scope For This Slice
+## Final Cutover Checklist
 
-- broad HH architecture cleanup not required for these 4 vacancies
-- unrelated abstractions beyond what is needed for this cutover
-- production rollout for vacancies outside the scoped HH IDs
+- Confirm target environment and Neon branch names.
+- Confirm Neon project id `round-leaf-16031956` and parent branch `sandbox` unless exception approved.
+- Confirm exact export manifest timestamp and recent-activity window.
+- Confirm all 4 HH vacancy mappings exist.
+- Confirm recruiter auth exists for moderation UI.
+- Confirm `hh_send=false` before import.
+- Run final import and save manifest.
+- Validate row counts and sample conversations.
+- Validate moderation UI on imported candidates.
+- Enable `hh_import` if polling is part of cutover.
+- Enable `hh_send` only after manual sign-off on first planned messages.
+- Monitor first real conversations after cutover.
 
 ## Temporary Artifact Note
 
-This is a dated transition document and should be removable after the cutover is completed and the operational knowledge is absorbed into stable docs and code.
+This is a dated transition document and should be removable after the cutover is complete and the knowledge is absorbed into stable docs and code.
