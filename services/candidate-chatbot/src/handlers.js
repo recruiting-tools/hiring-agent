@@ -71,8 +71,7 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig, not
         };
       }
 
-      const beforeEventCount = store.pipelineEvents.length;
-      const plannedMessage = await store.applyLlmDecision({
+      const { plannedMessage, newEvents } = await store.applyLlmDecision({
         run,
         job,
         llmOutput: validation.output,
@@ -81,7 +80,6 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig, not
       });
 
       if (notificationDispatcher) {
-        const newEvents = store.pipelineEvents.slice(beforeEventCount);
         await notificationDispatcher.dispatch(newEvents);
       }
 

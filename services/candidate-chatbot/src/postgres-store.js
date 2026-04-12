@@ -258,6 +258,7 @@ export class PostgresHiringStore {
     // This avoids an interactive read-then-write transaction and allows using
     // the neon() HTTP batch transaction API.
     const now = new Date().toISOString();
+    const newEvents = [];
 
     let nextActiveStepId = null;
     let runStatus = run.status;
@@ -285,6 +286,17 @@ export class PostgresHiringStore {
     // Build the full list of SQL queries to execute as a batch transaction
     const queries = [];
 
+    // Helper: push an event to both the SQL batch and the newEvents return array
+    const pushEvent = (event_type, step_id, payload) => {
+      const event = { pipeline_run_id: run.pipeline_run_id, candidate_id: run.candidate_id, event_type, step_id, payload };
+      newEvents.push(event);
+      queries.push(this.sql`
+        INSERT INTO chatbot.pipeline_events
+          (event_id, pipeline_run_id, candidate_id, event_type, step_id, payload)
+        VALUES (${randomUUID()}, ${run.pipeline_run_id}, ${run.candidate_id}, ${event_type}, ${step_id}, ${JSON.stringify(payload)})
+      `);
+    };
+
     // 1. Mark completed steps
     for (const completedStepId of llmOutput.completed_step_ids) {
       const stepFacts = llmOutput.extracted_facts?.[completedStepId] ?? {};
@@ -294,11 +306,7 @@ export class PostgresHiringStore {
             last_reason = 'completed_by_llm', completed_at = ${now}, updated_at = ${now}
         WHERE pipeline_run_id = ${run.pipeline_run_id} AND step_id = ${completedStepId}
       `);
-      queries.push(this.sql`
-        INSERT INTO chatbot.pipeline_events
-          (event_id, pipeline_run_id, candidate_id, event_type, step_id, payload)
-        VALUES (${randomUUID()}, ${run.pipeline_run_id}, ${run.candidate_id}, 'step_completed', ${completedStepId}, ${JSON.stringify({ extracted_facts: stepFacts })})
-      `);
+      pushEvent("step_completed", completedStepId, { extracted_facts: stepFacts });
     }
 
     // 2. Handle reject or advance
@@ -313,11 +321,7 @@ export class PostgresHiringStore {
         SET status = 'rejected', active_step_id = ${llmOutput.rejected_step_id}, updated_at = ${now}
         WHERE pipeline_run_id = ${run.pipeline_run_id}
       `);
-      queries.push(this.sql`
-        INSERT INTO chatbot.pipeline_events
-          (event_id, pipeline_run_id, candidate_id, event_type, step_id, payload)
-        VALUES (${randomUUID()}, ${run.pipeline_run_id}, ${run.candidate_id}, 'run_rejected', ${llmOutput.rejected_step_id}, ${JSON.stringify({ reason: "reject_when_matched" })})
-      `);
+      pushEvent("run_rejected", llmOutput.rejected_step_id, { reason: "reject_when_matched" });
     } else {
       // Reset all pending/active steps to pending
       queries.push(this.sql`
@@ -341,11 +345,7 @@ export class PostgresHiringStore {
           UPDATE chatbot.pipeline_runs SET status = 'completed', active_step_id = NULL, updated_at = ${now}
           WHERE pipeline_run_id = ${run.pipeline_run_id}
         `);
-        queries.push(this.sql`
-          INSERT INTO chatbot.pipeline_events
-            (event_id, pipeline_run_id, candidate_id, event_type, step_id, payload)
-          VALUES (${randomUUID()}, ${run.pipeline_run_id}, ${run.candidate_id}, 'run_completed', ${null}, ${JSON.stringify({})})
-        `);
+        pushEvent("run_completed", null, {});
       }
     }
 
@@ -365,11 +365,7 @@ export class PostgresHiringStore {
                 ${run.pipeline_run_id}, ${stepId}, ${llmOutput.next_message}, ${reason},
                 'pending', 'window_to_reject', ${sendAfter}, ${sendAfter}, ${idempotencyKey})
       `);
-      queries.push(this.sql`
-        INSERT INTO chatbot.pipeline_events
-          (event_id, pipeline_run_id, candidate_id, event_type, step_id, payload)
-        VALUES (${randomUUID()}, ${run.pipeline_run_id}, ${run.candidate_id}, 'message_planned', ${stepId}, ${JSON.stringify({ planned_message_id: plannedMessageId })})
-      `);
+      pushEvent("message_planned", stepId, { planned_message_id: plannedMessageId });
 
       plannedMessageRow = {
         planned_message_id: plannedMessageId,
@@ -394,7 +390,7 @@ export class PostgresHiringStore {
     run.status = runStatus;
     run.active_step_id = llmOutput.rejected_step_id ?? nextActiveStepId ?? null;
 
-    return plannedMessageRow;
+    return { plannedMessage: plannedMessageRow, newEvents };
   }
 
   async markManualReview({ run, candidateId, reason, rawOutput }) {

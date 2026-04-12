@@ -184,6 +184,7 @@ export class InMemoryHiringStore {
   applyLlmDecision({ run, job, llmOutput, conversation, pendingSteps: _pendingSteps }) {
     const stepStates = this.getStepStates(run.pipeline_run_id);
     const now = new Date().toISOString();
+    const beforeEventCount = this.pipelineEvents.length;
 
     for (const completedStepId of llmOutput.completed_step_ids) {
       const stepState = stepStates.find((step) => step.step_id === completedStepId);
@@ -248,7 +249,7 @@ export class InMemoryHiringStore {
     }
 
     if (!llmOutput.next_message) {
-      return null;
+      return { plannedMessage: null, newEvents: this.pipelineEvents.slice(beforeEventCount) };
     }
 
     const plannedMessage = {
@@ -275,7 +276,7 @@ export class InMemoryHiringStore {
         planned_message_id: plannedMessage.planned_message_id
       }
     });
-    return plannedMessage;
+    return { plannedMessage, newEvents: this.pipelineEvents.slice(beforeEventCount) };
   }
 
   // ─── Recruiter lookups ───────────────────────────────────────────────────────
