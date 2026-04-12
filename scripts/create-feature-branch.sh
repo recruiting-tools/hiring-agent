@@ -48,5 +48,5 @@ echo
 echo "Next steps:"
 printf '%s\n' "export FEATURE_DATABASE_URL='${FEATURE_DATABASE_URL}'"
 printf '%s\n' "DATABASE_URL=\"\$FEATURE_DATABASE_URL\" node scripts/migrate.js"
-printf '%s\n' "APP_ENV=sandbox EXTERNAL_MODE=mock LLM_MODE=fake HH_USE_MOCK=true DATABASE_URL=\"\$FEATURE_DATABASE_URL\" pnpm test:sandbox"
+printf '%s\n' "DATABASE_URL=\"\$FEATURE_DATABASE_URL\" pnpm test:sandbox"
 printf '%s\n' "When finished, delete the branch: neonctl branches delete --project-id ${PROJECT_ID} --name ${BRANCH_NAME}"
