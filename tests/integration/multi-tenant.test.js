@@ -340,3 +340,59 @@ test("isolation: send-now by recruiter A does not make message visible to recrui
   assert.ok(alphaIds.includes("pm-alpha-sendnow"),
     "approved alpha message must be visible to alpha recruiter");
 });
+
+// ─── Test 11 ──────────────────────────────────────────────────────────────────
+test("isolation: recruiter B cannot block a message belonging to recruiter A's tenant (IDOR)", async () => {
+  const store = new InMemoryHiringStore(seed5);
+  const llm = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter: llm });
+
+  store.plannedMessages.push({
+    planned_message_id: "pm-alpha-idor-block",
+    conversation_id:    "conv-alpha-dev-001",
+    candidate_id:       "cand-alpha-dev-001",
+    pipeline_run_id:    "run-alpha-dev-001",
+    step_id:            "ts_experience",
+    body:               "Alpha message for IDOR block test",
+    reason:             "test",
+    review_status:      "pending",
+    auto_send_after:    new Date(Date.now() + 10 * 60_000).toISOString()
+  });
+
+  // Beta recruiter tries to block Alpha's message
+  const result = await chatbot.blockMessage("rec-tok-beta-001", "pm-alpha-idor-block");
+  assert.equal(result.status, 403, "must return 403 forbidden");
+  assert.equal(result.body.error, "forbidden");
+
+  // Alpha's message must still be pending (not blocked)
+  const pm = await store.findPlannedMessage("pm-alpha-idor-block");
+  assert.equal(pm.review_status, "pending", "message must remain pending after cross-tenant block attempt");
+});
+
+// ─── Test 12 ──────────────────────────────────────────────────────────────────
+test("isolation: recruiter B cannot send-now a message belonging to recruiter A's tenant (IDOR)", async () => {
+  const store = new InMemoryHiringStore(seed5);
+  const llm = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter: llm });
+
+  store.plannedMessages.push({
+    planned_message_id: "pm-alpha-idor-send",
+    conversation_id:    "conv-alpha-dev-001",
+    candidate_id:       "cand-alpha-dev-001",
+    pipeline_run_id:    "run-alpha-dev-001",
+    step_id:            "ts_experience",
+    body:               "Alpha message for IDOR send-now test",
+    reason:             "test",
+    review_status:      "pending",
+    auto_send_after:    new Date(Date.now() + 10 * 60_000).toISOString()
+  });
+
+  // Beta recruiter tries to send-now Alpha's message
+  const result = await chatbot.sendMessageNow("rec-tok-beta-001", "pm-alpha-idor-send");
+  assert.equal(result.status, 403, "must return 403 forbidden");
+  assert.equal(result.body.error, "forbidden");
+
+  // Alpha's message must remain pending (not approved/sent)
+  const pm = await store.findPlannedMessage("pm-alpha-idor-send");
+  assert.equal(pm.review_status, "pending", "message must remain pending after cross-tenant send-now attempt");
+});

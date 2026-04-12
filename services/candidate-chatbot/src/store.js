@@ -490,6 +490,10 @@ export class InMemoryHiringStore {
     return this.plannedMessages.find((m) => m.planned_message_id === plannedMessageId) ?? null;
   }
 
+  async findConversation(conversationId) {
+    return this.conversations.get(conversationId) ?? null;
+  }
+
   async getQueueForRecruiter(recruiterToken) {
     const recruiter = await this.getRecruiterByToken(recruiterToken);
     if (!recruiter) return null; // null = token not found
@@ -505,8 +509,11 @@ export class InMemoryHiringStore {
         if (!conv) return false;
         const job = this.jobs.get(conv.job_id);
         if (!job) return false;
-        // If both sides have client_id and they differ → exclude
-        if (clientId && job.client_id && job.client_id !== clientId) return false;
+        // Exclude if job has a client_id that doesn't match recruiter's client_id.
+        // Treat missing/null job.client_id as "no tenant" (backward compat).
+        // Null-client_id recruiter sees only null-client_id jobs (matches Postgres behavior).
+        const jobClientId = job.client_id ?? null;
+        if (jobClientId !== null && jobClientId !== clientId) return false;
         return true;
       })
       .map((pm) => {

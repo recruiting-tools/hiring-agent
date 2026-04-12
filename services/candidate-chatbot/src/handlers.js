@@ -114,6 +114,13 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
       if (!recruiter) return { status: 404, body: { error: "recruiter_not_found" } };
       const pm = await store.findPlannedMessage(plannedMessageId);
       if (!pm) return { status: 404, body: { error: "planned_message_not_found" } };
+      if (recruiter.client_id) {
+        const conv = await store.findConversation(pm.conversation_id);
+        const job = conv ? store.getJob(conv.job_id) : null;
+        if (job && job.client_id && job.client_id !== recruiter.client_id) {
+          return { status: 403, body: { error: "forbidden" } };
+        }
+      }
       if (pm.review_status === "sent") return { status: 409, body: { error: "already_sent" } };
       try {
         await store.blockMessage(plannedMessageId);
@@ -129,6 +136,13 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
       if (!recruiter) return { status: 404, body: { error: "recruiter_not_found" } };
       const pm = await store.findPlannedMessage(plannedMessageId);
       if (!pm) return { status: 404, body: { error: "planned_message_not_found" } };
+      if (recruiter.client_id) {
+        const conv = await store.findConversation(pm.conversation_id);
+        const job = conv ? store.getJob(conv.job_id) : null;
+        if (job && job.client_id && job.client_id !== recruiter.client_id) {
+          return { status: 403, body: { error: "forbidden" } };
+        }
+      }
       if (pm.review_status === "sent") return { status: 409, body: { error: "already_sent" } };
       try {
         await store.approveAndSendNow(plannedMessageId);
