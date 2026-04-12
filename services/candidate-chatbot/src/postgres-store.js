@@ -469,11 +469,16 @@ export class PostgresHiringStore {
     const rows = await this.sql`
       SELECT pm.*, c.channel_thread_id
       FROM chatbot.planned_messages pm
-      JOIN chatbot.conversations c ON c.conversation_id = pm.conversation_id
+      LEFT JOIN chatbot.conversations c ON c.conversation_id = pm.conversation_id
       WHERE pm.review_status IN ('pending', 'approved')
         AND pm.auto_send_after <= ${now.toISOString()}
         AND pm.sent_at IS NULL
     `;
+    for (const row of rows) {
+      if (!row.channel_thread_id) {
+        throw new Error(`Missing conversation for planned_message ${row.planned_message_id}`);
+      }
+    }
     return rows;
   }
 
