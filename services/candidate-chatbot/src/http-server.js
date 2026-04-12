@@ -1,5 +1,99 @@
 import { createServer } from "node:http";
 
+const MODERATION_HTML = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Очередь модерации</title>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+    .body-preview { color: #555; font-size: 0.9em; max-width: 400px; }
+    .countdown { font-weight: bold; }
+    .overdue { color: #c00; }
+    button { margin: 0 0.25rem; padding: 0.3rem 0.75rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Очередь модерации</h1>
+  <div id="status"></div>
+  <table id="queue">
+    <thead>
+      <tr>
+        <th>Кандидат</th><th>Вакансия</th><th>Шаг</th>
+        <th>Отправка</th><th>Сообщение</th><th>Действие</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <script>
+    const TOKEN = location.pathname.split('/')[2];
+    let items = [];
+
+    async function fetchQueue() {
+      const r = await fetch('/recruiter/' + TOKEN + '/queue');
+      if (!r.ok) { document.getElementById('status').textContent = 'Ошибка загрузки'; return; }
+      const data = await r.json();
+      items = data.items;
+      renderTable();
+    }
+
+    function renderTable() {
+      const tbody = document.querySelector('#queue tbody');
+      tbody.innerHTML = '';
+      for (const item of items) {
+        const tr = document.createElement('tr');
+        tr.dataset.id = item.planned_message_id;
+        tr.dataset.sendAfter = item.auto_send_after;
+        tr.innerHTML =
+          '<td>' + item.candidate_display_name + '</td>' +
+          '<td>' + item.job_title + '</td>' +
+          '<td>' + item.active_step_goal + '</td>' +
+          '<td class="countdown"></td>' +
+          '<td class="body-preview">' + item.body.slice(0, 120) + (item.body.length > 120 ? '...' : '') + '</td>' +
+          '<td>' +
+            '<button onclick="doBlock(\\'' + item.planned_message_id + '\\')">Заблокировать</button>' +
+            '<button onclick="doSendNow(\\'' + item.planned_message_id + '\\')">Отправить сейчас</button>' +
+          '</td>';
+        tbody.appendChild(tr);
+      }
+    }
+
+    function updateCountdowns() {
+      const now = Date.now();
+      for (const tr of document.querySelectorAll('#queue tbody tr')) {
+        const sendAfter = new Date(tr.dataset.sendAfter).getTime();
+        const secs = Math.round((sendAfter - now) / 1000);
+        const td = tr.querySelector('.countdown');
+        if (secs <= 0) {
+          td.textContent = 'Отправка...';
+          td.className = 'countdown overdue';
+        } else {
+          const m = Math.floor(secs / 60), s = secs % 60;
+          td.textContent = 'через ' + m + ':' + String(s).padStart(2, '0');
+          td.className = 'countdown';
+        }
+      }
+    }
+
+    async function doBlock(id) {
+      await fetch('/recruiter/' + TOKEN + '/queue/' + id + '/block', { method: 'POST' });
+      fetchQueue();
+    }
+
+    async function doSendNow(id) {
+      await fetch('/recruiter/' + TOKEN + '/queue/' + id + '/send-now', { method: 'POST' });
+      fetchQueue();
+    }
+
+    fetchQueue();
+    setInterval(fetchQueue, 5000);
+    setInterval(updateCountdowns, 1000);
+  </script>
+</body>
+</html>`;
+
 export function createHttpServer(app) {
   return createServer(async (request, response) => {
     try {
@@ -13,6 +107,41 @@ export function createHttpServer(app) {
       if (request.method === "GET" && request.url === "/queue/pending") {
         const result = await app.getPendingQueue();
         writeJson(response, result.status, result.body);
+        return;
+      }
+
+      // Recruiter moderation queue (JSON)
+      const queueMatch = request.url.match(/^\/recruiter\/([^/]+)\/queue$/);
+      if (queueMatch && request.method === "GET") {
+        const token = queueMatch[1];
+        const result = await app.getModerationQueue(token);
+        writeJson(response, result.status, result.body);
+        return;
+      }
+
+      // Block a message
+      const blockMatch = request.url.match(/^\/recruiter\/([^/]+)\/queue\/([^/]+)\/block$/);
+      if (blockMatch && request.method === "POST") {
+        const [, token, id] = blockMatch;
+        const result = await app.blockMessage(token, id);
+        writeJson(response, result.status, result.body);
+        return;
+      }
+
+      // Send now
+      const sendNowMatch = request.url.match(/^\/recruiter\/([^/]+)\/queue\/([^/]+)\/send-now$/);
+      if (sendNowMatch && request.method === "POST") {
+        const [, token, id] = sendNowMatch;
+        const result = await app.sendMessageNow(token, id);
+        writeJson(response, result.status, result.body);
+        return;
+      }
+
+      // HTML moderation page
+      const htmlMatch = request.url.match(/^\/recruiter\/([^/]+)$/);
+      if (htmlMatch && request.method === "GET") {
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(MODERATION_HTML);
         return;
       }
 

@@ -26,7 +26,8 @@ export class PostgresHiringStore {
         chatbot.conversations,
         chatbot.pipeline_templates,
         chatbot.candidates,
-        chatbot.jobs
+        chatbot.jobs,
+        chatbot.recruiters
       CASCADE
     `;
     this._jobs.clear();
@@ -83,6 +84,14 @@ export class PostgresHiringStore {
           ON CONFLICT (pipeline_run_id, step_id) DO NOTHING
         `;
       }
+    }
+
+    if (seedData.recruiter?.recruiter_token) {
+      await this.sql`
+        INSERT INTO chatbot.recruiters (recruiter_id, client_id, email, recruiter_token)
+        VALUES (${seedData.recruiter.recruiter_id}, ${seedData.recruiter.client_id}, ${seedData.recruiter.email}, ${seedData.recruiter.recruiter_token})
+        ON CONFLICT (recruiter_id) DO UPDATE SET recruiter_token = EXCLUDED.recruiter_token
+      `;
     }
 
     await this._loadJobsFromDb();
@@ -570,6 +579,73 @@ export class PostgresHiringStore {
       last_sent_at: r.last_sent_at,
       awaiting_since_minutes: Math.floor(Number(r.awaiting_since_minutes))
     }));
+  }
+
+  // ─── Moderation UI ───────────────────────────────────────────────────────────
+
+  async getRecruiterByToken(token) {
+    const rows = await this.sql`
+      SELECT recruiter_id, client_id, email, recruiter_token
+      FROM chatbot.recruiters
+      WHERE recruiter_token = ${token}
+    `;
+    return rows[0] ?? null;
+  }
+
+  async findPlannedMessage(plannedMessageId) {
+    const rows = await this.sql`
+      SELECT * FROM chatbot.planned_messages WHERE planned_message_id = ${plannedMessageId}
+    `;
+    return rows[0] ?? null;
+  }
+
+  async getQueueForRecruiter(recruiterToken) {
+    const recruiter = await this.getRecruiterByToken(recruiterToken);
+    if (!recruiter) return null;
+
+    const rows = await this.sql`
+      SELECT
+        pm.planned_message_id,
+        pm.conversation_id,
+        cand.display_name AS candidate_display_name,
+        j.title AS job_title,
+        pm.step_id AS active_step_goal,
+        pm.body,
+        pm.reason,
+        pm.review_status,
+        pm.auto_send_after,
+        EXTRACT(EPOCH FROM (pm.auto_send_after - now()))::int AS seconds_until_auto_send
+      FROM chatbot.planned_messages pm
+      JOIN chatbot.conversations c ON c.conversation_id = pm.conversation_id
+      JOIN chatbot.candidates cand ON cand.candidate_id = pm.candidate_id
+      JOIN chatbot.jobs j ON j.job_id = c.job_id
+      WHERE pm.review_status IN ('pending', 'approved')
+      ORDER BY pm.auto_send_after ASC
+    `;
+    return rows;
+  }
+
+  async blockMessage(plannedMessageId) {
+    const existing = await this.findPlannedMessage(plannedMessageId);
+    if (!existing) return;
+    if (existing.review_status === "sent") throw new Error("already_sent");
+    await this.sql`
+      UPDATE chatbot.planned_messages
+      SET review_status = 'blocked'
+      WHERE planned_message_id = ${plannedMessageId}
+    `;
+  }
+
+  async approveAndSendNow(plannedMessageId) {
+    const existing = await this.findPlannedMessage(plannedMessageId);
+    if (!existing) return;
+    if (existing.review_status === "sent") throw new Error("already_sent");
+    await this.sql`
+      UPDATE chatbot.planned_messages
+      SET review_status = 'approved',
+          auto_send_after = now() - interval '1 second'
+      WHERE planned_message_id = ${plannedMessageId}
+    `;
   }
 
   async rebuildStepStateFromEvents(pipelineRunId) {

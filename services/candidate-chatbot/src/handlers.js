@@ -98,6 +98,44 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
         status: 200,
         body: await store.getPendingQueue()
       };
+    },
+
+    async getModerationQueue(recruiterToken) {
+      const items = await store.getQueueForRecruiter(recruiterToken);
+      if (items === null) {
+        return { status: 404, body: { error: "recruiter_not_found" } };
+      }
+      const recruiter = await store.getRecruiterByToken(recruiterToken);
+      return { status: 200, body: { recruiter_id: recruiter.recruiter_id, items } };
+    },
+
+    async blockMessage(recruiterToken, plannedMessageId) {
+      const recruiter = await store.getRecruiterByToken(recruiterToken);
+      if (!recruiter) return { status: 404, body: { error: "recruiter_not_found" } };
+      const pm = await store.findPlannedMessage(plannedMessageId);
+      if (!pm) return { status: 404, body: { error: "planned_message_not_found" } };
+      if (pm.review_status === "sent") return { status: 409, body: { error: "already_sent" } };
+      await store.blockMessage(plannedMessageId);
+      return { status: 200, body: { planned_message_id: plannedMessageId, review_status: "blocked" } };
+    },
+
+    async sendMessageNow(recruiterToken, plannedMessageId) {
+      const recruiter = await store.getRecruiterByToken(recruiterToken);
+      if (!recruiter) return { status: 404, body: { error: "recruiter_not_found" } };
+      const pm = await store.findPlannedMessage(plannedMessageId);
+      if (!pm) return { status: 404, body: { error: "planned_message_not_found" } };
+      if (pm.review_status === "sent") return { status: 409, body: { error: "already_sent" } };
+      await store.approveAndSendNow(plannedMessageId);
+      const updated = await store.findPlannedMessage(plannedMessageId);
+      return {
+        status: 200,
+        body: {
+          planned_message_id: plannedMessageId,
+          review_status: updated.review_status,
+          auto_send_after: updated.auto_send_after,
+          queued_for_immediate_send: true
+        }
+      };
     }
   };
 }

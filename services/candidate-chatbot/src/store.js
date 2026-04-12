@@ -468,6 +468,72 @@ export class InMemoryHiringStore {
     return result;
   }
 
+  // ─── Moderation UI ───────────────────────────────────────────────────────────
+
+  async getRecruiterByToken(token) {
+    if (this.recruiter?.recruiter_token === token) {
+      return { ...this.recruiter };
+    }
+    return null;
+  }
+
+  async findPlannedMessage(plannedMessageId) {
+    return this.plannedMessages.find((m) => m.planned_message_id === plannedMessageId) ?? null;
+  }
+
+  async getQueueForRecruiter(recruiterToken) {
+    const recruiter = await this.getRecruiterByToken(recruiterToken);
+    if (!recruiter) return null; // null = token not found
+
+    const now = Date.now();
+    return this.plannedMessages
+      .filter((pm) => ["pending", "approved"].includes(pm.review_status))
+      .map((pm) => {
+        const conv = this.conversations.get(pm.conversation_id);
+        const candidate = this.candidates.get(pm.candidate_id);
+        const job = conv ? this.jobs.get(conv.job_id) : null;
+        const run = [...this.pipelineRuns.values()].find((r) => r.pipeline_run_id === pm.pipeline_run_id);
+        const stepStates = run ? this.getStepStates(run.pipeline_run_id) : [];
+        const activeStep = stepStates.find((s) => s.step_id === (run?.active_step_id ?? pm.step_id));
+        let templateStep = null;
+        if (job && activeStep) {
+          try {
+            templateStep = this.getTemplateStep(job.job_id, activeStep.step_id);
+          } catch {
+            templateStep = null;
+          }
+        }
+        return {
+          planned_message_id: pm.planned_message_id,
+          conversation_id: pm.conversation_id,
+          candidate_display_name: candidate?.display_name ?? "Неизвестно",
+          job_title: job?.title ?? "Неизвестно",
+          active_step_goal: templateStep?.goal ?? pm.step_id ?? "",
+          body: pm.body,
+          reason: pm.reason,
+          review_status: pm.review_status,
+          auto_send_after: pm.auto_send_after,
+          seconds_until_auto_send: Math.round((new Date(pm.auto_send_after) - now) / 1000)
+        };
+      })
+      .sort((a, b) => new Date(a.auto_send_after) - new Date(b.auto_send_after));
+  }
+
+  async blockMessage(plannedMessageId) {
+    const pm = this.plannedMessages.find((m) => m.planned_message_id === plannedMessageId);
+    if (!pm) return; // no-op: handler checks existence before calling
+    if (pm.review_status === "sent") throw new Error("already_sent");
+    pm.review_status = "blocked";
+  }
+
+  async approveAndSendNow(plannedMessageId) {
+    const pm = this.plannedMessages.find((m) => m.planned_message_id === plannedMessageId);
+    if (!pm) return; // no-op: handler checks existence before calling
+    if (pm.review_status === "sent") throw new Error("already_sent");
+    pm.review_status = "approved";
+    pm.auto_send_after = new Date(Date.now() - 1000).toISOString();
+  }
+
   rebuildStepStateFromEvents(pipelineRunId) {
     const run = this.pipelineRuns.get(pipelineRunId);
     if (!run) {
