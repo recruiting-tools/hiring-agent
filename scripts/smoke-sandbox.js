@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-const baseUrl = (
-  process.env.BASE_URL
-  ?? process.env.SANDBOX_URL
-  ?? process.env.SANDBOX_BASE_URL
-  ?? "http://localhost:3000"
-).replace(/\/$/, "");
+const baseUrlEnv = process.env.BASE_URL ?? process.env.SANDBOX_URL ?? process.env.SANDBOX_BASE_URL;
+if (!baseUrlEnv) {
+  console.error("Error: SANDBOX_URL env var is required for cloud smoke");
+  process.exit(1);
+}
+
+const baseUrl = baseUrlEnv.replace(/\/$/, "");
 const demoEmail = process.env.SANDBOX_DEMO_EMAIL ?? process.env.DEMO_EMAIL ?? "demo@hiring-agent.app";
 const demoPassword = process.env.SANDBOX_DEMO_PASSWORD ?? process.env.DEMO_PASSWORD;
 const recruiterToken = process.env.SANDBOX_DEMO_RECRUITER_TOKEN ?? process.env.DEMO_RECRUITER_TOKEN ?? "rec-tok-demo-001";
@@ -66,10 +67,11 @@ async function main() {
   const health = await fetch(`${baseUrl}/health`);
   assert(health.status === 200, `Expected health 200, got ${health.status}`);
   const healthBody = await health.json();
-  assert(Object.hasOwn(healthBody, "app_env"), "Expected /health to include app_env");
+  assert(healthBody.app_env === "sandbox", `Expected /health app_env to be sandbox, got ${healthBody.app_env}`);
   assert(Object.hasOwn(healthBody, "deploy_sha"), "Expected /health to include deploy_sha");
   assert(typeof healthBody.deploy_sha === "string", "Expected /health deploy_sha to be a string");
   assert(Object.hasOwn(healthBody, "seed_version"), "Expected /health to include seed_version");
+  assert(!Object.hasOwn(healthBody, "commit"), "Expected /health commit field to be absent");
 
   console.log("Sandbox smoke passed.");
   console.log(`Base URL: ${baseUrl}`);
