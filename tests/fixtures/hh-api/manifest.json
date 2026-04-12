@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "oauth.token.success",
+      "method": "POST",
+      "path": "/token",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "oauth_success",
+      "file": "oauth/token.success.json"
+    },
+    {
+      "id": "oauth.refresh.success",
+      "method": "POST",
+      "path": "/token",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "oauth_refresh_success",
+      "file": "oauth/refresh.success.json"
+    },
+    {
+      "id": "oauth.me.employer",
+      "method": "GET",
+      "path": "/me",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "me_employer",
+      "file": "oauth/me.employer.json"
+    },
+    {
+      "id": "negotiations.response.page-1",
+      "method": "GET",
+      "path": "/negotiations/response",
+      "query_keys": ["page", "per_page", "vacancy_id"],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "response_page_1",
+      "file": "negotiations/response.page-1.json"
+    },
+    {
+      "id": "negotiations.phone_interview.page-1",
+      "method": "GET",
+      "path": "/negotiations/phone_interview",
+      "query_keys": ["page", "per_page", "vacancy_id"],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "phone_interview_page_1",
+      "file": "negotiations/phone_interview.page-1.json"
+    },
+    {
+      "id": "negotiations.single",
+      "method": "GET",
+      "path": "/negotiations/{id}",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "negotiation_single",
+      "file": "negotiations/negotiation.single.json"
+    },
+    {
+      "id": "negotiations.messages.ascending",
+      "method": "GET",
+      "path": "/negotiations/{id}/messages",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "messages_ascending",
+      "file": "negotiations/messages.ascending.json"
+    },
+    {
+      "id": "negotiations.messages.reversed",
+      "method": "GET",
+      "path": "/negotiations/{id}/messages",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "messages_reversed",
+      "file": "negotiations/messages.reversed.json"
+    },
+    {
+      "id": "negotiations.messages.empty",
+      "method": "GET",
+      "path": "/negotiations/{id}/messages",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "messages_empty",
+      "file": "negotiations/messages.empty.json"
+    },
+    {
+      "id": "negotiations.send-message.success",
+      "method": "POST",
+      "path": "/negotiations/{id}/messages",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "send_message_success",
+      "file": "negotiations/send-message.success.json"
+    },
+    {
+      "id": "negotiations.change-state.success",
+      "method": "PUT",
+      "path": "/negotiations/{id}/state",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "change_state_success",
+      "file": "negotiations/change-state.success.json"
+    },
+    {
+      "id": "resumes.minimal",
+      "method": "GET",
+      "path": "/resumes/{id}",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "resume_minimal",
+      "file": "resumes/resume.minimal.json"
+    },
+    {
+      "id": "resumes.vladimir-kobzev.redacted",
+      "method": "GET",
+      "path": "/resumes/{id}",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "redacted",
+      "scenario": "canonical_test_candidate",
+      "allowed_for_live_smoke": true,
+      "canonical_test_candidate": "vladimir_kobzev",
+      "resume_id": "resume-test-canonical",
+      "file": "resumes/resume.vladimir-kobzev.redacted.json"
+    },
+    {
+      "id": "errors.401-expired-token",
+      "method": "ANY",
+      "path": "*",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "expired_token",
+      "file": "errors/401-expired-token.json"
+    },
+    {
+      "id": "errors.403-no-paid-access",
+      "method": "ANY",
+      "path": "*",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "no_paid_access",
+      "file": "errors/403-no-paid-access.json"
+    },
+    {
+      "id": "errors.404-negotiation-not-found",
+      "method": "ANY",
+      "path": "*",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "negotiation_not_found",
+      "file": "errors/404-negotiation-not-found.json"
+    },
+    {
+      "id": "errors.429-rate-limit",
+      "method": "ANY",
+      "path": "*",
+      "query_keys": [],
+      "capture_date": "2026-04-12",
+      "redaction_status": "synthetic",
+      "scenario": "rate_limit",
+      "file": "errors/429-rate-limit.json"
+    }
+  ]
+}

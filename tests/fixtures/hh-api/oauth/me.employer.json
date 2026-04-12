@@ -1,0 +1,10 @@
+{
+  "id": "employer-001",
+  "is_admin": true,
+  "manager": {
+    "id": "manager-001",
+    "first_name": "Vladimir",
+    "last_name": "Recruiter",
+    "email": "recruiter@example.test"
+  }
+}

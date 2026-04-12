@@ -1,7 +1,18 @@
 export class InMemoryHiringStore {
   constructor(seed) {
-    this.client = structuredClone(seed.client);
-    this.recruiter = structuredClone(seed.recruiter);
+    // Support both single recruiter (old format) and array (new format)
+    this.recruiters = seed.recruiters
+      ? structuredClone(seed.recruiters)
+      : (seed.recruiter ? [structuredClone(seed.recruiter)] : []);
+    // backward compat alias
+    this.recruiter = this.recruiters[0] ?? null;
+
+    this.clients = seed.clients
+      ? structuredClone(seed.clients)
+      : (seed.client ? [structuredClone(seed.client)] : []);
+    // backward compat alias
+    this.client = this.clients[0] ?? null;
+
     this.jobs = new Map();
     this.candidates = new Map();
     this.conversations = new Map();
@@ -11,6 +22,17 @@ export class InMemoryHiringStore {
     this.plannedMessages = [];
     this.pipelineEvents = [];
     this.idCounters = new Map();
+    // Telegram subscriptions
+    this.recruiterSubscriptions = structuredClone(seed.recruiter_subscriptions ?? []);
+    // HH integration
+    this.hhNegotiations = new Map();  // hh_negotiation_id → negotiation
+    this.hhPollStates = new Map();    // hh_negotiation_id → pollState
+    this.deliveryAttempts = [];       // flat array of delivery attempts
+    this.oauthTokens = new Map();     // provider → token row
+    this.featureFlags = new Map([
+      ["hh_send", { flag: "hh_send", enabled: false, description: "Controls outbound HH sending" }],
+      ["hh_import", { flag: "hh_import", enabled: false, description: "Controls HH applicant import and polling" }]
+    ]);
 
     for (const job of seed.jobs) {
       this.jobs.set(job.job_id, structuredClone(job));
@@ -35,7 +57,8 @@ export class InMemoryHiringStore {
       candidate_id: fixture.candidate_id,
       channel: "test",
       channel_thread_id: fixture.conversation_id,
-      status: "open"
+      status: "open",
+      client_id: job.client_id ?? null
     };
     const pipelineRun = {
       pipeline_run_id: fixture.pipeline_run_id,
@@ -75,6 +98,10 @@ export class InMemoryHiringStore {
       throw new Error(`Unknown job: ${jobId}`);
     }
     return job;
+  }
+
+  getCandidate(candidateId) {
+    return this.candidates.get(candidateId) ?? null;
   }
 
   findConversation(conversationId) {
@@ -159,9 +186,10 @@ export class InMemoryHiringStore {
     return stored;
   }
 
-  applyLlmDecision({ run, job, llmOutput, conversation }) {
+  applyLlmDecision({ run, job, llmOutput, conversation, pendingSteps: _pendingSteps }) {
     const stepStates = this.getStepStates(run.pipeline_run_id);
     const now = new Date().toISOString();
+    const beforeEventCount = this.pipelineEvents.length;
 
     for (const completedStepId of llmOutput.completed_step_ids) {
       const stepState = stepStates.find((step) => step.step_id === completedStepId);
@@ -226,7 +254,7 @@ export class InMemoryHiringStore {
     }
 
     if (!llmOutput.next_message) {
-      return null;
+      return { plannedMessage: null, newEvents: this.pipelineEvents.slice(beforeEventCount) };
     }
 
     const plannedMessage = {
@@ -253,7 +281,61 @@ export class InMemoryHiringStore {
         planned_message_id: plannedMessage.planned_message_id
       }
     });
-    return plannedMessage;
+    return { plannedMessage, newEvents: this.pipelineEvents.slice(beforeEventCount) };
+  }
+
+  // ─── Recruiter lookups ───────────────────────────────────────────────────────
+
+  getRecruiterById(recruiterId) {
+    return this.recruiters.find(r => r.recruiter_id === recruiterId) ?? null;
+  }
+
+  findRunById(pipelineRunId) {
+    return this.pipelineRuns.get(pipelineRunId) ?? null;
+  }
+
+  // ─── Telegram subscriptions ──────────────────────────────────────────────────
+
+  addSubscription(sub) {
+    // sub: { recruiter_id, job_id, step_index, event_type }
+    // Tenant isolation: recruiter must belong to the same client as the job
+    const recruiter = this.getRecruiterById(sub.recruiter_id);
+    const job = this.jobs.get(sub.job_id) ?? null;
+    if (!recruiter || !job || recruiter.client_id !== job.client_id) {
+      throw new Error(
+        `Tenant isolation: recruiter ${sub.recruiter_id} cannot subscribe to job ${sub.job_id}`
+      );
+    }
+    const existing = this.recruiterSubscriptions.find(
+      s => s.recruiter_id === sub.recruiter_id &&
+           s.job_id === sub.job_id &&
+           s.step_index === sub.step_index &&
+           s.event_type === sub.event_type
+    );
+    if (!existing) {
+      this.recruiterSubscriptions.push({
+        subscription_id: this.nextId('sub'),
+        created_at: new Date().toISOString(),
+        ...sub
+      });
+    }
+  }
+
+  removeSubscription(recruiterId, jobId, stepIndex, eventType = 'step_completed') {
+    this.recruiterSubscriptions = this.recruiterSubscriptions.filter(
+      s => !(s.recruiter_id === recruiterId &&
+             s.job_id === jobId &&
+             s.step_index === stepIndex &&
+             s.event_type === eventType)
+    );
+  }
+
+  getSubscriptionsForStep(jobId, stepIndex, eventType) {
+    return this.recruiterSubscriptions.filter(
+      s => s.job_id === jobId &&
+           s.step_index === stepIndex &&
+           s.event_type === eventType
+    );
   }
 
   markManualReview({ run, candidateId, reason, rawOutput }) {
@@ -287,6 +369,313 @@ export class InMemoryHiringStore {
           review_status: message.review_status
         }))
     };
+  }
+
+  // ─── HH Negotiations ────────────────────────────────────────────────────────
+
+  async findHhNegotiation(hhNegotiationId) {
+    return this.hhNegotiations.get(hhNegotiationId) ?? null;
+  }
+
+  async upsertHhNegotiation({ hh_negotiation_id, job_id, candidate_id, hh_vacancy_id, hh_collection, channel_thread_id }) {
+    const existing = this.hhNegotiations.get(hh_negotiation_id) ?? {};
+    const negotiation = {
+      ...existing,
+      hh_negotiation_id,
+      job_id,
+      candidate_id,
+      hh_vacancy_id,
+      hh_collection,
+      channel_thread_id,
+      created_at: existing.created_at ?? new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    this.hhNegotiations.set(hh_negotiation_id, negotiation);
+    return negotiation;
+  }
+
+  async findHhNegotiationByChannelThreadId(channelThreadId) {
+    for (const neg of this.hhNegotiations.values()) {
+      if (neg.channel_thread_id === channelThreadId) return neg;
+    }
+    return null;
+  }
+
+  async getHhNegotiationsDue() {
+    const now = new Date();
+    const result = [];
+    for (const neg of this.hhNegotiations.values()) {
+      const pollState = this.hhPollStates.get(neg.hh_negotiation_id);
+      // If no poll state yet, treat as due immediately
+      if (!pollState || new Date(pollState.next_poll_at) <= now) {
+        result.push(neg);
+      }
+    }
+    return result;
+  }
+
+  // ─── HH Poll State ───────────────────────────────────────────────────────────
+
+  async getHhPollState(hhNegotiationId) {
+    return this.hhPollStates.get(hhNegotiationId) ?? null;
+  }
+
+  async upsertHhPollState(hhNegotiationId, { last_polled_at, hh_updated_at, last_sender, awaiting_reply, next_poll_at }) {
+    const existing = this.hhPollStates.get(hhNegotiationId) ?? {};
+    const pollState = {
+      ...existing,
+      hh_negotiation_id: hhNegotiationId,
+      last_polled_at,
+      hh_updated_at,
+      last_sender,
+      awaiting_reply,
+      no_response_streak: existing.no_response_streak ?? 0,
+      next_poll_at
+    };
+    this.hhPollStates.set(hhNegotiationId, pollState);
+    return pollState;
+  }
+
+  // ─── Cron Sender ─────────────────────────────────────────────────────────────
+
+  async getPlannedMessagesDue(now) {
+    return this.plannedMessages
+      .filter((pm) => {
+        if (!["pending", "approved"].includes(pm.review_status)) return false;
+        if (!pm.auto_send_after) return false;
+        return new Date(pm.auto_send_after) <= now;
+      })
+      .map((pm) => {
+        const conv = this.conversations.get(pm.conversation_id);
+        if (!conv) throw new Error(`Missing conversation for planned_message ${pm.planned_message_id}`);
+        return { ...pm, channel_thread_id: conv.channel_thread_id };
+      });
+  }
+
+  // ─── Delivery Attempts ───────────────────────────────────────────────────────
+
+  async recordDeliveryAttempt({ attempt_id, planned_message_id, hh_negotiation_id, status }) {
+    const existing = this.deliveryAttempts.find(
+      (a) => a.planned_message_id === planned_message_id && ["sending", "delivered"].includes(a.status)
+    );
+    if (existing) return existing;
+
+    const attempt = {
+      attempt_id,
+      planned_message_id,
+      hh_negotiation_id,
+      status,
+      hh_message_id: null,
+      attempted_at: new Date().toISOString(),
+      error_body: null
+    };
+    this.deliveryAttempts.push(attempt);
+    return attempt;
+  }
+
+  async getSuccessfulDeliveryAttempt(plannedMessageId) {
+    return this.deliveryAttempts.find(
+      (a) => a.planned_message_id === plannedMessageId && a.status === "delivered"
+    ) ?? null;
+  }
+
+  async markDeliveryAttemptDelivered({ attempt_id, hh_message_id }) {
+    const attempt = this.deliveryAttempts.find((a) => a.attempt_id === attempt_id);
+    if (attempt) {
+      attempt.status = "delivered";
+      attempt.hh_message_id = hh_message_id;
+    }
+  }
+
+  async markDeliveryAttemptFailed({ attempt_id, error_body }) {
+    const attempt = this.deliveryAttempts.find((a) => a.attempt_id === attempt_id);
+    if (attempt) {
+      attempt.status = "failed";
+      attempt.error_body = error_body;
+    }
+  }
+
+  async markPlannedMessageSent({ planned_message_id, sent_at, hh_message_id }) {
+    const pm = this.plannedMessages.find((m) => m.planned_message_id === planned_message_id);
+    if (pm) {
+      pm.review_status = "sent";
+      pm.sent_at = sent_at;
+    }
+    if (hh_message_id) {
+      const attempt = this.deliveryAttempts.find(
+        (a) => a.planned_message_id === planned_message_id && a.status === "delivered"
+      );
+      if (attempt) attempt.hh_message_id = hh_message_id;
+    }
+  }
+
+  // ─── Alert ───────────────────────────────────────────────────────────────────
+
+  async getAwaitingReplyStaleConversations(staleMinutes) {
+    const now = new Date();
+    const result = [];
+
+    for (const [hhNegotiationId, pollState] of this.hhPollStates.entries()) {
+      if (!pollState.awaiting_reply) continue;
+
+      // Find the last delivered outbound message for this negotiation
+      const deliveredAttempts = this.deliveryAttempts
+        .filter((a) => a.hh_negotiation_id === hhNegotiationId && a.status === "delivered")
+        .sort((a, b) => new Date(b.attempted_at) - new Date(a.attempted_at));
+
+      if (deliveredAttempts.length === 0) continue;
+
+      const lastSentAt = new Date(deliveredAttempts[0].attempted_at);
+      const minutesAgo = (now - lastSentAt) / (60 * 1000);
+
+      if (minutesAgo >= staleMinutes) {
+        const negotiation = this.hhNegotiations.get(hhNegotiationId);
+        result.push({
+          hh_negotiation_id: hhNegotiationId,
+          channel_thread_id: negotiation?.channel_thread_id ?? null,
+          last_sent_at: lastSentAt.toISOString(),
+          awaiting_since_minutes: Math.floor(minutesAgo)
+        });
+      }
+    }
+
+    return result;
+  }
+
+  // ─── Management / HH OAuth ──────────────────────────────────────────────────
+
+  async getHhOAuthTokens(provider = "hh") {
+    return this.oauthTokens.get(provider) ?? null;
+  }
+
+  async setHhOAuthTokens(provider = "hh", tokens) {
+    const existing = this.oauthTokens.get(provider) ?? null;
+    const row = {
+      provider,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token ?? existing?.refresh_token ?? null,
+      token_type: tokens.token_type ?? existing?.token_type ?? "bearer",
+      expires_at: tokens.expires_at ?? existing?.expires_at ?? null,
+      scope: tokens.scope ?? existing?.scope ?? null,
+      metadata: structuredClone(tokens.metadata ?? existing?.metadata ?? {}),
+      created_at: existing?.created_at ?? new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    this.oauthTokens.set(provider, row);
+    return row;
+  }
+
+  async getFeatureFlag(flag) {
+    return this.featureFlags.get(flag) ?? null;
+  }
+
+  async setFeatureFlag(flag, enabled, description = null) {
+    const existing = this.featureFlags.get(flag) ?? null;
+    const row = {
+      flag,
+      enabled,
+      description: description ?? existing?.description ?? null,
+      created_at: existing?.created_at ?? new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    this.featureFlags.set(flag, row);
+    return row;
+  }
+
+  // ─── Moderation UI ───────────────────────────────────────────────────────────
+
+  async getRecruiterByToken(token) {
+    return this.recruiters.find(r => r.recruiter_token === token) ?? null;
+  }
+
+  async getRecruiterByEmail(email) {
+    return this.recruiters.find(r => r.email === email) ?? null;
+  }
+
+  async setRecruiterPassword(_recruiterId, _passwordHash) {}
+
+  async createSession(_recruiterId) {
+    return null;
+  }
+
+  async getSessionRecruiter(_token) {
+    return null;
+  }
+
+  async findPlannedMessage(plannedMessageId) {
+    return this.plannedMessages.find((m) => m.planned_message_id === plannedMessageId) ?? null;
+  }
+
+  async findConversation(conversationId) {
+    return this.conversations.get(conversationId) ?? null;
+  }
+
+  async getQueueForRecruiter(recruiterToken) {
+    const recruiter = await this.getRecruiterByToken(recruiterToken);
+    if (!recruiter) return null; // null = token not found
+
+    const clientId = recruiter.client_id ?? null;
+    const now = Date.now();
+
+    return this.plannedMessages
+      .filter((pm) => ["pending", "approved"].includes(pm.review_status))
+      .filter((pm) => {
+        // Scope by client_id. Backward compat: if job has no client_id → include.
+        const conv = this.conversations.get(pm.conversation_id);
+        if (!conv) return false;
+        const job = this.jobs.get(conv.job_id);
+        if (!job) return false;
+        // Exclude if job has a client_id that doesn't match recruiter's client_id.
+        // Treat missing/null job.client_id as "no tenant" (backward compat).
+        // Null-client_id recruiter sees only null-client_id jobs (matches Postgres behavior).
+        const jobClientId = job.client_id ?? null;
+        if (jobClientId !== null && jobClientId !== clientId) return false;
+        return true;
+      })
+      .map((pm) => {
+        const conv = this.conversations.get(pm.conversation_id);
+        const candidate = this.candidates.get(pm.candidate_id);
+        const job = conv ? this.jobs.get(conv.job_id) : null;
+        const run = [...this.pipelineRuns.values()].find((r) => r.pipeline_run_id === pm.pipeline_run_id);
+        const stepStates = run ? this.getStepStates(run.pipeline_run_id) : [];
+        const activeStep = stepStates.find((s) => s.step_id === (run?.active_step_id ?? pm.step_id));
+        let templateStep = null;
+        if (job && activeStep) {
+          try {
+            templateStep = this.getTemplateStep(job.job_id, activeStep.step_id);
+          } catch {
+            templateStep = null;
+          }
+        }
+        return {
+          planned_message_id: pm.planned_message_id,
+          conversation_id: pm.conversation_id,
+          candidate_display_name: candidate?.display_name ?? "Неизвестно",
+          job_title: job?.title ?? "Неизвестно",
+          active_step_goal: templateStep?.goal ?? pm.step_id ?? "",
+          body: pm.body,
+          reason: pm.reason,
+          review_status: pm.review_status,
+          auto_send_after: pm.auto_send_after,
+          seconds_until_auto_send: Math.round((new Date(pm.auto_send_after) - now) / 1000)
+        };
+      })
+      .sort((a, b) => new Date(a.auto_send_after) - new Date(b.auto_send_after));
+  }
+
+  async blockMessage(plannedMessageId) {
+    const pm = this.plannedMessages.find((m) => m.planned_message_id === plannedMessageId);
+    if (!pm) return; // no-op: handler checks existence before calling
+    if (pm.review_status === "sent") throw new Error("already_sent");
+    pm.review_status = "blocked";
+  }
+
+  async approveAndSendNow(plannedMessageId) {
+    const pm = this.plannedMessages.find((m) => m.planned_message_id === plannedMessageId);
+    if (!pm) return; // no-op: handler checks existence before calling
+    if (pm.review_status === "sent") throw new Error("already_sent");
+    pm.review_status = "approved";
+    pm.auto_send_after = new Date(Date.now() - 1000).toISOString();
   }
 
   rebuildStepStateFromEvents(pipelineRunId) {

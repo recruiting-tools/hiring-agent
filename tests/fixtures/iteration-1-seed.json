@@ -6,7 +6,8 @@
   "recruiter": {
     "recruiter_id": "recruiter-demo-001",
     "client_id": "client-demo-001",
-    "email": "recruiter@example.test"
+    "email": "recruiter@example.test",
+    "recruiter_token": "rec-tok-demo-001"
   },
   "jobs": [
     {

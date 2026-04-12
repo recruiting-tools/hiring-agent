@@ -1,0 +1,33 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run
+        env:
+          SERVICE: candidate-chatbot-v2
+          REGION: europe-west1
+          PROJECT_ID: project-5d8dd8a0-67af-44ba-b6e
+          DEPLOY_PUBLIC_URL: ${{ secrets.DEPLOY_PUBLIC_URL }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: bash ./scripts/deploy.sh
+
+      - name: Post-deploy smoke
+        env:
+          SANDBOX_URL: ${{ secrets.DEPLOY_PUBLIC_URL }}
+        run: pnpm smoke:sandbox:cloud

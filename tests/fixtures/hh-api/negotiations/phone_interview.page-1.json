@@ -1,0 +1,23 @@
+{
+  "found": 1,
+  "page": 0,
+  "pages": 1,
+  "per_page": 20,
+  "items": [
+    {
+      "id": "neg-003",
+      "updated_at": "2026-04-12T12:00:00Z",
+      "state": {
+        "id": "phone_interview"
+      },
+      "resume": {
+        "id": "resume-003",
+        "url": "https://api.hh.ru/resumes/resume-003"
+      },
+      "vacancy": {
+        "id": "vac-001",
+        "name": "Закупщик из Китая"
+      }
+    }
+  ]
+}

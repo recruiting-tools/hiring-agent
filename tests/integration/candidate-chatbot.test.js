@@ -167,7 +167,7 @@ test("pending queue returns created planned message", async () => {
     "conv-zakup-001",
     seed.candidate_fixtures[0].inbound_text
   ));
-  const queueResponse = app.getPendingQueue();
+  const queueResponse = await app.getPendingQueue();
 
   assert.equal(queueResponse.status, 200);
   assert.equal(queueResponse.body.items.length, 1);
@@ -234,6 +234,49 @@ test("http server exposes webhook and pending queue endpoints", async () => {
     assert.equal(queueBody.items[0].planned_message_id, webhookBody.planned_message_id);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("http server: GET /hh-callback/ exchanges code, stores tokens and returns employer info", async () => {
+  const { app, store } = createRuntime();
+  const calls = [];
+  const hhOAuthClient = {
+    async exchangeCodeForTokens(code) {
+      calls.push({ type: "exchange", code });
+      return store.setHhOAuthTokens("hh", {
+        access_token: "access-001",
+        refresh_token: "refresh-001",
+        token_type: "bearer",
+        expires_at: "2026-04-12T12:00:00.000Z",
+        metadata: { source: "test" }
+      });
+    },
+    async getMe() {
+      calls.push({ type: "me" });
+      return { id: "employer-001", manager: { id: "manager-001" } };
+    }
+  };
+  const server = createHttpServer(app, { store, hhOAuthClient });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/hh-callback/?code=oauth-code-123`);
+    const body = await response.json();
+    const tokens = await store.getHhOAuthTokens("hh");
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.employer_id, "employer-001");
+    assert.equal(body.manager_id, "manager-001");
+    assert.equal(tokens.access_token, "access-001");
+    assert.deepEqual(calls, [
+      { type: "exchange", code: "oauth-code-123" },
+      { type: "me" }
+    ]);
+  } finally {
+    server.close();
   }
 });
 

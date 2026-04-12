@@ -1,0 +1,141 @@
+{
+  "clients": [
+    { "client_id": "client-alpha-001", "name": "Alpha Corp" },
+    { "client_id": "client-beta-001",  "name": "Beta Ltd"  }
+  ],
+  "recruiters": [
+    {
+      "recruiter_id":    "rec-alpha-001",
+      "client_id":       "client-alpha-001",
+      "email":           "alice@alpha.test",
+      "recruiter_token": "rec-tok-alpha-001"
+    },
+    {
+      "recruiter_id":    "rec-alpha-002",
+      "client_id":       "client-alpha-001",
+      "email":           "alex@alpha.test",
+      "recruiter_token": "rec-tok-alpha-002"
+    },
+    {
+      "recruiter_id":    "rec-beta-001",
+      "client_id":       "client-beta-001",
+      "email":           "bob@beta.test",
+      "recruiter_token": "rec-tok-beta-001"
+    },
+    {
+      "recruiter_id":    "rec-beta-002",
+      "client_id":       "client-beta-001",
+      "email":           "bella@beta.test",
+      "recruiter_token": "rec-tok-beta-002"
+    }
+  ],
+  "jobs": [
+    {
+      "job_id":    "job-alpha-dev",
+      "client_id": "client-alpha-001",
+      "title":     "Alpha Backend Developer",
+      "description": "Alpha Corp, TypeScript, remote.",
+      "pipeline_template": {
+        "template_id":      "tpl-alpha-dev-v1",
+        "template_version": 1,
+        "name":             "alpha-dev-screening-v1",
+        "steps": [
+          {
+            "id": "ts_experience", "step_index": 1, "kind": "question",
+            "goal": "Проверить опыт TypeScript",
+            "done_when": "кандидат называет проекты на TypeScript",
+            "reject_when": "нет опыта TypeScript",
+            "prompt_key": "step.ts_experience"
+          },
+          {
+            "id": "remote_fit", "step_index": 2, "kind": "question",
+            "goal": "Проверить готовность к удалёнке",
+            "done_when": "кандидат подтверждает удалёнку",
+            "reject_when": "кандидат не готов к удалёнке",
+            "prompt_key": "step.remote_fit"
+          }
+        ]
+      }
+    },
+    {
+      "job_id":    "job-alpha-pm",
+      "client_id": "client-alpha-001",
+      "title":     "Alpha Product Manager",
+      "description": "Alpha Corp, product, hybrid.",
+      "pipeline_template": {
+        "template_id":      "tpl-alpha-pm-v1",
+        "template_version": 1,
+        "name":             "alpha-pm-screening-v1",
+        "steps": [
+          {
+            "id": "pm_experience", "step_index": 1, "kind": "question",
+            "goal": "Проверить опыт PM",
+            "done_when": "кандидат называет продукты которыми управлял",
+            "reject_when": "нет опыта PM",
+            "prompt_key": "step.pm_experience"
+          }
+        ]
+      }
+    },
+    {
+      "job_id":    "job-beta-sales",
+      "client_id": "client-beta-001",
+      "title":     "Beta Sales Manager",
+      "description": "Beta Ltd, B2B sales, Moscow.",
+      "pipeline_template": {
+        "template_id":      "tpl-beta-sales-v1",
+        "template_version": 1,
+        "name":             "beta-sales-screening-v1",
+        "steps": [
+          {
+            "id": "b2b_experience", "step_index": 1, "kind": "question",
+            "goal": "Проверить опыт B2B продаж",
+            "done_when": "кандидат описывает B2B опыт",
+            "reject_when": "только B2C",
+            "prompt_key": "step.b2b_experience"
+          }
+        ]
+      }
+    },
+    {
+      "job_id":    "job-beta-ops",
+      "client_id": "client-beta-001",
+      "title":     "Beta Operations Lead",
+      "description": "Beta Ltd, operations, Moscow.",
+      "pipeline_template": {
+        "template_id":      "tpl-beta-ops-v1",
+        "template_version": 1,
+        "name":             "beta-ops-screening-v1",
+        "steps": [
+          {
+            "id": "ops_experience", "step_index": 1, "kind": "question",
+            "goal": "Проверить опыт operations",
+            "done_when": "кандидат описывает управление операциями",
+            "reject_when": "нет релевантного опыта",
+            "prompt_key": "step.ops_experience"
+          }
+        ]
+      }
+    }
+  ],
+  "candidate_fixtures": [
+    {
+      "candidate_id":   "cand-alpha-dev-001",
+      "job_id":         "job-alpha-dev",
+      "conversation_id":"conv-alpha-dev-001",
+      "pipeline_run_id":"run-alpha-dev-001",
+      "display_name":   "Alice Dev",
+      "resume_text":    "TypeScript developer, 5 years.",
+      "inbound_text":   "Привет, я TS-разработчик, 5 лет опыта, работаю удалённо."
+    },
+    {
+      "candidate_id":   "cand-beta-sales-001",
+      "job_id":         "job-beta-sales",
+      "conversation_id":"conv-beta-sales-001",
+      "pipeline_run_id":"run-beta-sales-001",
+      "display_name":   "Bob Sales",
+      "resume_text":    "B2B sales manager, 4 years.",
+      "inbound_text":   "Здравствуйте, 4 года в B2B продажах, промышленное оборудование."
+    }
+  ]
+}
