@@ -12,15 +12,21 @@ import { TelegramNotifier } from "./telegram-notifier.js";
 let store;
 
 if (process.env.USE_REAL_DB === "true") {
-  const connectionString = process.env.V2_DEV_NEON_URL;
+  const connectionString = process.env.V2_PROD_NEON_URL || process.env.V2_DEV_NEON_URL;
   if (!connectionString) {
-    throw new Error("USE_REAL_DB=true requires V2_DEV_NEON_URL to be set");
+    throw new Error("USE_REAL_DB=true requires V2_PROD_NEON_URL or V2_DEV_NEON_URL to be set");
   }
   store = new PostgresHiringStore({ connectionString });
-  // Seed the real DB with dev fixtures on startup
-  const seed = JSON.parse(await readFile(new URL("../../../tests/fixtures/iteration-1-seed.json", import.meta.url), "utf8"));
-  await store.seed(seed);
-  console.log("Using PostgresHiringStore (real DB)");
+  if (process.env.NODE_ENV === "production") {
+    // In production: load jobs from DB without overwriting with dev fixtures
+    await store.loadJobsFromDb();
+    console.log("Using PostgresHiringStore (production)");
+  } else {
+    // In dev/test: seed the DB with fixtures on startup
+    const seed = JSON.parse(await readFile(new URL("../../../tests/fixtures/iteration-1-seed.json", import.meta.url), "utf8"));
+    await store.seed(seed);
+    console.log("Using PostgresHiringStore (real DB, seeded)");
+  }
 } else {
   const seed = JSON.parse(await readFile(new URL("../../../tests/fixtures/iteration-1-seed.json", import.meta.url), "utf8"));
   store = new InMemoryHiringStore(seed);

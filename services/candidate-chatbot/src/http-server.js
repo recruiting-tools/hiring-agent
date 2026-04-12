@@ -172,6 +172,16 @@ export function createHttpServer(app, { store } = {}) {
         return;
       }
 
+      if (request.method === "GET" && request.url === "/health") {
+        writeJson(response, 200, {
+          service: "candidate-chatbot",
+          status: "ok",
+          commit: process.env.DEPLOY_SHA || "unknown",
+          deployed_at: process.env.DEPLOY_TIME || null
+        });
+        return;
+      }
+
       // Login form
       if (request.method === "GET" && request.url === "/login") {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });

@@ -111,6 +111,10 @@ export class PostgresHiringStore {
     await this._loadJobsFromDb();
   }
 
+  async loadJobsFromDb() {
+    return this._loadJobsFromDb();
+  }
+
   async _loadJobsFromDb() {
     const jobs = await this.sql`SELECT job_id, title, description, client_id FROM chatbot.jobs`;
     const templates = await this.sql`
