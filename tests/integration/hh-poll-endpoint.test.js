@@ -106,3 +106,108 @@ test("internal hh poll: runs poller when authorized and hh_import is enabled", a
     server.close();
   }
 });
+
+test("internal hh import: rejects request without bearer token", async () => {
+  const { app, store } = createRuntime();
+  const server = createHttpServer(app, {
+    store,
+    internalApiToken: "secret-123",
+    hhImportRunner: { syncApplicants: async () => ({ ok: true }) }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/internal/hh-import`, { method: "POST" });
+    const body = await response.json();
+
+    assert.equal(response.status, 401);
+    assert.equal(body.error, "unauthorized");
+  } finally {
+    server.close();
+  }
+});
+
+test("internal hh import: skips when hh_import flag is disabled", async () => {
+  const { app, store } = createRuntime();
+  await store.setFeatureFlag("hh_import", false);
+  let called = false;
+  const server = createHttpServer(app, {
+    store,
+    internalApiToken: "secret-123",
+    hhImportRunner: {
+      async syncApplicants() {
+        called = true;
+        return { ok: true };
+      }
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/internal/hh-import`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer secret-123",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ window_start: "2026-04-08T00:00:00Z" })
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.skipped, true);
+    assert.equal(called, false);
+  } finally {
+    server.close();
+  }
+});
+
+test("internal hh import: passes import window to runner when authorized", async () => {
+  const { app, store } = createRuntime();
+  await store.setFeatureFlag("hh_import", true);
+  const calls = [];
+  const server = createHttpServer(app, {
+    store,
+    internalApiToken: "secret-123",
+    hhImportRunner: {
+      async syncApplicants(input) {
+        calls.push(input);
+        return { ok: true, imported_negotiations: 2, imported_messages: 5 };
+      }
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/internal/hh-import`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer secret-123",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        window_start: "2026-04-08T00:00:00Z",
+        window_end: "2026-04-13T00:00:00Z"
+      })
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.imported_negotiations, 2);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], {
+      windowStart: "2026-04-08T00:00:00Z",
+      windowEnd: "2026-04-13T00:00:00Z"
+    });
+  } finally {
+    server.close();
+  }
+});

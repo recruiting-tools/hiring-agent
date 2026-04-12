@@ -61,7 +61,8 @@ const MODERATION_HTML = `<!DOCTYPE html>
     body { font-family: sans-serif; padding: 1rem; }
     table { border-collapse: collapse; width: 100%; }
     th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
-    .body-preview { color: #555; font-size: 0.9em; max-width: 400px; }
+    .body-preview { color: #555; font-size: 0.9em; max-width: 520px; white-space: pre-wrap; }
+    .reason { color: #888; font-size: 0.82em; margin-top: 0.35rem; }
     .countdown { font-weight: bold; }
     .overdue { color: #c00; }
     button { margin: 0 0.25rem; padding: 0.3rem 0.75rem; cursor: pointer; }
@@ -107,13 +108,14 @@ const MODERATION_HTML = `<!DOCTYPE html>
         const tr = document.createElement('tr');
         tr.dataset.id = item.planned_message_id;
         tr.dataset.sendAfter = item.auto_send_after;
-        const preview = item.body.slice(0, 120) + (item.body.length > 120 ? '...' : '');
         tr.innerHTML =
           '<td>' + esc(item.candidate_display_name) + '</td>' +
           '<td>' + esc(item.job_title) + '</td>' +
           '<td>' + esc(item.active_step_goal) + '</td>' +
           '<td class="countdown"></td>' +
-          '<td class="body-preview">' + esc(preview) + '</td>' +
+          '<td class="body-preview">' + esc(item.body) +
+            (item.reason ? '<div class="reason">' + esc(item.reason) + '</div>' : '') +
+          '</td>' +
           '<td>' +
             '<button onclick="doBlock(\\'' + esc(item.planned_message_id) + '\\')">Заблокировать</button>' +
             '<button onclick="doSendNow(\\'' + esc(item.planned_message_id) + '\\')">Отправить сейчас</button>' +
@@ -156,7 +158,7 @@ const MODERATION_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, internalApiToken } = {}) {
+export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhImportRunner, internalApiToken } = {}) {
   return createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url, "http://localhost");
@@ -226,6 +228,29 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, inte
         }
         const result = await hhPollRunner.pollAll();
         writeJson(response, 200, { ok: true, ...(result ?? {}) });
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/internal/hh-import") {
+        if (!isAuthorizedInternalRequest(request, internalApiToken)) {
+          writeJson(response, 401, { error: "unauthorized" });
+          return;
+        }
+        if (!hhImportRunner) {
+          writeJson(response, 503, { error: "hh_import_not_configured" });
+          return;
+        }
+        const hhImport = store ? await store.getFeatureFlag("hh_import") : null;
+        if (hhImport && hhImport.enabled === false) {
+          writeJson(response, 200, { ok: true, skipped: true, reason: "hh_import_disabled" });
+          return;
+        }
+        const body = await readJsonBody(request).catch(() => ({}));
+        const result = await hhImportRunner.syncApplicants({
+          windowStart: body.window_start,
+          windowEnd: body.window_end
+        });
+        writeJson(response, 200, result);
         return;
       }
 

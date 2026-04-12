@@ -13,6 +13,7 @@ import { FakeTelegramClient } from "./fake-telegram-client.js";
 import { TelegramNotifier } from "./telegram-notifier.js";
 import { runPollOnce } from "../../hh-connector/src/poll-loop.js";
 import { TokenRefresher } from "../../hh-connector/src/token-refresher.js";
+import { HhConnector } from "../../hh-connector/src/hh-connector.js";
 
 let store;
 
@@ -91,12 +92,32 @@ const hhPollRunner = {
   }
 };
 
+const hhImportMappings = parseVacancyMappings(process.env.HH_VACANCY_JOB_MAP);
+const hhImportRunner = new HhConnector({
+  store,
+  hhClient: hhPollClient,
+  chatbot: app,
+  vacancyMappings: hhImportMappings
+});
+
 const port = Number(process.env.PORT ?? 3000);
 createHttpServer(app, {
   store,
   hhOAuthClient,
   hhPollRunner,
+  hhImportRunner,
   internalApiToken: process.env.INTERNAL_API_TOKEN ?? null
 }).listen(port, () => {
   console.log(`candidate-chatbot listening on :${port}`);
 });
+
+function parseVacancyMappings(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((item) => item?.hh_vacancy_id && item?.job_id) : [];
+  } catch {
+    console.warn("Failed to parse HH_VACANCY_JOB_MAP");
+    return [];
+  }
+}

@@ -176,6 +176,130 @@ test("hh connector: pollAll only polls negotiations where next_poll_at <= now", 
   assert.equal(futureMessages.length, 0, "neg-future should not have been polled");
 });
 
+test("hh connector: syncApplicants imports negotiations and messages for mapped vacancies", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.seedResume({
+    id: "resume-001",
+    title: "Senior procurement manager",
+    first_name: "Ирина",
+    last_name: "Соколова",
+    email: "irina@example.com"
+  });
+  hhClient.addNegotiation("neg-import-001", [
+    { id: "msg-1", author: "applicant", text: "Добрый день", created_at: "2026-04-12T10:00:00Z" },
+    { id: "msg-2", author: "employer", text: "Здравствуйте", created_at: "2026-04-12T10:05:00Z" }
+  ], {
+    hh_vacancy_id: "131345849",
+    updated_at: "2026-04-12T10:05:00Z",
+    resume: { id: "resume-001", url: "https://api.hh.ru/resumes/resume-001" },
+    vacancy: { id: "131345849", name: "Закупщик (Китай)" }
+  });
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot,
+    vacancyMappings: [{ hh_vacancy_id: "131345849", job_id: "job-zakup-china" }]
+  });
+
+  const result = await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.imported_negotiations, 1);
+  assert.equal(result.imported_messages, 2);
+  const negotiation = await store.findHhNegotiation("neg-import-001");
+  assert.equal(negotiation.job_id, "job-zakup-china");
+  const importedConversation = await store.findConversation("conv-hh-neg-import-001");
+  assert.ok(importedConversation, "conversation should be created");
+  const importedMessages = store.messages.filter((item) => item.conversation_id === "conv-hh-neg-import-001");
+  assert.equal(importedMessages.length, 2);
+  assert.equal(importedMessages[0].direction, "inbound");
+  assert.equal(importedMessages[1].direction, "outbound");
+  const importedCandidate = await store.getCandidate("cand-hh-neg-import-001");
+  assert.equal(importedCandidate.display_name, "Ирина Соколова");
+});
+
+test("hh connector: syncApplicants is idempotent on repeated import", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.addNegotiation("neg-import-repeat", [
+    { id: "msg-1", author: "applicant", text: "Привет", created_at: "2026-04-12T10:00:00Z" }
+  ], {
+    hh_vacancy_id: "132032392",
+    updated_at: "2026-04-12T10:00:00Z",
+    resume: { id: "resume-repeat", url: "https://api.hh.ru/resumes/resume-repeat" },
+    vacancy: { id: "132032392", name: "Менеджер по продажам" }
+  });
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot,
+    vacancyMappings: [{ hh_vacancy_id: "132032392", job_id: "job-b2b-sales-manager" }]
+  });
+
+  const first = await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+  const second = await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+
+  assert.equal(first.imported_negotiations, 1);
+  assert.equal(first.imported_messages, 1);
+  assert.equal(second.imported_negotiations, 0);
+  assert.equal(second.imported_messages, 0);
+  const importedMessages = store.messages.filter((item) => item.conversation_id === "conv-hh-neg-import-repeat");
+  assert.equal(importedMessages.length, 1);
+});
+
+test("hh connector: syncApplicants keeps separate imported candidates per negotiation even for shared resume", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.seedResume({
+    id: "resume-shared",
+    title: "Designer",
+    first_name: "Анна",
+    last_name: "Климова"
+  });
+  hhClient.addNegotiation("neg-design-1", [
+    { id: "msg-1", author: "applicant", text: "Портфолио отправила", created_at: "2026-04-12T09:00:00Z" }
+  ], {
+    hh_vacancy_id: "131532142",
+    updated_at: "2026-04-12T09:00:00Z",
+    resume: { id: "resume-shared", url: "https://api.hh.ru/resumes/resume-shared" },
+    vacancy: { id: "131532142", name: "Дизайнер 1" }
+  });
+  hhClient.addNegotiation("neg-design-2", [
+    { id: "msg-2", author: "applicant", text: "Готова к тестовому", created_at: "2026-04-12T09:30:00Z" }
+  ], {
+    hh_vacancy_id: "131812494",
+    updated_at: "2026-04-12T09:30:00Z",
+    resume: { id: "resume-shared", url: "https://api.hh.ru/resumes/resume-shared" },
+    vacancy: { id: "131812494", name: "Дизайнер 2" }
+  });
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot,
+    vacancyMappings: [
+      { hh_vacancy_id: "131532142", job_id: "job-zakup-china" },
+      { hh_vacancy_id: "131812494", job_id: "job-zakup-china" }
+    ]
+  });
+
+  const result = await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+
+  assert.equal(result.imported_negotiations, 2);
+  assert.ok(await store.getCandidate("cand-hh-neg-design-1"));
+  assert.ok(await store.getCandidate("cand-hh-neg-design-2"));
+  assert.notEqual(
+    (await store.findConversation("conv-hh-neg-design-1")).candidate_id,
+    (await store.findConversation("conv-hh-neg-design-2")).candidate_id
+  );
+});
+
 test("hh contract mock: fixture library loads manifest and reversed messages fixture", async () => {
   const library = await loadHhFixtureLibrary();
 

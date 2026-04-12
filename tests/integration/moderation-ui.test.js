@@ -154,7 +154,31 @@ test("moderation: GET /recruiter/:token/queue enriches items with candidate_disp
     assert.ok(item, "item should be in queue");
     assert.equal(item.candidate_display_name, "Максим Волков");
     assert.equal(item.job_title, "Закупщик (Китай)");
+    assert.equal(item.active_step_goal, "Проверить прямой опыт работы с китайскими фабриками");
     assert.ok(item.body, "body should be present");
+  } finally {
+    server.close();
+  }
+});
+
+test("moderation: GET /recruiter/:token/queue returns full body and reason for recruiter review", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const longBody = "Это длинное сообщение для премодерации. ".repeat(10);
+  store.plannedMessages.push(makePendingMessage({
+    planned_message_id: "pm-full-body",
+    body: longBody,
+    reason: "Нужно уточнить следующий шаг по скринингу"
+  }));
+
+  const app = createCandidateChatbot({ store, llmAdapter: new FakeLlmAdapter() });
+  const server = createHttpServer(app).listen(0);
+  try {
+    const { status, body } = await req(server, "GET", "/recruiter/rec-tok-demo-001/queue");
+    assert.equal(status, 200);
+    const item = body.items.find((i) => i.planned_message_id === "pm-full-body");
+    assert.ok(item, "item should be in queue");
+    assert.equal(item.body, longBody);
+    assert.equal(item.reason, "Нужно уточнить следующий шаг по скринингу");
   } finally {
     server.close();
   }
