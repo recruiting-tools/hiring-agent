@@ -83,6 +83,32 @@ GEMINI_API_KEY=...         # уже есть в shell
 - Регион: `europe-west1`
 - VM IP: `34.31.217.176` (для hiring-agent UI)
 
+### Deploy — candidate-chatbot
+
+```bash
+./scripts/deploy.sh   # сборка образа + деплой (два шага, не --source)
+```
+
+**Gotchas:**
+
+1. **НЕ использовать `--source` напрямую** — зависает в агент-сессии (exit 144). `deploy.sh` делает `gcloud builds submit` + `gcloud run deploy --image` раздельно.
+
+2. **Domain mapping** — только от `ludmilachramcova@gmail.com` (домен `recruiter-assistant.com` верифицирован на ней):
+   ```bash
+   gcloud config set account ludmilachramcova@gmail.com
+   gcloud beta run domain-mappings create \
+     --service=candidate-chatbot-v2 \
+     --domain=candidate-chatbot.recruiter-assistant.com \
+     --region=europe-west1 \
+     --project=project-5d8dd8a0-67af-44ba-b6e
+   gcloud config set account vladimir@skillset.ae   # вернуть
+   ```
+   `vladimir@skillset.ae` и `kobzevvv@gmail.com` для domain mapping **не подходят**.
+
+3. **CNAME** `candidate-chatbot.recruiter-assistant.com → ghs.googlehosted.com` уже стоит. Не трогать.
+
+4. **SSL-сертификат** выпускается автоматически ~15–60 мин после создания маппинга.
+
 ### XP правила
 
 - Каждая итерация начинается с failing теста
