@@ -35,6 +35,19 @@ GEMINI_API_KEY=...         # уже есть в shell
 
 Подробная спека: [`docs/spec-by-claude.md`](docs/spec-by-claude.md)
 
+## Release Process
+
+Каждая фича проходит через sandbox перед merge в main. Подробно: [`docs/release-process.md`](docs/release-process.md).
+
+**Локально перед PR:** `pnpm gate:sandbox`
+**CI gate (авто):** `sandbox-gate` workflow — должен быть зелёным для merge
+**Deploy (авто):** `deploy-prod` workflow запускается при merge в main
+
+Для сессий с CI callback — включай в тело PR:
+```
+<!-- ci-callback: https://RELAY_URL/api/sessions/SESSION_ID/reply -->
+```
+
 ---
 
 ## Claude Code Instructions

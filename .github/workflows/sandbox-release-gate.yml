@@ -2,22 +2,43 @@ name: Sandbox Release Gate
 
 on:
   push:
-    branches: [main]
+    branches-ignore: [main]
   pull_request:
     branches: [main]
 
+concurrency:
+  group: sandbox
+  cancel-in-progress: false
+
 jobs:
-  test:
+  impact-check:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Impact check
+        run: node scripts/impact-check.js
+
+  gate:
+    runs-on: ubuntu-latest
+    needs: impact-check
+    env:
+      APP_ENV: sandbox
+      HH_USE_MOCK: "true"
+      DATABASE_URL: ${{ secrets.SANDBOX_DATABASE_URL }}
+      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
       - run: npm install -g pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test:all
-      - run: pnpm test:sandbox
+      - run: pnpm gate:sandbox
 
   migration-check:
     runs-on: ubuntu-latest
@@ -31,10 +52,6 @@ jobs:
           if git diff --name-only HEAD~1 HEAD | grep -q 'services/candidate-chatbot/migrations/'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/setup-node@v4
-        if: steps.check.outputs.changed == 'true'
-        with:
-          node-version: 22
       - name: Install neonctl
         if: steps.check.outputs.changed == 'true'
         run: npm install -g neonctl
@@ -48,7 +65,7 @@ jobs:
             --org-id org-bold-wave-46400152 \
             --name pr-${{ github.run_id }} \
             --parent br-dry-river-anv7f0z0
-      - name: Get connection string
+      - name: Get connection string and run migrations
         if: steps.check.outputs.changed == 'true'
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
@@ -59,7 +76,7 @@ jobs:
             --branch pr-${{ github.run_id }} \
             --pooled)
           echo "Ephemeral branch ready."
-          # TODO: run migrations against EPHEMERAL_DB_URL once migration runner is wired up
+          # TODO: DATABASE_URL="$EPHEMERAL_DB_URL" node scripts/migrate.js
       - name: Delete ephemeral Neon branch
         if: always()
         env:
@@ -71,3 +88,28 @@ jobs:
               --org-id org-bold-wave-46400152 \
               pr-${{ github.run_id }}
           fi
+
+  notify-session:
+    runs-on: ubuntu-latest
+    needs: [gate, migration-check]
+    if: always() && github.event_name == 'pull_request'
+    steps:
+      - name: Extract callback URL from PR body
+        id: callback
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY=$(gh pr view ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --json body -q '.body')
+          URL=$(echo "$BODY" | grep -o 'ci-callback: [^ >]*' | head -1 | cut -d' ' -f2)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Notify session
+        if: steps.callback.outputs.url != ''
+        run: |
+          STATUS="${{ needs.gate.result }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -s -X POST "${{ steps.callback.outputs.url }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"message\": \"CI sandbox-gate: $STATUS\\nRun: $RUN_URL\"}"
