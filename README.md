@@ -94,4 +94,8 @@ GEMINI_API_KEY=...         # уже есть в shell
 
 Все в `docs/`:
 - [`docs/spec-by-claude.md`](docs/spec-by-claude.md) — основной план (EP approach, архитектура, DB schema, XP итерации)
+- [`docs/iteration-1-tz-and-test-data.md`](docs/iteration-1-tz-and-test-data.md) — конкретное ТЗ первой итерации и seed fixtures
 - [`docs/access-readiness.md`](docs/access-readiness.md) — доступы, Neon org, GCP, env vars
+
+Тестовые данные:
+- [`tests/fixtures/iteration-1-seed.json`](tests/fixtures/iteration-1-seed.json) — вакансии, pipeline steps и candidate fixtures для Iteration 1
