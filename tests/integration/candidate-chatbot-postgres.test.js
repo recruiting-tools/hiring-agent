@@ -16,6 +16,7 @@ const seed = JSON.parse(await readFile(new URL("../fixtures/iteration-1-seed.jso
 
 async function createPostgresRuntime(overrides = {}) {
   const store = new PostgresHiringStore({ connectionString: DB_URL });
+  await store.reset();
   await store.seed(seed);
   const app = createCandidateChatbot({
     store,

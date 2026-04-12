@@ -75,7 +75,8 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
         run,
         job,
         llmOutput: validation.output,
-        conversation
+        conversation,
+        pendingSteps
       });
 
       return {

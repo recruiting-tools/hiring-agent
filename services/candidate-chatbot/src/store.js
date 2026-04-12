@@ -163,7 +163,7 @@ export class InMemoryHiringStore {
     return stored;
   }
 
-  applyLlmDecision({ run, job, llmOutput, conversation }) {
+  applyLlmDecision({ run, job, llmOutput, conversation, pendingSteps: _pendingSteps }) {
     const stepStates = this.getStepStates(run.pipeline_run_id);
     const now = new Date().toISOString();
 
