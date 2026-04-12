@@ -1,6 +1,6 @@
 import { validateLlmOutput } from "./validator.js";
 
-export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
+export function createCandidateChatbot({ store, llmAdapter, validatorConfig, notificationDispatcher }) {
   return {
     async postWebhookMessage(request) {
       const conversation = await store.findConversation(request.conversation_id);
@@ -71,6 +71,7 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
         };
       }
 
+      const beforeEventCount = store.pipelineEvents.length;
       const plannedMessage = await store.applyLlmDecision({
         run,
         job,
@@ -78,6 +79,11 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig }) {
         conversation,
         pendingSteps
       });
+
+      if (notificationDispatcher) {
+        const newEvents = store.pipelineEvents.slice(beforeEventCount);
+        await notificationDispatcher.dispatch(newEvents);
+      }
 
       return {
         status: 200,

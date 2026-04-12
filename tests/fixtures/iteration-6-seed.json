@@ -1,0 +1,69 @@
+{
+  "clients": [
+    { "client_id": "client-alpha-001", "name": "Alpha Corp" }
+  ],
+  "recruiters": [
+    {
+      "recruiter_id":    "rec-tg-001",
+      "client_id":       "client-alpha-001",
+      "email":           "tg-recruiter@alpha.test",
+      "recruiter_token": "rec-tok-tg-001",
+      "tg_chat_id":      123456789
+    },
+    {
+      "recruiter_id":    "rec-tg-002",
+      "client_id":       "client-alpha-001",
+      "email":           "tg-recruiter2@alpha.test",
+      "recruiter_token": "rec-tok-tg-002",
+      "tg_chat_id":      987654321
+    },
+    {
+      "recruiter_id":    "rec-tg-no-chat",
+      "client_id":       "client-alpha-001",
+      "email":           "no-chat@alpha.test",
+      "recruiter_token": "rec-tok-tg-no-chat",
+      "tg_chat_id":      null
+    }
+  ],
+  "jobs": [
+    {
+      "job_id":    "job-tg-dev",
+      "client_id": "client-alpha-001",
+      "title":     "TG Test Developer",
+      "description": "For telegram notification tests.",
+      "pipeline_template": {
+        "template_id":      "tpl-tg-dev-v1",
+        "template_version": 1,
+        "name":             "tg-dev-screening-v1",
+        "steps": [
+          {
+            "id": "tg_step_1", "step_index": 1, "kind": "question",
+            "goal": "Проверить навыки",
+            "done_when": "кандидат описал навыки",
+            "reject_when": "нет навыков",
+            "prompt_key": "step.tg_step_1"
+          },
+          {
+            "id": "tg_step_2", "step_index": 2, "kind": "question",
+            "goal": "Проверить опыт",
+            "done_when": "кандидат описал опыт",
+            "reject_when": "нет опыта",
+            "prompt_key": "step.tg_step_2"
+          }
+        ]
+      }
+    }
+  ],
+  "candidate_fixtures": [
+    {
+      "candidate_id":    "cand-tg-001",
+      "job_id":          "job-tg-dev",
+      "conversation_id": "conv-tg-001",
+      "pipeline_run_id": "run-tg-001",
+      "display_name":    "Tg Candidate",
+      "resume_text":     "Developer candidate for tg tests.",
+      "inbound_text":    "Привет, я разработчик."
+    }
+  ],
+  "recruiter_subscriptions": []
+}

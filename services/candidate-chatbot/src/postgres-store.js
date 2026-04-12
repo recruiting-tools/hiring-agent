@@ -100,9 +100,11 @@ export class PostgresHiringStore {
     for (const rec of (seedData.recruiters ?? (seedData.recruiter ? [seedData.recruiter] : []))) {
       if (!rec.recruiter_token) continue;
       await this.sql`
-        INSERT INTO chatbot.recruiters (recruiter_id, client_id, email, recruiter_token)
-        VALUES (${rec.recruiter_id}, ${rec.client_id}, ${rec.email}, ${rec.recruiter_token})
-        ON CONFLICT (recruiter_id) DO UPDATE SET recruiter_token = EXCLUDED.recruiter_token
+        INSERT INTO chatbot.recruiters (recruiter_id, client_id, email, recruiter_token, tg_chat_id)
+        VALUES (${rec.recruiter_id}, ${rec.client_id}, ${rec.email}, ${rec.recruiter_token}, ${rec.tg_chat_id ?? null})
+        ON CONFLICT (recruiter_id) DO UPDATE SET
+          recruiter_token = EXCLUDED.recruiter_token,
+          tg_chat_id = EXCLUDED.tg_chat_id
       `;
     }
 
@@ -725,6 +727,58 @@ export class PostgresHiringStore {
     }
 
     return rebuilt;
+  }
+
+  // ─── Recruiter lookups ───────────────────────────────────────────────────────
+
+  async getRecruiterById(recruiterId) {
+    const rows = await this.sql`
+      SELECT recruiter_id, client_id, email, recruiter_token, tg_chat_id
+      FROM chatbot.recruiters
+      WHERE recruiter_id = ${recruiterId}
+    `;
+    return rows[0] ?? null;
+  }
+
+  async findRunById(pipelineRunId) {
+    const rows = await this.sql`
+      SELECT pipeline_run_id, job_id, candidate_id, template_id, template_version, active_step_id, status
+      FROM chatbot.pipeline_runs
+      WHERE pipeline_run_id = ${pipelineRunId}
+    `;
+    return rows[0] ?? null;
+  }
+
+  // ─── Telegram subscriptions ──────────────────────────────────────────────────
+
+  async addSubscription({ recruiter_id, job_id, step_index, event_type }) {
+    await this.sql`
+      INSERT INTO management.recruiter_subscriptions
+        (recruiter_id, job_id, step_index, event_type)
+      VALUES (${recruiter_id}, ${job_id}, ${step_index}, ${event_type})
+      ON CONFLICT (recruiter_id, job_id, step_index, event_type) DO NOTHING
+    `;
+  }
+
+  async removeSubscription(recruiterId, jobId, stepIndex, eventType = 'step_completed') {
+    await this.sql`
+      DELETE FROM management.recruiter_subscriptions
+      WHERE recruiter_id = ${recruiterId}
+        AND job_id = ${jobId}
+        AND step_index = ${stepIndex}
+        AND event_type = ${eventType}
+    `;
+  }
+
+  async getSubscriptionsForStep(jobId, stepIndex, eventType) {
+    const rows = await this.sql`
+      SELECT subscription_id, recruiter_id, job_id, step_index, event_type, created_at
+      FROM management.recruiter_subscriptions
+      WHERE job_id = ${jobId}
+        AND step_index = ${stepIndex}
+        AND event_type = ${eventType}
+    `;
+    return rows;
   }
 }
 

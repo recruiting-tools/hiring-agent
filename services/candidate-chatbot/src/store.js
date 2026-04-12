@@ -22,6 +22,8 @@ export class InMemoryHiringStore {
     this.plannedMessages = [];
     this.pipelineEvents = [];
     this.idCounters = new Map();
+    // Telegram subscriptions
+    this.recruiterSubscriptions = structuredClone(seed.recruiter_subscriptions ?? []);
     // HH integration
     this.hhNegotiations = new Map();  // hh_negotiation_id → negotiation
     this.hhPollStates = new Map();    // hh_negotiation_id → pollState
@@ -274,6 +276,52 @@ export class InMemoryHiringStore {
       }
     });
     return plannedMessage;
+  }
+
+  // ─── Recruiter lookups ───────────────────────────────────────────────────────
+
+  getRecruiterById(recruiterId) {
+    return this.recruiters.find(r => r.recruiter_id === recruiterId) ?? null;
+  }
+
+  findRunById(pipelineRunId) {
+    return this.pipelineRuns.get(pipelineRunId) ?? null;
+  }
+
+  // ─── Telegram subscriptions ──────────────────────────────────────────────────
+
+  addSubscription(sub) {
+    // sub: { recruiter_id, job_id, step_index, event_type }
+    const existing = this.recruiterSubscriptions.find(
+      s => s.recruiter_id === sub.recruiter_id &&
+           s.job_id === sub.job_id &&
+           s.step_index === sub.step_index &&
+           s.event_type === sub.event_type
+    );
+    if (!existing) {
+      this.recruiterSubscriptions.push({
+        subscription_id: this.nextId('sub'),
+        created_at: new Date().toISOString(),
+        ...sub
+      });
+    }
+  }
+
+  removeSubscription(recruiterId, jobId, stepIndex, eventType = 'step_completed') {
+    this.recruiterSubscriptions = this.recruiterSubscriptions.filter(
+      s => !(s.recruiter_id === recruiterId &&
+             s.job_id === jobId &&
+             s.step_index === stepIndex &&
+             s.event_type === eventType)
+    );
+  }
+
+  getSubscriptionsForStep(jobId, stepIndex, eventType) {
+    return this.recruiterSubscriptions.filter(
+      s => s.job_id === jobId &&
+           s.step_index === stepIndex &&
+           s.event_type === eventType
+    );
   }
 
   markManualReview({ run, candidateId, reason, rawOutput }) {
