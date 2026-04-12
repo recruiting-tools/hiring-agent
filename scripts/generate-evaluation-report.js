@@ -10,8 +10,13 @@ const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const currentDate = new Date().toISOString().slice(0, 10);
-const sessionId = "c3835db7-34bc-46a3-93a1-e64f06f0d4a3";
-const targetJobIds = [4, 9, 26];
+
+// CLI args: node generate-evaluation-report.js [session_id] [job_ids_csv]
+// Example:  node generate-evaluation-report.js c3835db7-34bc-46a3-93a1-e64f06f0d4a3 4,9,26
+const sessionId = process.argv[2] ?? null;
+const targetJobIds = process.argv[3]
+  ? process.argv[3].split(",").map(Number).filter(Boolean)
+  : [4, 9, 26];
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return;

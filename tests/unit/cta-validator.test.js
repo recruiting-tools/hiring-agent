@@ -23,3 +23,12 @@ test("cta validator: accepts question-based CTA", () => {
 
   assert.equal(validateSoftCta(text).ok, true);
 });
+
+test("cta validator: accepts terminal handoff message with personal Telegram handle", () => {
+  // job-26 terminal message — 'напишите' triggers hard imperative but '@kobzevvv' is a personal contact invitation
+  const text = "Сорри, подключал тут сервис авторазбора, чето он не очень сработал, напишите пожалуйста мне в телеграм @kobzevvv";
+
+  assert.equal(hasSoftCta(text), true, "personal handle should count as soft CTA");
+  assert.equal(hasHardImperativeWithoutSoftener(text), false, "should not be flagged as hard when handle is present");
+  assert.equal(validateSoftCta(text).ok, true);
+});

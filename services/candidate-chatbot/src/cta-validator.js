@@ -8,7 +8,8 @@ const SOFT_CTA_PATTERNS = [
   /удобно/i,
   /подходит/i,
   /могу/i,
-  /прислать/i
+  /прислать/i,
+  /@[\w_]+/ // personal contact handle (Telegram etc.) — giving a direct contact is an invitation, not a coercive command
 ];
 
 const HARD_IMPERATIVE_PATTERNS = [

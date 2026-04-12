@@ -1,0 +1,193 @@
+{
+  "_comment": "V2 pipeline step fixtures for homework-closing jobs (legacy job_id 4 and 9). Steps use kind=external_action for homework flow and kind=internal_action for notify_manager. New fields: external_action_type, submission_detection_rule, follow_up_max, candidate_exit_behavior, ordering_after.",
+  "jobs": [
+    {
+      "job_id": "job-wb-card-designer-v1",
+      "legacy_job_id": 4,
+      "client_id": "client-skillset-001",
+      "title": "Дизайнер карточек для маркетплейсов (Wildberries)",
+      "description": "Топ-продавец бижутерии на WB, два бренда, 200–300 SKU. Рекламный бюджет >1M/мес.",
+      "closing_type": "homework",
+      "pipeline_template": {
+        "template_id": "tpl-wb-designer-v1",
+        "template_version": 1,
+        "name": "wb-designer-homework-v1",
+        "steps": [
+          {
+            "id": "screening",
+            "step_index": 1,
+            "kind": "question",
+            "goal": "Подтвердить must-haves: опыт WB/Ozon, портфолио, обработка фото, ИИ-инструменты",
+            "done_when": "Кандидат подтвердил опыт и прислал ссылку на портфолио",
+            "reject_when": "Нет опыта карточек для маркетплейсов или нет портфолио",
+            "follow_up_max": 1,
+            "candidate_exit_behavior": "hard_stop"
+          },
+          {
+            "id": "ab_guide_touch",
+            "step_index": 2,
+            "kind": "tell_and_ask",
+            "goal": "Дать гайд по A/B тестированию и понять фокус кандидата",
+            "done_when": "Кандидат ответил на вопрос про аналитику vs дизайн",
+            "follow_up_max": 1,
+            "candidate_exit_behavior": "skip_if_no_reply"
+          },
+          {
+            "id": "commitment",
+            "step_index": 3,
+            "kind": "question",
+            "goal": "Убедиться в интересе к вакансии после pitch компании",
+            "done_when": "Кандидат выразил интерес",
+            "reject_when": "Кандидат отказался или перестал отвечать",
+            "follow_up_max": 1,
+            "candidate_exit_behavior": "confirm_before_stop"
+          },
+          {
+            "id": "homework_offer",
+            "step_index": 4,
+            "kind": "external_action",
+            "external_action_type": "homework_offer",
+            "goal": "Предложить тестовое задание мягко, с выбором",
+            "done_when": "Кандидат отвечает согласием или задает вопрос по формату/сроку",
+            "reject_when": "Кандидат явно отказывается от тестового",
+            "follow_up_max": 1,
+            "candidate_exit_behavior": "confirm_before_stop",
+            "script": "Следующий шаг у нас — короткое тестовое задание на план A/B теста и два варианта главного слайда. Если вам ок такой формат, я пришлю детали."
+          },
+          {
+            "id": "homework_send",
+            "step_index": 5,
+            "kind": "external_action",
+            "external_action_type": "homework_send",
+            "goal": "Отправить ссылку, объём и дедлайн",
+            "done_when": "Сообщение с ссылкой, deliverable и дедлайном отправлено",
+            "follow_up_max": 0,
+            "script": "Тогда отправляю. Вот ссылка на тестовое задание и материалы: {{homework_link}}. Обычно это занимает 2–4 часа, дедлайн 1–3 дня. Если нужен другой срок, просто напишите."
+          },
+          {
+            "id": "homework_submission_detection",
+            "step_index": 6,
+            "kind": "internal",
+            "external_action_type": "submission_detection",
+            "goal": "Определить факт сдачи тестового по сообщению кандидата",
+            "done_when": "Кандидат прислал ссылку на документ, файл, или явный completion-text",
+            "submission_detection_rule": "link_or_completion_text",
+            "submission_signals": ["google.com/", "docs.google", "figma.com", "drive.google", "готово", "отправляю решение", "выполнил тестовое", "прикрепляю", "вот моя работа"],
+            "follow_up_max": 2,
+            "candidate_exit_behavior": "skip_if_no_reply"
+          },
+          {
+            "id": "homework_ack",
+            "step_index": 7,
+            "kind": "tell",
+            "external_action_type": "homework_ack",
+            "goal": "Подтвердить получение и закрыть этап для кандидата",
+            "done_when": "Acknowledgement отправлен",
+            "follow_up_max": 0,
+            "script": "Получил, спасибо. Передам коллегам на просмотр и вернусь с обратной связью."
+          },
+          {
+            "id": "notify_manager",
+            "step_index": 8,
+            "kind": "internal_action",
+            "external_action_type": "notify_manager",
+            "goal": "Поднять событие о сдаче домашнего задания в команду",
+            "done_when": "Событие notify_manager записано в pipeline_events",
+            "ordering_after": "homework_ack",
+            "follow_up_max": 0
+          }
+        ]
+      }
+    },
+    {
+      "job_id": "job-china-procurement-v1",
+      "legacy_job_id": 9,
+      "client_id": "client-skillset-001",
+      "title": "Менеджер по закупкам из Китая",
+      "description": "Поиск поставщиков 1688/Alibaba, переписка на китайском, unit-экономика.",
+      "closing_type": "homework",
+      "pipeline_template": {
+        "template_id": "tpl-china-procurement-v1",
+        "template_version": 1,
+        "name": "china-procurement-homework-v1",
+        "steps": [
+          {
+            "id": "screening",
+            "step_index": 1,
+            "kind": "question",
+            "goal": "Подтвердить must-haves: опыт закупок Китай, уровень китайского, 1688/Alibaba",
+            "done_when": "Кандидат подтвердил опыт и уровень языка",
+            "reject_when": "Нет опыта закупок из Китая или нет рабочего китайского",
+            "follow_up_max": 1,
+            "candidate_exit_behavior": "hard_stop"
+          },
+          {
+            "id": "ai_interview",
+            "step_index": 2,
+            "kind": "external_action",
+            "external_action_type": "ai_interview_link",
+            "goal": "Отправить ссылку на AI-видео интервью",
+            "done_when": "Кандидат прошёл AI interview или подтвердил прохождение",
+            "submission_detection_rule": "explicit_confirmation_or_event",
+            "follow_up_max": 2,
+            "candidate_exit_behavior": "confirm_before_stop"
+          },
+          {
+            "id": "homework_offer",
+            "step_index": 3,
+            "kind": "external_action",
+            "external_action_type": "homework_offer",
+            "goal": "Подвести к практическому кейсу после screening / AI interview",
+            "done_when": "Кандидат соглашается или задает вопрос по сроку/формату",
+            "reject_when": "Кандидат явно отказывается",
+            "follow_up_max": 1,
+            "candidate_exit_behavior": "confirm_before_stop",
+            "script": "Следующим шагом у нас небольшое практическое задание по фабрике, 1688 и сообщению поставщику. Если вам ок, я сразу пришлю ссылку."
+          },
+          {
+            "id": "homework_send",
+            "step_index": 4,
+            "kind": "external_action",
+            "external_action_type": "homework_send",
+            "goal": "Дать тестовое с понятным scope и дедлайном",
+            "done_when": "Сообщение со ссылкой, scope и дедлайном отправлено",
+            "follow_up_max": 0,
+            "script": "Тогда отправляю практическое задание: {{homework_link}}. Нужно выбрать товар, найти фабрику на 1688, прикинуть экономику и написать сообщение фабрике на китайском. Обычно это занимает 1–1.5 часа, дедлайн 3 рабочих дня."
+          },
+          {
+            "id": "homework_submission_detection",
+            "step_index": 5,
+            "kind": "internal",
+            "external_action_type": "submission_detection",
+            "goal": "Определить сдачу по сообщению кандидата",
+            "done_when": "Кандидат прислал ссылку, файл или явный completion-text",
+            "submission_detection_rule": "link_or_completion_text",
+            "submission_signals": ["google.com/", "docs.google", "1688.com", "готово", "сделал", "сделала", "отправляю решение", "прикрепляю ответ", "выполнил"],
+            "follow_up_max": 2,
+            "candidate_exit_behavior": "skip_if_no_reply"
+          },
+          {
+            "id": "homework_ack",
+            "step_index": 6,
+            "kind": "tell",
+            "external_action_type": "homework_ack",
+            "goal": "Нормально закрыть этап после сдачи",
+            "done_when": "Acknowledgement отправлен",
+            "follow_up_max": 0,
+            "script": "Получил, спасибо. Передам команде и вернусь с обратной связью."
+          },
+          {
+            "id": "notify_manager",
+            "step_index": 7,
+            "kind": "internal_action",
+            "external_action_type": "notify_manager",
+            "goal": "Сигнализировать команде о новой сдаче тестового",
+            "done_when": "Событие notify_manager записано в pipeline_events",
+            "ordering_after": "homework_ack",
+            "follow_up_max": 0
+          }
+        ]
+      }
+    }
+  ]
+}
