@@ -11,6 +11,10 @@ export class InMemoryHiringStore {
     this.plannedMessages = [];
     this.pipelineEvents = [];
     this.idCounters = new Map();
+    // HH integration
+    this.hhNegotiations = new Map();  // hh_negotiation_id → negotiation
+    this.hhPollStates = new Map();    // hh_negotiation_id → pollState
+    this.deliveryAttempts = [];       // flat array of delivery attempts
 
     for (const job of seed.jobs) {
       this.jobs.set(job.job_id, structuredClone(job));
@@ -291,6 +295,166 @@ export class InMemoryHiringStore {
           review_status: message.review_status
         }))
     };
+  }
+
+  // ─── HH Negotiations ────────────────────────────────────────────────────────
+
+  async findHhNegotiation(hhNegotiationId) {
+    return this.hhNegotiations.get(hhNegotiationId) ?? null;
+  }
+
+  async upsertHhNegotiation({ hh_negotiation_id, job_id, candidate_id, hh_vacancy_id, hh_collection, channel_thread_id }) {
+    const existing = this.hhNegotiations.get(hh_negotiation_id) ?? {};
+    const negotiation = {
+      ...existing,
+      hh_negotiation_id,
+      job_id,
+      candidate_id,
+      hh_vacancy_id,
+      hh_collection,
+      channel_thread_id,
+      created_at: existing.created_at ?? new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    this.hhNegotiations.set(hh_negotiation_id, negotiation);
+    return negotiation;
+  }
+
+  async findHhNegotiationByChannelThreadId(channelThreadId) {
+    for (const neg of this.hhNegotiations.values()) {
+      if (neg.channel_thread_id === channelThreadId) return neg;
+    }
+    return null;
+  }
+
+  async getHhNegotiationsDue() {
+    const now = new Date();
+    const result = [];
+    for (const neg of this.hhNegotiations.values()) {
+      const pollState = this.hhPollStates.get(neg.hh_negotiation_id);
+      // If no poll state yet, treat as due immediately
+      if (!pollState || new Date(pollState.next_poll_at) <= now) {
+        result.push(neg);
+      }
+    }
+    return result;
+  }
+
+  // ─── HH Poll State ───────────────────────────────────────────────────────────
+
+  async getHhPollState(hhNegotiationId) {
+    return this.hhPollStates.get(hhNegotiationId) ?? null;
+  }
+
+  async upsertHhPollState(hhNegotiationId, { last_polled_at, hh_updated_at, last_sender, awaiting_reply, next_poll_at }) {
+    const existing = this.hhPollStates.get(hhNegotiationId) ?? {};
+    const pollState = {
+      ...existing,
+      hh_negotiation_id: hhNegotiationId,
+      last_polled_at,
+      hh_updated_at,
+      last_sender,
+      awaiting_reply,
+      no_response_streak: existing.no_response_streak ?? 0,
+      next_poll_at
+    };
+    this.hhPollStates.set(hhNegotiationId, pollState);
+    return pollState;
+  }
+
+  // ─── Cron Sender ─────────────────────────────────────────────────────────────
+
+  async getPlannedMessagesDue(now) {
+    return this.plannedMessages
+      .filter((pm) => {
+        if (!["pending", "approved"].includes(pm.review_status)) return false;
+        if (!pm.auto_send_after) return false;
+        return new Date(pm.auto_send_after) <= now;
+      })
+      .map((pm) => {
+        // Resolve channel_thread_id via conversations
+        const conv = this.conversations.get(pm.conversation_id);
+        return { ...pm, channel_thread_id: conv?.channel_thread_id ?? pm.conversation_id };
+      });
+  }
+
+  // ─── Delivery Attempts ───────────────────────────────────────────────────────
+
+  async recordDeliveryAttempt({ attempt_id, planned_message_id, hh_negotiation_id, status }) {
+    const attempt = {
+      attempt_id,
+      planned_message_id,
+      hh_negotiation_id,
+      status,
+      hh_message_id: null,
+      attempted_at: new Date().toISOString(),
+      error_body: null
+    };
+    this.deliveryAttempts.push(attempt);
+    return attempt;
+  }
+
+  async getSuccessfulDeliveryAttempt(plannedMessageId) {
+    return this.deliveryAttempts.find(
+      (a) => a.planned_message_id === plannedMessageId && a.status === "delivered"
+    ) ?? null;
+  }
+
+  async markDeliveryAttemptDelivered({ attempt_id, hh_message_id }) {
+    const attempt = this.deliveryAttempts.find((a) => a.attempt_id === attempt_id);
+    if (attempt) {
+      attempt.status = "delivered";
+      attempt.hh_message_id = hh_message_id;
+    }
+  }
+
+  async markDeliveryAttemptFailed({ attempt_id, error_body }) {
+    const attempt = this.deliveryAttempts.find((a) => a.attempt_id === attempt_id);
+    if (attempt) {
+      attempt.status = "failed";
+      attempt.error_body = error_body;
+    }
+  }
+
+  async markPlannedMessageSent({ planned_message_id, sent_at, hh_message_id }) {
+    const pm = this.plannedMessages.find((m) => m.planned_message_id === planned_message_id);
+    if (pm) {
+      pm.review_status = "sent";
+      pm.sent_at = sent_at;
+    }
+  }
+
+  // ─── Alert ───────────────────────────────────────────────────────────────────
+
+  async getAwaitingReplyStaleConversations(staleMinutes) {
+    const now = new Date();
+    const result = [];
+
+    for (const [hhNegotiationId, pollState] of this.hhPollStates.entries()) {
+      if (!pollState.awaiting_reply) continue;
+
+      // Find the last delivered outbound message for this negotiation
+      const deliveredAttempts = this.deliveryAttempts
+        .filter((a) => a.hh_negotiation_id === hhNegotiationId && a.status === "delivered")
+        .sort((a, b) => new Date(b.attempted_at) - new Date(a.attempted_at));
+
+      if (deliveredAttempts.length === 0) continue;
+
+      const lastSentAt = new Date(deliveredAttempts[0].attempted_at);
+      const minutesAgo = (now - lastSentAt) / (60 * 1000);
+
+      if (minutesAgo >= staleMinutes) {
+        const negotiation = this.hhNegotiations.get(hhNegotiationId);
+        result.push({
+          hh_negotiation_id: hhNegotiationId,
+          channel_thread_id: negotiation?.channel_thread_id ?? null,
+          last_sent_at: lastSentAt.toISOString(),
+          awaiting_since_minutes: Math.floor(minutesAgo)
+        });
+      }
+    }
+
+    return result;
   }
 
   rebuildStepStateFromEvents(pipelineRunId) {
