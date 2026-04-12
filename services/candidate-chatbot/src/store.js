@@ -381,6 +381,11 @@ export class InMemoryHiringStore {
   // ─── Delivery Attempts ───────────────────────────────────────────────────────
 
   async recordDeliveryAttempt({ attempt_id, planned_message_id, hh_negotiation_id, status }) {
+    const existing = this.deliveryAttempts.find(
+      (a) => a.planned_message_id === planned_message_id && ["sending", "delivered"].includes(a.status)
+    );
+    if (existing) return existing;
+
     const attempt = {
       attempt_id,
       planned_message_id,

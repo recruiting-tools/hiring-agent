@@ -480,13 +480,27 @@ export class PostgresHiringStore {
   // ─── Delivery Attempts ───────────────────────────────────────────────────────
 
   async recordDeliveryAttempt({ attempt_id, planned_message_id, hh_negotiation_id, status }) {
-    const rows = await this.sql`
-      INSERT INTO chatbot.message_delivery_attempts
-        (attempt_id, planned_message_id, hh_negotiation_id, status)
-      VALUES (${attempt_id}, ${planned_message_id}, ${hh_negotiation_id}, ${status})
-      RETURNING *
-    `;
-    return rows[0];
+    try {
+      const rows = await this.sql`
+        INSERT INTO chatbot.message_delivery_attempts
+          (attempt_id, planned_message_id, hh_negotiation_id, status)
+        VALUES (${attempt_id}, ${planned_message_id}, ${hh_negotiation_id}, ${status})
+        RETURNING *
+      `;
+      return rows[0];
+    } catch (err) {
+      if (err.code === "23505") {
+        // Another concurrent send is in flight — return existing active attempt
+        const existing = await this.sql`
+          SELECT * FROM chatbot.message_delivery_attempts
+          WHERE planned_message_id = ${planned_message_id}
+            AND status IN ('sending', 'delivered')
+          LIMIT 1
+        `;
+        return existing[0];
+      }
+      throw err;
+    }
   }
 
   async getSuccessfulDeliveryAttempt(plannedMessageId) {

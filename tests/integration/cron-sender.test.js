@@ -191,6 +191,26 @@ test("cron sender: tick sets review_status=sent on planned_message after success
   assert.equal(updated.review_status, "sent");
 });
 
+test("send guard: concurrent sends deliver exactly once", async () => {
+  const { store, hhClient } = await makeRuntimeWithNegotiation();
+  const pm = makePlannedMessage();
+
+  const [result1, result2] = await Promise.all([
+    sendHHWithGuard({ store, hhClient, plannedMessage: pm, hhNegotiationId: "neg-001" }),
+    sendHHWithGuard({ store, hhClient, plannedMessage: pm, hhNegotiationId: "neg-001" })
+  ]);
+
+  const sentCount = [result1, result2].filter((r) => r.sent === true).length;
+  assert.equal(sentCount, 1, "Exactly one send should succeed");
+
+  const delivered = store.deliveryAttempts.filter(
+    (a) => a.planned_message_id === pm.planned_message_id && a.status === "delivered"
+  );
+  assert.equal(delivered.length, 1, "Exactly one delivered attempt should exist");
+
+  assert.equal(hhClient.sentCount(), 1, "HH API must be called exactly once");
+});
+
 test("alert: getAwaitingReplyStaleConversations returns negotiation when awaiting_reply=true and last sent > 2h ago", async () => {
   const { store } = await makeRuntimeWithNegotiation();
 

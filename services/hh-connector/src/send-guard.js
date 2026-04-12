@@ -7,13 +7,17 @@ export async function sendHHWithGuard({ store, hhClient, plannedMessage, hhNegot
     return { sent: false, duplicate: true, hh_message_id: existing.hh_message_id };
   }
 
-  // 2. Record attempt as 'sending'
+  // 2. Record attempt as 'sending' (atomic via unique index; conflict → another send is in flight)
+  const newAttemptId = randomUUID();
   const attempt = await store.recordDeliveryAttempt({
-    attempt_id: randomUUID(),
+    attempt_id: newAttemptId,
     planned_message_id: plannedMessage.planned_message_id,
     hh_negotiation_id: hhNegotiationId,
     status: "sending"
   });
+  if (attempt.attempt_id !== newAttemptId) {
+    return { sent: false, duplicate: true, hh_message_id: attempt.hh_message_id ?? null };
+  }
 
   try {
     // 3. Send via HH
