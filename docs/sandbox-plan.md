@@ -64,11 +64,12 @@ Neon branches используем как механизм изоляции ок
 
 ## Sandbox Runtime Rules
 
-В `sandbox` окружении изоляция обеспечивается тремя механизмами:
+В `sandbox` окружении обязательны:
 
 - `APP_ENV=sandbox` — читается приложением для условной логики (`/health`, `seed_version`);
-- `HH_USE_MOCK=true` — переключает HH клиент на contract mock;
-- `SECRET_PROFILE=sandbox` в deploy:sandbox — не монтирует Gemini/Telegram/HH секреты в Cloud Run.
+- `HH_USE_MOCK=true` — переключает HH клиент на contract mock.
+
+Примечание: isolation is enforced by `APP_ENV=sandbox`, `HH_USE_MOCK=true`, and no live secrets mounted in `deploy:sandbox`.
 
 Требования:
 
