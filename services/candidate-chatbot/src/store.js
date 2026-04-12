@@ -1,7 +1,18 @@
 export class InMemoryHiringStore {
   constructor(seed) {
-    this.client = structuredClone(seed.client);
-    this.recruiter = structuredClone(seed.recruiter);
+    // Support both single recruiter (old format) and array (new format)
+    this.recruiters = seed.recruiters
+      ? structuredClone(seed.recruiters)
+      : (seed.recruiter ? [structuredClone(seed.recruiter)] : []);
+    // backward compat alias
+    this.recruiter = this.recruiters[0] ?? null;
+
+    this.clients = seed.clients
+      ? structuredClone(seed.clients)
+      : (seed.client ? [structuredClone(seed.client)] : []);
+    // backward compat alias
+    this.client = this.clients[0] ?? null;
+
     this.jobs = new Map();
     this.candidates = new Map();
     this.conversations = new Map();
@@ -39,7 +50,8 @@ export class InMemoryHiringStore {
       candidate_id: fixture.candidate_id,
       channel: "test",
       channel_thread_id: fixture.conversation_id,
-      status: "open"
+      status: "open",
+      client_id: job.client_id ?? null
     };
     const pipelineRun = {
       pipeline_run_id: fixture.pipeline_run_id,
@@ -471,10 +483,7 @@ export class InMemoryHiringStore {
   // ─── Moderation UI ───────────────────────────────────────────────────────────
 
   async getRecruiterByToken(token) {
-    if (this.recruiter?.recruiter_token === token) {
-      return { ...this.recruiter };
-    }
-    return null;
+    return this.recruiters.find(r => r.recruiter_token === token) ?? null;
   }
 
   async findPlannedMessage(plannedMessageId) {
@@ -485,9 +494,21 @@ export class InMemoryHiringStore {
     const recruiter = await this.getRecruiterByToken(recruiterToken);
     if (!recruiter) return null; // null = token not found
 
+    const clientId = recruiter.client_id ?? null;
     const now = Date.now();
+
     return this.plannedMessages
       .filter((pm) => ["pending", "approved"].includes(pm.review_status))
+      .filter((pm) => {
+        // Scope by client_id. Backward compat: if job has no client_id → include.
+        const conv = this.conversations.get(pm.conversation_id);
+        if (!conv) return false;
+        const job = this.jobs.get(conv.job_id);
+        if (!job) return false;
+        // If both sides have client_id and they differ → exclude
+        if (clientId && job.client_id && job.client_id !== clientId) return false;
+        return true;
+      })
       .map((pm) => {
         const conv = this.conversations.get(pm.conversation_id);
         const candidate = this.candidates.get(pm.candidate_id);

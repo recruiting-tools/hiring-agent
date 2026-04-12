@@ -36,10 +36,19 @@ export class PostgresHiringStore {
   // Seed the DB from the iteration-1-seed.json fixture format.
   // Idempotent: uses INSERT ... ON CONFLICT DO NOTHING.
   async seed(seedData) {
+    // Upsert clients (supports clients[] array or single client object)
+    for (const client of (seedData.clients ?? (seedData.client ? [seedData.client] : []))) {
+      await this.sql`
+        INSERT INTO management.clients (client_id, name)
+        VALUES (${client.client_id}, ${client.name})
+        ON CONFLICT (client_id) DO NOTHING
+      `;
+    }
+
     for (const job of seedData.jobs) {
       await this.sql`
-        INSERT INTO chatbot.jobs (job_id, title, description)
-        VALUES (${job.job_id}, ${job.title}, ${job.description})
+        INSERT INTO chatbot.jobs (job_id, title, description, client_id)
+        VALUES (${job.job_id}, ${job.title}, ${job.description}, ${job.client_id ?? null})
         ON CONFLICT (job_id) DO NOTHING
       `;
 
@@ -61,8 +70,9 @@ export class PostgresHiringStore {
       `;
 
       await this.sql`
-        INSERT INTO chatbot.conversations (conversation_id, job_id, candidate_id, channel, channel_thread_id, status)
-        VALUES (${fixture.conversation_id}, ${fixture.job_id}, ${fixture.candidate_id}, 'test', ${fixture.conversation_id}, 'open')
+        INSERT INTO chatbot.conversations (conversation_id, job_id, candidate_id, channel, channel_thread_id, status, client_id)
+        VALUES (${fixture.conversation_id}, ${fixture.job_id}, ${fixture.candidate_id}, 'test', ${fixture.conversation_id}, 'open',
+          (SELECT client_id FROM chatbot.jobs WHERE job_id = ${fixture.job_id}))
         ON CONFLICT (conversation_id) DO NOTHING
       `;
 
@@ -86,10 +96,12 @@ export class PostgresHiringStore {
       }
     }
 
-    if (seedData.recruiter?.recruiter_token) {
+    // Upsert all recruiters (supports recruiters[] array or single recruiter object)
+    for (const rec of (seedData.recruiters ?? (seedData.recruiter ? [seedData.recruiter] : []))) {
+      if (!rec.recruiter_token) continue;
       await this.sql`
         INSERT INTO chatbot.recruiters (recruiter_id, client_id, email, recruiter_token)
-        VALUES (${seedData.recruiter.recruiter_id}, ${seedData.recruiter.client_id}, ${seedData.recruiter.email}, ${seedData.recruiter.recruiter_token})
+        VALUES (${rec.recruiter_id}, ${rec.client_id}, ${rec.email}, ${rec.recruiter_token})
         ON CONFLICT (recruiter_id) DO UPDATE SET recruiter_token = EXCLUDED.recruiter_token
       `;
     }
@@ -98,7 +110,7 @@ export class PostgresHiringStore {
   }
 
   async _loadJobsFromDb() {
-    const jobs = await this.sql`SELECT job_id, title, description FROM chatbot.jobs`;
+    const jobs = await this.sql`SELECT job_id, title, description, client_id FROM chatbot.jobs`;
     const templates = await this.sql`
       SELECT template_id, template_version, job_id, name, steps_json FROM chatbot.pipeline_templates
     `;
@@ -110,6 +122,7 @@ export class PostgresHiringStore {
           job_id: job.job_id,
           title: job.title,
           description: job.description,
+          client_id: job.client_id ?? null,
           pipeline_template: {
             template_id: tpl.template_id,
             template_version: tpl.template_version,
@@ -616,10 +629,12 @@ export class PostgresHiringStore {
         pm.auto_send_after,
         EXTRACT(EPOCH FROM (pm.auto_send_after - now()))::int AS seconds_until_auto_send
       FROM chatbot.planned_messages pm
-      JOIN chatbot.conversations c ON c.conversation_id = pm.conversation_id
-      JOIN chatbot.candidates cand ON cand.candidate_id = pm.candidate_id
-      JOIN chatbot.jobs j ON j.job_id = c.job_id
+      JOIN chatbot.conversations c    ON c.conversation_id = pm.conversation_id
+      JOIN chatbot.candidates cand    ON cand.candidate_id = pm.candidate_id
+      JOIN chatbot.jobs j             ON j.job_id = c.job_id
+      JOIN chatbot.recruiters r       ON r.recruiter_token = ${recruiterToken}
       WHERE pm.review_status IN ('pending', 'approved')
+        AND (j.client_id IS NULL OR j.client_id = r.client_id)
       ORDER BY pm.auto_send_after ASC
     `;
     return rows;

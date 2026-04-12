@@ -11,6 +11,7 @@
     "test:hh": "node --test tests/integration/hh-connector.test.js",
     "test:cron": "node --test tests/integration/cron-sender.test.js",
     "test:moderation": "node --test tests/integration/moderation-ui.test.js",
+    "test:tenant": "node --test tests/integration/multi-tenant.test.js",
     "seed:dev": "node scripts/seed-dev-db.js"
   },
   "workspaces": [
