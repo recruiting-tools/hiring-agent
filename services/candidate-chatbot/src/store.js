@@ -454,6 +454,15 @@ export class InMemoryHiringStore {
       );
     }
 
+    if (needsReset) {
+      for (const plannedMessage of this.plannedMessages) {
+        if (plannedMessage.conversation_id !== conversation_id) continue;
+        if (!["pending", "approved"].includes(plannedMessage.review_status)) continue;
+        plannedMessage.review_status = "blocked";
+        plannedMessage.reason = appendImportResetReason(plannedMessage.reason);
+      }
+    }
+
     await this.upsertHhNegotiation({
       hh_negotiation_id: hhNegotiation.id,
       job_id,
@@ -863,4 +872,10 @@ function buildPlannedMessageReason(llmOutput, job) {
     ? ` Отказ по шагу ${llmOutput.rejected_step_id}.`
     : "";
   return `${completed}${missing}${reject} Вакансия: ${job.title}.`;
+}
+
+function appendImportResetReason(reason) {
+  const suffix = " Заблокировано после HH re-import remap.";
+  if (!reason) return suffix.trim();
+  return reason.includes("HH re-import remap") ? reason : `${reason}${suffix}`;
 }

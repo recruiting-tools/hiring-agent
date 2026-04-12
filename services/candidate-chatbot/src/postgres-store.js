@@ -521,6 +521,17 @@ export class PostgresHiringStore {
         DELETE FROM chatbot.pipeline_step_state
         WHERE pipeline_run_id = ${pipeline_run_id}
       `;
+      await this.sql`
+        UPDATE chatbot.planned_messages
+        SET review_status = 'blocked',
+            reason = CASE
+              WHEN reason IS NULL OR reason = '' THEN 'Заблокировано после HH re-import remap.'
+              WHEN position('HH re-import remap' in reason) > 0 THEN reason
+              ELSE reason || ' Заблокировано после HH re-import remap.'
+            END
+        WHERE conversation_id = ${conversation_id}
+          AND review_status IN ('pending', 'approved')
+      `;
     }
 
     if (!existingRun || needsReset) {

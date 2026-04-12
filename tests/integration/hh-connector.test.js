@@ -317,6 +317,101 @@ test("hh connector: syncApplicants reconciles job and template when vacancy mapp
   assert.equal(stepStates[0].state, "active");
 });
 
+test("hh connector: syncApplicants continues import when one resume is unavailable", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.addNegotiation("neg-missing-resume", [
+    { id: "msg-1", author: "applicant", text: "Первый кандидат", created_at: "2026-04-12T09:00:00Z" }
+  ], {
+    hh_vacancy_id: "131345849",
+    updated_at: "2026-04-12T09:30:00Z",
+    resume: { id: "resume-missing", url: "https://api.hh.ru/resumes/resume-missing" },
+    vacancy: { id: "131345849", name: "Закупщик (Китай)" }
+  });
+  hhClient.addNegotiation("neg-good-resume", [
+    { id: "msg-2", author: "applicant", text: "Второй кандидат", created_at: "2026-04-12T09:30:00Z" }
+  ], {
+    hh_vacancy_id: "131345849",
+    updated_at: "2026-04-12T09:00:00Z",
+    resume: { id: "resume-good", url: "https://api.hh.ru/resumes/resume-good" },
+    vacancy: { id: "131345849", name: "Закупщик (Китай)" }
+  });
+  hhClient.seedResume({ id: "resume-good", first_name: "Мария", last_name: "Иванова" });
+  const originalGetResume = hhClient.getResume.bind(hhClient);
+  hhClient.getResume = async (resumeIdOrUrl) => {
+    const resumeId = String(resumeIdOrUrl).split("/").at(-1);
+    if (resumeId === "resume-missing") {
+      const error = new Error("Negotiation not found");
+      error.status = 404;
+      throw error;
+    }
+    return originalGetResume(resumeIdOrUrl);
+  };
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot,
+    vacancyMappings: [{ hh_vacancy_id: "131345849", job_id: "job-zakup-china" }]
+  });
+
+  const result = await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+
+  assert.equal(result.imported_negotiations, 2);
+  assert.ok(await store.findHhNegotiation("neg-missing-resume"));
+  assert.ok(await store.findHhNegotiation("neg-good-resume"));
+  const fallbackCandidate = await store.getCandidate("cand-hh-neg-missing-resume");
+  assert.equal(fallbackCandidate.display_name, "resume-missing");
+  const importedCandidate = await store.getCandidate("cand-hh-neg-good-resume");
+  assert.equal(importedCandidate.display_name, "Мария Иванова");
+});
+
+test("hh connector: syncApplicants blocks stale planned messages when remap resets imported run", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.addNegotiation("neg-remap-queue", [
+    { id: "msg-1", author: "applicant", text: "Есть опыт", created_at: "2026-04-12T10:00:00Z" }
+  ], {
+    hh_vacancy_id: "132032392",
+    updated_at: "2026-04-12T10:00:00Z",
+    resume: { id: "resume-remap-queue", url: "https://api.hh.ru/resumes/resume-remap-queue" },
+    vacancy: { id: "132032392", name: "Менеджер по продажам" }
+  });
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot,
+    vacancyMappings: [{ hh_vacancy_id: "132032392", job_id: "job-zakup-china" }]
+  });
+
+  await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+  store.plannedMessages.push({
+    planned_message_id: "pm-remap-stale",
+    conversation_id: "conv-hh-neg-remap-queue",
+    candidate_id: "cand-hh-neg-remap-queue",
+    pipeline_run_id: "run-hh-neg-remap-queue",
+    step_id: "direct_china_suppliers",
+    body: "Старый драфт",
+    reason: "Сгенерировано до remap",
+    review_status: "pending",
+    moderation_policy: "window_to_reject",
+    send_after: new Date(Date.now() + 60_000).toISOString(),
+    auto_send_after: new Date(Date.now() + 60_000).toISOString()
+  });
+
+  connector.vacancyMappings = [{ hh_vacancy_id: "132032392", job_id: "job-b2b-sales-manager" }];
+  await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+
+  const staleMessage = store.plannedMessages.find((item) => item.planned_message_id === "pm-remap-stale");
+  assert.equal(staleMessage.review_status, "blocked");
+  assert.match(staleMessage.reason, /HH re-import remap/);
+  const queue = await store.getQueueForRecruiter("rec-tok-demo-001");
+  assert.ok(!queue.some((item) => item.planned_message_id === "pm-remap-stale"));
+});
+
 test("hh connector: syncApplicants keeps separate imported candidates per negotiation even for shared resume", async () => {
   const store = new InMemoryHiringStore(seed);
   const llmAdapter = new FakeLlmAdapter();

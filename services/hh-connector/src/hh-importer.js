@@ -58,7 +58,7 @@ export class HhImporter {
 
   async importNegotiation({ item, job_id }) {
     const existing = await this.store.findHhNegotiation(item.id);
-    const resume = item.resume?.id ? await this.hhClient.getResume(item.resume.id) : null;
+    const resume = await this.getResumeSafe(item);
     const ids = await this.store.ensureImportedHhNegotiation({
       hhNegotiation: item,
       job_id,
@@ -94,6 +94,16 @@ export class HhImporter {
       imported_negotiation: !existing,
       imported_messages
     };
+  }
+
+  async getResumeSafe(item) {
+    if (!item.resume?.id) return null;
+    try {
+      return await this.hhClient.getResume(item.resume.id);
+    } catch (error) {
+      console.warn(`Failed to import HH resume ${item.resume.id} for negotiation ${item.id}: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   }
 }
 
