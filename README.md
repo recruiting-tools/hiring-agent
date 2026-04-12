@@ -109,6 +109,48 @@ GEMINI_API_KEY=...         # уже есть в shell
 
 4. **SSL-сертификат** выпускается автоматически ~15–60 мин после создания маппинга.
 
+### Что ещё не сделано
+
+#### HH.ru — реальные кандидаты (Фаза 3)
+
+Единственный блокер: HH employer OAuth access_token. Всё остальное — Claude.
+
+| # | Что | Кто |
+|---|-----|-----|
+| 3.1 | `GET /hh-callback/` — принимает `?code=`, обменивает на tokens, пишет в `management.oauth_tokens` | 🤖 |
+| 3.2 | Migration 009: `management.oauth_tokens` + `management.feature_flags` | 🤖 |
+| 3.3 | `token-refresher.js` — рефреш за 1 час до истечения (access живёт 14 дней, refresh 90) | 🤖 |
+| 3.4 | `POST /internal/hh-poll` — защищённый endpoint для Cloud Scheduler | 🤖 |
+| 3.5 | Cloud Scheduler job: каждые 60 сек → `POST /internal/hh-poll` | 🤖 |
+| 3.6 | OAuth flow: открыть URL как работодатель hh.ru, передать `?code=` Claude | 👤 |
+| 3.7 | Откликнуться на `https://hh.ru/vacancy/132032392` | 👤 |
+| 3.8 | Включить отправку: `UPDATE management.feature_flags SET enabled=true WHERE flag='hh_send'` | 👤+🤖 |
+
+**HH OAuth URL** (открыть как работодатель):
+```
+https://hh.ru/oauth/authorize?response_type=code&client_id=THFMPVJIDL4MHTM5EE4AFS96MTUDOFOF9UURDFI539OOJF8VCCLKJLENSOI0PCEJ&redirect_uri=https://recruiter-assistant.com/hh-callback/
+```
+
+**Production readiness gate** (перед включением `hh_send=true`):
+- [ ] `/health` SHA верифицирован
+- [ ] `pnpm test:all` зелёный
+- [ ] Staging smoke: webhook → planned_message → "Отправить сейчас" → статус sent
+- [ ] Staging smoke: "Заблокировать" → не отправляется
+- [ ] Tenant isolation: токен Alpha не видит Beta
+- [ ] Kill switch: `hh_send=false` → нет отправок, polling продолжается
+
+#### Telegram — prod wiring (Фаза 4)
+
+Код уже написан (iteration 6). Осталось подключить в проде:
+
+| # | Что | Кто |
+|---|-----|-----|
+| 4.1 | `setWebhook` → `https://candidate-chatbot.recruiter-assistant.com/tg/webhook` | 🤖 |
+| 4.2 | Seed подписок в `chatbot.recruiter_subscriptions` для `rec-tok-prod-001` | 🤖 |
+| 4.3 | Написать `/start` боту `@hiring_agnet_bot` | 👤 |
+
+---
+
 ### XP правила
 
 - Каждая итерация начинается с failing теста
