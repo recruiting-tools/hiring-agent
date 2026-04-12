@@ -33,7 +33,7 @@ GEMINI_API_KEY=...         # уже есть в shell
 
 Кандидат пишет → `hh-connector` принимает и пишет в DB → `candidate-chatbot` читает pipeline state → LLM (Gemini Flash) генерирует ответ → `planned_messages` → cron отправляет через N минут (рекрутер может заблокировать).
 
-Подробная спека: [`../recruiter-agent-light-spec/hiring-agent-ep-aproach-plan-by-claude.md`](../recruiter-agent-light-spec/hiring-agent-ep-aproach-plan-by-claude.md)
+Подробная спека: [`docs/spec-by-claude.md`](docs/spec-by-claude.md)
 
 ---
 
@@ -92,6 +92,6 @@ GEMINI_API_KEY=...         # уже есть в shell
 
 ### Документы спеки
 
-Все в `../recruiter-agent-light-spec/`:
-- `hiring-agent-ep-aproach-plan-by-claude.md` — основной план
-- `access-readiness-plan-by-claude.md` — доступы и инфра
+Все в `docs/`:
+- [`docs/spec-by-claude.md`](docs/spec-by-claude.md) — основной план (EP approach, архитектура, DB schema, XP итерации)
+- [`docs/access-readiness.md`](docs/access-readiness.md) — доступы, Neon org, GCP, env vars
