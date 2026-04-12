@@ -1,0 +1,5 @@
+{
+  "status": 401,
+  "error": "expired_token",
+  "description": "Access token expired"
+}

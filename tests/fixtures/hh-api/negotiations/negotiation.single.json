@@ -1,0 +1,15 @@
+{
+  "id": "neg-001",
+  "updated_at": "2026-04-12T10:01:00Z",
+  "state": {
+    "id": "response"
+  },
+  "resume": {
+    "id": "resume-001",
+    "url": "https://api.hh.ru/resumes/resume-001"
+  },
+  "vacancy": {
+    "id": "vac-001",
+    "name": "Закупщик из Китая"
+  }
+}

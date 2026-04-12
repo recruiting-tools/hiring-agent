@@ -3,11 +3,16 @@ import { FakeLlmAdapter } from "./fake-llm-adapter.js";
 import { GeminiAdapter } from "./gemini-adapter.js";
 import { createCandidateChatbot } from "./handlers.js";
 import { createHttpServer } from "./http-server.js";
+import { HhApiClient } from "../../hh-connector/src/hh-api-client.js";
+import { FakeHhClient } from "../../hh-connector/src/hh-client.js";
+import { HhContractMock } from "../../hh-connector/src/hh-contract-mock.js";
 import { InMemoryHiringStore } from "./store.js";
 import { PostgresHiringStore } from "./postgres-store.js";
 import { NotificationDispatcher } from "./notification-dispatcher.js";
 import { FakeTelegramClient } from "./fake-telegram-client.js";
 import { TelegramNotifier } from "./telegram-notifier.js";
+import { runPollOnce } from "../../hh-connector/src/poll-loop.js";
+import { TokenRefresher } from "../../hh-connector/src/token-refresher.js";
 
 let store;
 
@@ -57,7 +62,41 @@ const notificationDispatcher = new NotificationDispatcher(store, telegramClient)
 
 const app = createCandidateChatbot({ store, llmAdapter, notificationDispatcher });
 
+const hhOAuthClient = process.env.HH_CLIENT_ID && process.env.HH_CLIENT_SECRET && process.env.HH_REDIRECT_URI
+  ? new HhApiClient({
+      clientId: process.env.HH_CLIENT_ID,
+      clientSecret: process.env.HH_CLIENT_SECRET,
+      redirectUri: process.env.HH_REDIRECT_URI,
+      tokenStore: {
+        getTokens: () => store.getHhOAuthTokens("hh"),
+        setTokens: (tokens) => store.setHhOAuthTokens("hh", tokens)
+      }
+    })
+  : null;
+
+const hhPollClient = process.env.HH_USE_MOCK === "true"
+  ? await HhContractMock.create()
+  : (hhOAuthClient ?? new FakeHhClient());
+
+const tokenRefresher = hhOAuthClient
+  ? new TokenRefresher({ store, hhApiClient: hhOAuthClient })
+  : null;
+
+const hhPollRunner = {
+  async pollAll() {
+    if (tokenRefresher) {
+      await tokenRefresher.refreshIfNeeded();
+    }
+    return runPollOnce({ store, hhClient: hhPollClient, chatbot: app });
+  }
+};
+
 const port = Number(process.env.PORT ?? 3000);
-createHttpServer(app, { store }).listen(port, () => {
+createHttpServer(app, {
+  store,
+  hhOAuthClient,
+  hhPollRunner,
+  internalApiToken: process.env.INTERNAL_API_TOKEN ?? null
+}).listen(port, () => {
   console.log(`candidate-chatbot listening on :${port}`);
 });

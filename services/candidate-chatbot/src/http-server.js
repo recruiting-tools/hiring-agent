@@ -156,9 +156,11 @@ const MODERATION_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-export function createHttpServer(app, { store } = {}) {
+export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, internalApiToken } = {}) {
   return createServer(async (request, response) => {
     try {
+      const requestUrl = new URL(request.url, "http://localhost");
+
       if (request.method === "POST" && request.url === "/webhook/message") {
         const body = await readJsonBody(request);
         const result = await app.postWebhookMessage(body);
@@ -179,6 +181,53 @@ export function createHttpServer(app, { store } = {}) {
           commit: process.env.DEPLOY_SHA || "unknown",
           deployed_at: process.env.DEPLOY_TIME || null
         });
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/hh-callback/") {
+        if (!hhOAuthClient) {
+          writeJson(response, 503, { error: "hh_oauth_not_configured" });
+          return;
+        }
+        const code = requestUrl.searchParams.get("code");
+        if (!code) {
+          writeJson(response, 400, { error: "missing_code" });
+          return;
+        }
+        const tokens = await hhOAuthClient.exchangeCodeForTokens(code);
+        const me = await hhOAuthClient.getMe();
+        writeJson(response, 200, {
+          ok: true,
+          provider: "hh",
+          employer_id: me.id ?? null,
+          manager_id: me.manager?.id ?? null,
+          expires_at: tokens.expires_at
+        });
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/internal/hh-poll") {
+        if (!isAuthorizedInternalRequest(request, internalApiToken)) {
+          writeJson(response, 401, { error: "unauthorized" });
+          return;
+        }
+        if (!hhPollRunner) {
+          writeJson(response, 503, { error: "hh_poll_not_configured" });
+          return;
+        }
+        const hhImport = store ? await store.getFeatureFlag("hh_import") : null;
+        if (hhImport && hhImport.enabled === false) {
+          writeJson(response, 200, { ok: true, skipped: true, reason: "hh_import_disabled" });
+          return;
+        }
+        const result = await hhPollRunner.pollAll();
+        writeJson(response, 200, { ok: true, ...(result ?? {}) });
+        return;
+      }
+
+      if (request.method === "GET" && request.url === "/") {
+        response.writeHead(302, { location: "/login" });
+        response.end();
         return;
       }
 
@@ -271,6 +320,12 @@ export function createHttpServer(app, { store } = {}) {
       });
     }
   });
+}
+
+function isAuthorizedInternalRequest(request, expectedToken) {
+  if (!expectedToken) return false;
+  const auth = request.headers.authorization ?? "";
+  return auth === `Bearer ${expectedToken}`;
 }
 
 async function readJsonBody(request) {

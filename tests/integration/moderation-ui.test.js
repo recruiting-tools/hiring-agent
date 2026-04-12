@@ -34,6 +34,20 @@ function makePendingMessage(overrides = {}) {
   };
 }
 
+test("moderation: GET / redirects to login instead of returning not_found", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const app = createCandidateChatbot({ store, llmAdapter: new FakeLlmAdapter() });
+  const server = createHttpServer(app, { store }).listen(0);
+  try {
+    const port = server.address().port;
+    const response = await fetch(`http://localhost:${port}/`, { redirect: "manual" });
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get("location"), "/login");
+  } finally {
+    server.close();
+  }
+});
+
 // ─── Test 1 ───────────────────────────────────────────────────────────────────
 test("moderation: GET /recruiter/:token/queue returns 404 for unknown token", async () => {
   const store = new InMemoryHiringStore(seed);

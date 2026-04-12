@@ -15,6 +15,9 @@ export class PostgresHiringStore {
   async reset() {
     await this.sql`
       TRUNCATE TABLE
+        management.feature_flags,
+        management.oauth_tokens,
+        management.recruiter_subscriptions,
         chatbot.message_delivery_attempts,
         chatbot.hh_poll_state,
         chatbot.hh_negotiations,
@@ -827,6 +830,66 @@ export class PostgresHiringStore {
         AND event_type = ${eventType}
     `;
     return rows;
+  }
+
+  // ─── Management / HH OAuth ──────────────────────────────────────────────────
+
+  async getHhOAuthTokens(provider = "hh") {
+    const rows = await this.sql`
+      SELECT provider, access_token, refresh_token, token_type, expires_at, scope, metadata, created_at, updated_at
+      FROM management.oauth_tokens
+      WHERE provider = ${provider}
+    `;
+    return rows[0] ?? null;
+  }
+
+  async setHhOAuthTokens(provider = "hh", tokens) {
+    const rows = await this.sql`
+      INSERT INTO management.oauth_tokens
+        (provider, access_token, refresh_token, token_type, expires_at, scope, metadata, updated_at)
+      VALUES (
+        ${provider},
+        ${tokens.access_token},
+        ${tokens.refresh_token ?? null},
+        ${tokens.token_type ?? "bearer"},
+        ${tokens.expires_at ?? null},
+        ${tokens.scope ?? null},
+        ${JSON.stringify(tokens.metadata ?? {})},
+        now()
+      )
+      ON CONFLICT (provider) DO UPDATE SET
+        access_token = EXCLUDED.access_token,
+        refresh_token = COALESCE(EXCLUDED.refresh_token, management.oauth_tokens.refresh_token),
+        token_type = EXCLUDED.token_type,
+        expires_at = EXCLUDED.expires_at,
+        scope = EXCLUDED.scope,
+        metadata = EXCLUDED.metadata,
+        updated_at = now()
+      RETURNING provider, access_token, refresh_token, token_type, expires_at, scope, metadata, created_at, updated_at
+    `;
+    return rows[0];
+  }
+
+  async getFeatureFlag(flag) {
+    const rows = await this.sql`
+      SELECT flag, enabled, description, created_at, updated_at
+      FROM management.feature_flags
+      WHERE flag = ${flag}
+    `;
+    return rows[0] ?? null;
+  }
+
+  async setFeatureFlag(flag, enabled, description = null) {
+    const rows = await this.sql`
+      INSERT INTO management.feature_flags (flag, enabled, description, updated_at)
+      VALUES (${flag}, ${enabled}, ${description}, now())
+      ON CONFLICT (flag) DO UPDATE SET
+        enabled = EXCLUDED.enabled,
+        description = COALESCE(EXCLUDED.description, management.feature_flags.description),
+        updated_at = now()
+      RETURNING flag, enabled, description, created_at, updated_at
+    `;
+    return rows[0];
   }
 }
 

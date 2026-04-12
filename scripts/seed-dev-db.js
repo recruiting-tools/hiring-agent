@@ -26,8 +26,8 @@ try {
   console.log(`Seeded ${seed.jobs.length} jobs and ${seed.candidate_fixtures.length} candidate fixtures.`);
 
   // Set demo password for the demo recruiter (recruiter_id from seed fixture)
-  const demoEmail = "demo@hiring-agent.app";
-  const demoPassword = "demo1234";
+  const demoEmail = process.env.DEMO_EMAIL ?? "demo@hiring-agent.app";
+  const demoPassword = process.env.DEMO_PASSWORD ?? "demo1234";
   const passwordHash = await bcrypt.hash(demoPassword, 10);
 
   // Update the seeded recruiter email and set password
@@ -36,7 +36,8 @@ try {
     SET email = ${demoEmail}, password_hash = ${passwordHash}
     WHERE recruiter_id = 'recruiter-demo-001'
   `;
-  console.log(`Set demo credentials: email=${demoEmail} / password=${demoPassword}`);
+  console.log(`Set demo credentials: email=${demoEmail}`);
+  console.log(`Demo password source: ${process.env.DEMO_PASSWORD ? "environment variable" : "default dev fallback"}`);
 } finally {
   await store.close();
 }

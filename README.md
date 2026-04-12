@@ -115,6 +115,8 @@ GEMINI_API_KEY=...         # уже есть в shell
 
 Единственный блокер: HH employer OAuth access_token. Всё остальное — Claude.
 
+Обновление от 2026-04-12: отдельную платную тестовую вакансию не заводим. Сначала делаем контрактный mock HH API и библиотеку redacted fixtures, потом выполняем ограниченный live smoke через существующие HH данные и allowlisted тестового кандидата по `resume_id`. Подробный план: [`docs/hh-api-mocking-plan.md`](docs/hh-api-mocking-plan.md).
+
 | # | Что | Кто |
 |---|-----|-----|
 | 3.1 | `GET /hh-callback/` — принимает `?code=`, обменивает на tokens, пишет в `management.oauth_tokens` | 🤖 |
@@ -133,6 +135,7 @@ https://hh.ru/oauth/authorize?response_type=code&client_id=THFMPVJIDL4MHTM5EE4AF
 
 **Production readiness gate** (перед включением `hh_send=true`):
 - [ ] `/health` SHA верифицирован
+- [ ] Public entrypoint smoke: `GET /` возвращает 2xx/3xx и не `{"error":"not_found"}`, `GET /login` возвращает HTML 200
 - [ ] `pnpm test:all` зелёный
 - [ ] Staging smoke: webhook → planned_message → "Отправить сейчас" → статус sent
 - [ ] Staging smoke: "Заблокировать" → не отправляется

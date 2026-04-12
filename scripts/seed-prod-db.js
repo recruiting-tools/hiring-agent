@@ -11,6 +11,15 @@ if (!DB_URL) {
   process.exit(1);
 }
 
+const demoEmail = process.env.DEMO_EMAIL ?? "demo@hiring-agent.app";
+const demoPassword = process.env.DEMO_PASSWORD;
+const recruiterToken = process.env.DEMO_RECRUITER_TOKEN ?? "rec-tok-prod-001";
+
+if (!demoPassword) {
+  console.error("ERROR: DEMO_PASSWORD environment variable is required for production seed");
+  process.exit(1);
+}
+
 const client = new pg.Client({ connectionString: DB_URL });
 await client.connect();
 
@@ -71,24 +80,23 @@ try {
   console.log("  pipeline template: tpl-prod-001");
 
   // 4. Recruiter with demo credentials
-  const demoEmail = "demo@hiring-agent.app";
-  const demoPassword = "demo1234";
   const passwordHash = await bcrypt.hash(demoPassword, 10);
 
   await client.query(`
     INSERT INTO chatbot.recruiters (recruiter_id, client_id, email, recruiter_token, password_hash)
-    VALUES ('recruiter-prod-001', 'client-prod-001', $1, 'rec-tok-prod-001', $2)
+    VALUES ('recruiter-prod-001', 'client-prod-001', $1, $2, $3)
     ON CONFLICT (recruiter_id) DO UPDATE SET
       email = EXCLUDED.email,
       password_hash = EXCLUDED.password_hash,
       recruiter_token = EXCLUDED.recruiter_token
-  `, [demoEmail, passwordHash]);
-  console.log(`  recruiter: ${demoEmail} / ${demoPassword}`);
+  `, [demoEmail, recruiterToken, passwordHash]);
+  console.log(`  recruiter: ${demoEmail}`);
+  console.log("  recruiter password source: environment variable");
 
   console.log("Done. Production DB seeded.");
   console.log("Login: https://candidate-chatbot.recruiter-assistant.com/login");
   console.log(`  email: ${demoEmail}`);
-  console.log(`  password: ${demoPassword}`);
+  console.log("  password: from DEMO_PASSWORD env");
 } finally {
   await client.end();
 }

@@ -19,3 +19,9 @@ export function startPollLoop({ store, hhClient, chatbot, intervalMs = 60_000 })
   tick();
   return setInterval(tick, intervalMs);
 }
+
+export async function runPollOnce({ store, hhClient, chatbot }) {
+  const connector = new HhConnector({ store, hhClient, chatbot });
+  await connector.pollAll();
+  return { polled: "all_due" };
+}

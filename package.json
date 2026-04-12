@@ -8,13 +8,18 @@
     "test": "node --test tests/integration/candidate-chatbot.test.js",
     "test:postgres": "node --test tests/integration/candidate-chatbot-postgres.test.js",
     "test:unit": "node --test tests/unit/prompt-builder.test.js",
-    "test:hh": "node --test tests/integration/hh-connector.test.js",
+    "test:hh": "node --test tests/integration/hh-connector.test.js tests/integration/hh-api-client.test.js",
     "test:cron": "node --test tests/integration/cron-sender.test.js",
     "test:moderation": "node --test tests/integration/moderation-ui.test.js",
     "test:tenant": "node --test tests/integration/multi-tenant.test.js",
     "test:telegram": "node --test tests/integration/telegram-notifications.test.js",
     "seed:dev": "node scripts/seed-dev-db.js",
-    "test:all": "node --test tests/**/*.test.js"
+    "seed:sandbox": "node scripts/seed-sandbox-db.js",
+    "bootstrap:demo-user": "node scripts/bootstrap-demo-user.js",
+    "test:all": "node --test tests/**/*.test.js",
+    "test:sandbox": "pnpm test:moderation && pnpm test:hh && pnpm test:cron && pnpm test:tenant",
+    "smoke:sandbox": "node scripts/smoke-sandbox.js",
+    "report:legacy": "node scripts/legacy-pipeline-report.js"
   },
   "workspaces": [
     "services/*",

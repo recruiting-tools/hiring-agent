@@ -28,6 +28,11 @@ export class InMemoryHiringStore {
     this.hhNegotiations = new Map();  // hh_negotiation_id → negotiation
     this.hhPollStates = new Map();    // hh_negotiation_id → pollState
     this.deliveryAttempts = [];       // flat array of delivery attempts
+    this.oauthTokens = new Map();     // provider → token row
+    this.featureFlags = new Map([
+      ["hh_send", { flag: "hh_send", enabled: false, description: "Controls outbound HH sending" }],
+      ["hh_import", { flag: "hh_import", enabled: false, description: "Controls HH applicant import and polling" }]
+    ]);
 
     for (const job of seed.jobs) {
       this.jobs.set(job.job_id, structuredClone(job));
@@ -535,6 +540,46 @@ export class InMemoryHiringStore {
     }
 
     return result;
+  }
+
+  // ─── Management / HH OAuth ──────────────────────────────────────────────────
+
+  async getHhOAuthTokens(provider = "hh") {
+    return this.oauthTokens.get(provider) ?? null;
+  }
+
+  async setHhOAuthTokens(provider = "hh", tokens) {
+    const existing = this.oauthTokens.get(provider) ?? null;
+    const row = {
+      provider,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token ?? existing?.refresh_token ?? null,
+      token_type: tokens.token_type ?? existing?.token_type ?? "bearer",
+      expires_at: tokens.expires_at ?? existing?.expires_at ?? null,
+      scope: tokens.scope ?? existing?.scope ?? null,
+      metadata: structuredClone(tokens.metadata ?? existing?.metadata ?? {}),
+      created_at: existing?.created_at ?? new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    this.oauthTokens.set(provider, row);
+    return row;
+  }
+
+  async getFeatureFlag(flag) {
+    return this.featureFlags.get(flag) ?? null;
+  }
+
+  async setFeatureFlag(flag, enabled, description = null) {
+    const existing = this.featureFlags.get(flag) ?? null;
+    const row = {
+      flag,
+      enabled,
+      description: description ?? existing?.description ?? null,
+      created_at: existing?.created_at ?? new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    this.featureFlags.set(flag, row);
+    return row;
   }
 
   // ─── Moderation UI ───────────────────────────────────────────────────────────

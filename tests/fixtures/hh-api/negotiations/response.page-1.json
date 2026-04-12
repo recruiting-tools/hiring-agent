@@ -1,0 +1,38 @@
+{
+  "found": 2,
+  "page": 0,
+  "pages": 1,
+  "per_page": 20,
+  "items": [
+    {
+      "id": "neg-001",
+      "updated_at": "2026-04-12T10:01:00Z",
+      "state": {
+        "id": "response"
+      },
+      "resume": {
+        "id": "resume-001",
+        "url": "https://api.hh.ru/resumes/resume-001"
+      },
+      "vacancy": {
+        "id": "vac-001",
+        "name": "Закупщик из Китая"
+      }
+    },
+    {
+      "id": "neg-002",
+      "updated_at": "2026-04-12T11:00:00Z",
+      "state": {
+        "id": "response"
+      },
+      "resume": {
+        "id": "resume-shared",
+        "url": "https://api.hh.ru/resumes/resume-shared"
+      },
+      "vacancy": {
+        "id": "vac-002",
+        "name": "Менеджер по продажам"
+      }
+    }
+  ]
+}

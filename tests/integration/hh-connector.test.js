@@ -5,6 +5,7 @@ import { FakeLlmAdapter } from "../../services/candidate-chatbot/src/fake-llm-ad
 import { createCandidateChatbot } from "../../services/candidate-chatbot/src/handlers.js";
 import { InMemoryHiringStore } from "../../services/candidate-chatbot/src/store.js";
 import { FakeHhClient } from "../../services/hh-connector/src/hh-client.js";
+import { HhContractMock, loadHhFixtureLibrary } from "../../services/hh-connector/src/hh-contract-mock.js";
 import { HhConnector } from "../../services/hh-connector/src/hh-connector.js";
 
 const seed = JSON.parse(await readFile(new URL("../fixtures/iteration-1-seed.json", import.meta.url), "utf8"));
@@ -173,4 +174,81 @@ test("hh connector: pollAll only polls negotiations where next_poll_at <= now", 
   // neg-future should have its poll state unchanged (next_poll_at still in the future)
   const futureMessages = store.messages.filter((m) => m.conversation_id === "conv-cook-001");
   assert.equal(futureMessages.length, 0, "neg-future should not have been polled");
+});
+
+test("hh contract mock: fixture library loads manifest and reversed messages fixture", async () => {
+  const library = await loadHhFixtureLibrary();
+
+  assert.equal(library.manifest.schema_version, 1);
+  assert.ok(library.fixtures.has("negotiations.messages.reversed"));
+  assert.deepEqual(
+    library.fixtures.get("negotiations.messages.reversed").body.items.map((item) => item.id),
+    ["m2", "m1"]
+  );
+});
+
+test("hh contract mock: listNegotiations paginates and preserves same resume_id across vacancy ids", async () => {
+  const hhClient = await HhContractMock.create();
+  hhClient.seedResume({ id: "resume-shared", title: "Shared resume" });
+  hhClient.addNegotiation("neg-a", [], {
+    hh_vacancy_id: "vac-001",
+    collection: "response",
+    updated_at: "2026-04-12T10:00:00Z",
+    resume: { id: "resume-shared", url: "https://api.hh.ru/resumes/resume-shared" },
+    vacancy: { id: "vac-001", name: "Закупщик" }
+  });
+  hhClient.addNegotiation("neg-b", [], {
+    hh_vacancy_id: "vac-002",
+    collection: "response",
+    updated_at: "2026-04-12T11:00:00Z",
+    resume: { id: "resume-shared", url: "https://api.hh.ru/resumes/resume-shared" },
+    vacancy: { id: "vac-002", name: "Продажи" }
+  });
+  hhClient.addNegotiation("neg-c", [], {
+    hh_vacancy_id: "vac-003",
+    collection: "response",
+    updated_at: "2026-04-12T12:00:00Z",
+    resume: { id: "resume-003", url: "https://api.hh.ru/resumes/resume-003" },
+    vacancy: { id: "vac-003", name: "Операции" }
+  });
+
+  const page0 = await hhClient.listNegotiations("response", { page: 0, per_page: 2 });
+  const page1 = await hhClient.listNegotiations("response", { page: 1, per_page: 2 });
+
+  assert.equal(page0.items.length, 2);
+  assert.equal(page1.items.length, 1);
+  assert.equal(page0.items[0].id, "neg-c");
+  assert.equal(page0.items[1].resume.id, "resume-shared");
+  assert.equal(page1.items[0].resume.id, "resume-shared");
+  assert.notEqual(page0.items[1].vacancy.id, page1.items[0].vacancy.id);
+});
+
+test("hh contract mock: changeState moves negotiation to another collection and updates list results", async () => {
+  const hhClient = await HhContractMock.create({ now: "2026-04-12T12:05:00Z" });
+  hhClient.addNegotiation("neg-001", [], {
+    collection: "response",
+    hh_vacancy_id: "vac-001",
+    resume: { id: "resume-001", url: "https://api.hh.ru/resumes/resume-001" },
+    vacancy: { id: "vac-001", name: "Закупщик" }
+  });
+
+  const result = await hhClient.changeState("phone_interview", "neg-001");
+  const responseList = await hhClient.listNegotiations("response");
+  const phoneList = await hhClient.listNegotiations("phone_interview");
+
+  assert.equal(result.collection, "phone_interview");
+  assert.equal(phoneList.items.length, 1);
+  assert.equal(phoneList.items[0].id, "neg-001");
+  assert.equal(responseList.items.length, 0);
+});
+
+test("hh contract mock: expireAccessToken causes 401 fixture-shaped error", async () => {
+  const hhClient = await HhContractMock.create();
+  hhClient.addNegotiation("neg-001", []);
+  hhClient.expireAccessToken();
+
+  await assert.rejects(
+    hhClient.getMessages("neg-001"),
+    (error) => error.status === 401 && error.code === "expired_token"
+  );
 });
