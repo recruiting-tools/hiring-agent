@@ -22,6 +22,18 @@ LLM_MODE="${LLM_MODE:-live}"
 SECRET_PROFILE="${SECRET_PROFILE:-default}"
 DB_SECRET_ENV="${DB_SECRET_ENV:-V2_PROD_NEON_URL}"
 DB_SECRET_NAME="${DB_SECRET_NAME:-$DB_SECRET_ENV}"
+IS_SANDBOX=false
+if [ "$SECRET_PROFILE" = "sandbox" ]; then
+  IS_SANDBOX=true
+  SERVICE="candidate-chatbot-v2-sandbox"
+  IMAGE="$REGION-docker.pkg.dev/$PROJECT/cloud-run-source-deploy/$SERVICE"
+  for required_var in SANDBOX_DATABASE_URL SANDBOX_DEMO_EMAIL SANDBOX_DEMO_PASSWORD; do
+    if [ -z "${!required_var:-}" ]; then
+      echo "ERROR: $required_var is required for sandbox deploy"
+      exit 1
+    fi
+  done
+fi
 ENV_VARS="USE_REAL_DB=true,NODE_ENV=production,HH_SEND_ENABLED=false,OUTBOUND_SEND_ENABLED=false,DEPLOY_SHA=$DEPLOY_SHA,DEPLOY_TIME=$DEPLOY_TIME,APP_ENV=$APP_ENV,EXTERNAL_MODE=$EXTERNAL_MODE,LLM_MODE=$LLM_MODE"
 if [ -n "${EXTRA_ENV_VARS:-}" ]; then
   ENV_VARS="$ENV_VARS,$EXTRA_ENV_VARS"
@@ -74,48 +86,61 @@ set -e
 if [ $exit_code -eq 0 ]; then
   echo "Deploy succeeded."
 
-  echo "Post-deploy smoke: checking $PUBLIC_URL..."
-  root_body=$(mktemp)
-  set +e
-  root_status=$(curl -sS -o "$root_body" -w "%{http_code}" "$PUBLIC_URL/" 2>&1)
-  root_curl_exit=$?
-  login_body=$(mktemp)
-  login_status=$(curl -sS -o "$login_body" -w "%{http_code}" "$PUBLIC_URL/login" 2>&1)
-  login_curl_exit=$?
-  health_body=$(mktemp)
-  health_status=$(curl -sS -o "$health_body" -w "%{http_code}" "$PUBLIC_URL/health" 2>&1)
-  health_curl_exit=$?
-  set -e
+  if [ "$IS_SANDBOX" = true ]; then
+    service_url=$(gcloud run services describe "$SERVICE" \
+      --region "$REGION" \
+      --project "$PROJECT" \
+      --format 'value(status.url)')
+    echo "Service URL: $service_url"
 
-  if [ $root_curl_exit -ne 0 ] || [ $login_curl_exit -ne 0 ] || [ $health_curl_exit -ne 0 ]; then
-    echo "Post-deploy smoke FAILED: curl error"
-    echo "GET /: $root_status"
-    echo "GET /login: $login_status"
-    echo "GET /health: $health_status"
-    exit_code=1
-  elif ! [[ "$root_status" =~ ^(2|3)[0-9][0-9]$ ]]; then
-    echo "Post-deploy smoke FAILED: GET / returned HTTP $root_status"
-    cat "$root_body"
-    exit_code=1
-  elif grep -q '"error":"not_found"' "$root_body"; then
-    echo "Post-deploy smoke FAILED: GET / returned not_found JSON"
-    cat "$root_body"
-    exit_code=1
-  elif [ "$login_status" != "200" ] || ! grep -qi "<html" "$login_body"; then
-    echo "Post-deploy smoke FAILED: GET /login did not return HTML 200"
-    echo "HTTP $login_status"
-    cat "$login_body"
-    exit_code=1
-  elif [ "$health_status" != "200" ] || ! grep -q '"status":"ok"' "$health_body"; then
-    echo "Post-deploy smoke FAILED: GET /health did not return ok 200"
-    echo "HTTP $health_status"
-    cat "$health_body"
-    exit_code=1
+    SANDBOX_BASE_URL="$service_url" \
+    SANDBOX_DEMO_EMAIL="$SANDBOX_DEMO_EMAIL" \
+    SANDBOX_DEMO_PASSWORD="$SANDBOX_DEMO_PASSWORD" \
+    pnpm smoke:sandbox
   else
-    echo "Post-deploy smoke succeeded."
-  fi
+    echo "Post-deploy smoke: checking $PUBLIC_URL..."
+    root_body=$(mktemp)
+    set +e
+    root_status=$(curl -sS -o "$root_body" -w "%{http_code}" "$PUBLIC_URL/" 2>&1)
+    root_curl_exit=$?
+    login_body=$(mktemp)
+    login_status=$(curl -sS -o "$login_body" -w "%{http_code}" "$PUBLIC_URL/login" 2>&1)
+    login_curl_exit=$?
+    health_body=$(mktemp)
+    health_status=$(curl -sS -o "$health_body" -w "%{http_code}" "$PUBLIC_URL/health" 2>&1)
+    health_curl_exit=$?
+    set -e
 
-  rm -f "$root_body" "$login_body" "$health_body"
+    if [ $root_curl_exit -ne 0 ] || [ $login_curl_exit -ne 0 ] || [ $health_curl_exit -ne 0 ]; then
+      echo "Post-deploy smoke FAILED: curl error"
+      echo "GET /: $root_status"
+      echo "GET /login: $login_status"
+      echo "GET /health: $health_status"
+      exit_code=1
+    elif ! [[ "$root_status" =~ ^(2|3)[0-9][0-9]$ ]]; then
+      echo "Post-deploy smoke FAILED: GET / returned HTTP $root_status"
+      cat "$root_body"
+      exit_code=1
+    elif grep -q '"error":"not_found"' "$root_body"; then
+      echo "Post-deploy smoke FAILED: GET / returned not_found JSON"
+      cat "$root_body"
+      exit_code=1
+    elif [ "$login_status" != "200" ] || ! grep -qi "<html" "$login_body"; then
+      echo "Post-deploy smoke FAILED: GET /login did not return HTML 200"
+      echo "HTTP $login_status"
+      cat "$login_body"
+      exit_code=1
+    elif [ "$health_status" != "200" ] || ! grep -q '"status":"ok"' "$health_body"; then
+      echo "Post-deploy smoke FAILED: GET /health did not return ok 200"
+      echo "HTTP $health_status"
+      cat "$health_body"
+      exit_code=1
+    else
+      echo "Post-deploy smoke succeeded."
+    fi
+
+    rm -f "$root_body" "$login_body" "$health_body"
+  fi
 else
   echo "Deploy FAILED:"
   echo "$deploy_output"
