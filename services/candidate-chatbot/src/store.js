@@ -543,6 +543,20 @@ export class InMemoryHiringStore {
     return this.recruiters.find(r => r.recruiter_token === token) ?? null;
   }
 
+  async getRecruiterByEmail(email) {
+    return this.recruiters.find(r => r.email === email) ?? null;
+  }
+
+  async setRecruiterPassword(_recruiterId, _passwordHash) {}
+
+  async createSession(_recruiterId) {
+    return null;
+  }
+
+  async getSessionRecruiter(_token) {
+    return null;
+  }
+
   async findPlannedMessage(plannedMessageId) {
     return this.plannedMessages.find((m) => m.planned_message_id === plannedMessageId) ?? null;
   }

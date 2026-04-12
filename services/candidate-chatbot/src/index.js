@@ -52,6 +52,6 @@ const notificationDispatcher = new NotificationDispatcher(store, telegramClient)
 const app = createCandidateChatbot({ store, llmAdapter, notificationDispatcher });
 
 const port = Number(process.env.PORT ?? 3000);
-createHttpServer(app).listen(port, () => {
+createHttpServer(app, { store }).listen(port, () => {
   console.log(`candidate-chatbot listening on :${port}`);
 });

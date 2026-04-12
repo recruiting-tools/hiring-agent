@@ -5,6 +5,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import bcrypt from "bcryptjs";
 import { PostgresHiringStore } from "../services/candidate-chatbot/src/postgres-store.js";
 
 const DB_URL = process.env.V2_DEV_NEON_URL;
@@ -23,6 +24,19 @@ const store = new PostgresHiringStore({ connectionString: DB_URL });
 try {
   await store.seed(seed);
   console.log(`Seeded ${seed.jobs.length} jobs and ${seed.candidate_fixtures.length} candidate fixtures.`);
+
+  // Set demo password for the demo recruiter (recruiter_id from seed fixture)
+  const demoEmail = "demo@hiring-agent.app";
+  const demoPassword = "demo1234";
+  const passwordHash = await bcrypt.hash(demoPassword, 10);
+
+  // Update the seeded recruiter email and set password
+  await store.sql`
+    UPDATE chatbot.recruiters
+    SET email = ${demoEmail}, password_hash = ${passwordHash}
+    WHERE recruiter_id = 'recruiter-demo-001'
+  `;
+  console.log(`Set demo credentials: email=${demoEmail} / password=${demoPassword}`);
 } finally {
   await store.close();
 }

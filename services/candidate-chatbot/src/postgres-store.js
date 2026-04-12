@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 
 export class PostgresHiringStore {
   constructor({ connectionString }) {
@@ -599,6 +599,43 @@ export class PostgresHiringStore {
       SELECT recruiter_id, client_id, email, recruiter_token
       FROM chatbot.recruiters
       WHERE recruiter_token = ${token}
+    `;
+    return rows[0] ?? null;
+  }
+
+  async getRecruiterByEmail(email) {
+    const rows = await this.sql`
+      SELECT recruiter_id, client_id, email, recruiter_token, tg_chat_id, password_hash
+      FROM chatbot.recruiters
+      WHERE email = ${email}
+    `;
+    return rows[0] ?? null;
+  }
+
+  async setRecruiterPassword(recruiterId, passwordHash) {
+    await this.sql`
+      UPDATE chatbot.recruiters
+      SET password_hash = ${passwordHash}
+      WHERE recruiter_id = ${recruiterId}
+    `;
+  }
+
+  async createSession(recruiterId) {
+    const token = randomBytes(32).toString("hex");
+    await this.sql`
+      INSERT INTO chatbot.sessions (session_token, recruiter_id)
+      VALUES (${token}, ${recruiterId})
+    `;
+    return token;
+  }
+
+  async getSessionRecruiter(token) {
+    const rows = await this.sql`
+      SELECT r.recruiter_id, r.client_id, r.email, r.recruiter_token, r.tg_chat_id
+      FROM chatbot.sessions s
+      JOIN chatbot.recruiters r ON r.recruiter_id = s.recruiter_id
+      WHERE s.session_token = ${token}
+        AND s.expires_at > now()
     `;
     return rows[0] ?? null;
   }
