@@ -142,20 +142,37 @@ http://localhost:8080/login
 
 ### 2C — Cloud Run deploy
 
+> ⚠️ **Важно**: НЕ использовать `--source` в один шаг внутри агент-сессии Claude Code — процесс убивается при рестарте сессии (exit 144) до окончания загрузки. Использовать два шага:
+
 ```bash
+IMAGE="europe-west1-docker.pkg.dev/project-5d8dd8a0-67af-44ba-b6e/cloud-run-source-deploy/candidate-chatbot-v2"
+
+# Шаг 1: сборка (~30s) — завершается сам, не зависит от сессии
+gcloud builds submit . --tag "$IMAGE" --project project-5d8dd8a0-67af-44ba-b6e --quiet
+
+# Шаг 2: деплой образа (~10s)
 gcloud run deploy candidate-chatbot-v2 \
-  --source services/candidate-chatbot \
+  --image "$IMAGE:latest" \
   --region europe-west1 \
   --project project-5d8dd8a0-67af-44ba-b6e \
-  --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest,V2_PROD_NEON_URL=V2_PROD_NEON_URL:latest,..." \
+  --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest,V2_PROD_NEON_URL=V2_PROD_NEON_URL:latest,SESSION_SECRET=SESSION_SECRET:latest,HH_CLIENT_ID=HH_CLIENT_ID:latest,HH_CLIENT_SECRET=HH_CLIENT_SECRET:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest" \
   --set-env-vars "USE_REAL_DB=true,NODE_ENV=production,HH_SEND_ENABLED=false,OUTBOUND_SEND_ENABLED=false,DEPLOY_SHA=$(git rev-parse HEAD),DEPLOY_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --allow-unauthenticated \
   --port 8080 \
   --memory 512Mi \
-  --min-instances 0
+  --min-instances 0 \
+  --quiet
 ```
 
+Или просто: `./scripts/deploy.sh` — он делает оба шага.
+
 ### 2D — DNS
+
+> ⚠️ **Важно**: прямой CNAME на `*.run.app` не даёт HTTPS на кастомном домене — SSL-сертификат не матчится.
+> Нужен Cloud Run **domain mapping**, который требует верификацию домена через Google Search Console (интерактивный браузер).
+>
+> Один раз: открыть https://search.google.com/search-console как `vladimir@skillset.ae` → добавить `recruiter-assistant.com`.
+> TXT-запись верификации уже есть в DNS, поэтому верификация пройдёт мгновенно.
 
 ```bash
 # Получить Cloud Run URL после deploy, затем:
