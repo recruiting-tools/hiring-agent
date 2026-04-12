@@ -65,6 +65,11 @@ async function main() {
 
   const health = await fetch(`${baseUrl}/health`);
   assert(health.status === 200, `Expected health 200, got ${health.status}`);
+  const healthBody = await health.json();
+  assert(Object.hasOwn(healthBody, "app_env"), "Expected /health to include app_env");
+  assert(Object.hasOwn(healthBody, "deploy_sha"), "Expected /health to include deploy_sha");
+  assert(typeof healthBody.deploy_sha === "string", "Expected /health deploy_sha to be a string");
+  assert(Object.hasOwn(healthBody, "seed_version"), "Expected /health to include seed_version");
 
   console.log("Sandbox smoke passed.");
   console.log(`Base URL: ${baseUrl}`);

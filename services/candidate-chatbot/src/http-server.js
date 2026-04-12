@@ -175,7 +175,7 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, inte
       }
 
       if (request.method === "GET" && request.url === "/health") {
-        const deploySha = process.env.DEPLOY_SHA || "unknown";
+        const deploySha = process.env.DEPLOY_SHA ?? "";
         const appEnv = process.env.APP_ENV || "development";
         writeJson(response, 200, {
           service: "candidate-chatbot",
