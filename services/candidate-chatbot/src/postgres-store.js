@@ -437,6 +437,8 @@ export class PostgresHiringStore {
         (hh_negotiation_id, job_id, candidate_id, hh_vacancy_id, hh_collection, channel_thread_id)
       VALUES (${hh_negotiation_id}, ${job_id}, ${candidate_id}, ${hh_vacancy_id}, ${hh_collection}, ${channel_thread_id})
       ON CONFLICT (hh_negotiation_id) DO UPDATE SET
+        job_id = EXCLUDED.job_id,
+        candidate_id = EXCLUDED.candidate_id,
         hh_vacancy_id = EXCLUDED.hh_vacancy_id,
         hh_collection = EXCLUDED.hh_collection,
         channel_thread_id = EXCLUDED.channel_thread_id,
@@ -452,6 +454,17 @@ export class PostgresHiringStore {
     const conversation_id = `conv-hh-${hhNegotiation.id}`;
     const pipeline_run_id = `run-hh-${hhNegotiation.id}`;
     const template = job.pipeline_template;
+    const existingRunRows = await this.sql`
+      SELECT pipeline_run_id, job_id, candidate_id, template_id, template_version, active_step_id, status
+      FROM chatbot.pipeline_runs
+      WHERE pipeline_run_id = ${pipeline_run_id}
+      LIMIT 1
+    `;
+    const existingRun = existingRunRows[0] ?? null;
+    const needsReset = !existingRun
+      || existingRun.job_id !== job_id
+      || existingRun.template_id !== template.template_id
+      || existingRun.template_version !== template.template_version;
 
     await this.sql`
       INSERT INTO chatbot.candidates (candidate_id, canonical_email, display_name, resume_text)
@@ -471,33 +484,55 @@ export class PostgresHiringStore {
       INSERT INTO chatbot.conversations (conversation_id, job_id, candidate_id, channel, channel_thread_id, status, client_id)
       VALUES (${conversation_id}, ${job_id}, ${candidate_id}, 'hh', ${conversation_id}, 'open', ${job.client_id ?? null})
       ON CONFLICT (conversation_id) DO UPDATE SET
+        job_id = EXCLUDED.job_id,
+        candidate_id = EXCLUDED.candidate_id,
         status = 'open',
         client_id = EXCLUDED.client_id
     `;
 
-    await this.sql`
-      INSERT INTO chatbot.pipeline_runs (pipeline_run_id, job_id, candidate_id, template_id, template_version, active_step_id, status, client_id)
-      VALUES (
-        ${pipeline_run_id},
-        ${job_id},
-        ${candidate_id},
-        ${template.template_id},
-        ${template.template_version},
-        ${template.steps[0]?.id ?? null},
-        'active',
-        ${job.client_id ?? null}
-      )
-      ON CONFLICT (pipeline_run_id) DO NOTHING
-    `;
-
-    for (let i = 0; i < template.steps.length; i += 1) {
-      const step = template.steps[i];
+    if (!existingRun) {
       await this.sql`
-        INSERT INTO chatbot.pipeline_step_state
-          (pipeline_run_id, step_id, step_index, state, awaiting_reply)
-        VALUES (${pipeline_run_id}, ${step.id}, ${step.step_index}, ${i === 0 ? "active" : "pending"}, ${i === 0})
-        ON CONFLICT (pipeline_run_id, step_id) DO NOTHING
+        INSERT INTO chatbot.pipeline_runs (pipeline_run_id, job_id, candidate_id, template_id, template_version, active_step_id, status, client_id)
+        VALUES (
+          ${pipeline_run_id},
+          ${job_id},
+          ${candidate_id},
+          ${template.template_id},
+          ${template.template_version},
+          ${template.steps[0]?.id ?? null},
+          'active',
+          ${job.client_id ?? null}
+        )
       `;
+    } else if (needsReset) {
+      await this.sql`
+        UPDATE chatbot.pipeline_runs
+        SET job_id = ${job_id},
+            candidate_id = ${candidate_id},
+            template_id = ${template.template_id},
+            template_version = ${template.template_version},
+            active_step_id = ${template.steps[0]?.id ?? null},
+            status = 'active',
+            client_id = ${job.client_id ?? null},
+            updated_at = now()
+        WHERE pipeline_run_id = ${pipeline_run_id}
+      `;
+      await this.sql`
+        DELETE FROM chatbot.pipeline_step_state
+        WHERE pipeline_run_id = ${pipeline_run_id}
+      `;
+    }
+
+    if (!existingRun || needsReset) {
+      for (let i = 0; i < template.steps.length; i += 1) {
+        const step = template.steps[i];
+        await this.sql`
+          INSERT INTO chatbot.pipeline_step_state
+            (pipeline_run_id, step_id, step_index, state, awaiting_reply)
+          VALUES (${pipeline_run_id}, ${step.id}, ${step.step_index}, ${i === 0 ? "active" : "pending"}, ${i === 0})
+          ON CONFLICT (pipeline_run_id, step_id) DO NOTHING
+        `;
+      }
     }
 
     await this.upsertHhNegotiation({

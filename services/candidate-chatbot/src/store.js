@@ -401,41 +401,44 @@ export class InMemoryHiringStore {
     const candidate_id = `cand-hh-${hhNegotiation.id}`;
     const conversation_id = `conv-hh-${hhNegotiation.id}`;
     const pipeline_run_id = `run-hh-${hhNegotiation.id}`;
-    const existingCandidate = this.candidates.get(candidate_id);
+    const template = job.pipeline_template;
+    const existingRun = this.pipelineRuns.get(pipeline_run_id) ?? null;
+    const needsReset = !existingRun
+      || existingRun.job_id !== job_id
+      || existingRun.template_id !== template.template_id
+      || existingRun.template_version !== template.template_version;
 
-    if (!existingCandidate) {
-      this.candidates.set(candidate_id, {
-        candidate_id,
-        canonical_email: resume?.email ?? null,
-        display_name: buildResumeDisplayName(resume, hhNegotiation.resume?.id),
-        resume_text: buildResumeText(resume)
-      });
-    }
+    this.candidates.set(candidate_id, {
+      candidate_id,
+      canonical_email: resume?.email ?? this.candidates.get(candidate_id)?.canonical_email ?? null,
+      display_name: buildResumeDisplayName(resume, hhNegotiation.resume?.id),
+      resume_text: buildResumeText(resume)
+    });
 
-    if (!this.conversations.has(conversation_id)) {
-      this.conversations.set(conversation_id, {
-        conversation_id,
-        job_id,
-        candidate_id,
-        channel: "hh",
-        channel_thread_id: conversation_id,
-        status: "open",
-        client_id: job.client_id ?? null
-      });
-    }
+    this.conversations.set(conversation_id, {
+      conversation_id,
+      job_id,
+      candidate_id,
+      channel: "hh",
+      channel_thread_id: conversation_id,
+      status: "open",
+      client_id: job.client_id ?? null
+    });
 
-    if (!this.pipelineRuns.has(pipeline_run_id)) {
-      const template = job.pipeline_template;
-      this.pipelineRuns.set(pipeline_run_id, {
-        pipeline_run_id,
-        job_id,
-        candidate_id,
-        template_id: template.template_id,
-        template_version: template.template_version,
-        active_step_id: template.steps[0]?.id ?? null,
-        state_json: {},
-        status: "active"
-      });
+    this.pipelineRuns.set(pipeline_run_id, {
+      pipeline_run_id,
+      job_id,
+      candidate_id,
+      template_id: template.template_id,
+      template_version: template.template_version,
+      active_step_id: needsReset
+        ? (template.steps[0]?.id ?? null)
+        : (existingRun?.active_step_id ?? template.steps[0]?.id ?? null),
+      state_json: existingRun?.state_json ?? {},
+      status: needsReset ? "active" : (existingRun?.status ?? "active")
+    });
+
+    if (needsReset || !this.pipelineStepState.has(pipeline_run_id)) {
       this.pipelineStepState.set(
         pipeline_run_id,
         template.steps.map((step, index) => ({

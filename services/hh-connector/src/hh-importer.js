@@ -1,5 +1,5 @@
 export class HhImporter {
-  constructor({ store, hhClient, collections = ["response"] }) {
+  constructor({ store, hhClient, collections = ["response", "phone_interview"] }) {
     this.store = store;
     this.hhClient = hhClient;
     this.collections = collections;

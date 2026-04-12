@@ -221,6 +221,33 @@ test("hh connector: syncApplicants imports negotiations and messages for mapped 
   assert.equal(importedCandidate.display_name, "Ирина Соколова");
 });
 
+test("hh connector: syncApplicants imports active negotiations from phone_interview by default", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.addNegotiation("neg-phone-001", [
+    { id: "msg-1", author: "applicant", text: "Готова созвониться", created_at: "2026-04-12T11:00:00Z" }
+  ], {
+    collection: "phone_interview",
+    hh_vacancy_id: "131345849",
+    updated_at: "2026-04-12T11:00:00Z",
+    vacancy: { id: "131345849", name: "Закупщик (Китай)" }
+  });
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot,
+    vacancyMappings: [{ hh_vacancy_id: "131345849", job_id: "job-zakup-china" }]
+  });
+
+  const result = await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+
+  assert.equal(result.imported_negotiations, 1);
+  assert.equal(result.results.some((item) => item.collection === "phone_interview"), true);
+  assert.ok(await store.findHhNegotiation("neg-phone-001"));
+});
+
 test("hh connector: syncApplicants is idempotent on repeated import", async () => {
   const store = new InMemoryHiringStore(seed);
   const llmAdapter = new FakeLlmAdapter();
@@ -250,6 +277,44 @@ test("hh connector: syncApplicants is idempotent on repeated import", async () =
   assert.equal(second.imported_messages, 0);
   const importedMessages = store.messages.filter((item) => item.conversation_id === "conv-hh-neg-import-repeat");
   assert.equal(importedMessages.length, 1);
+});
+
+test("hh connector: syncApplicants reconciles job and template when vacancy mapping changes on rerun", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.addNegotiation("neg-remap-001", [
+    { id: "msg-1", author: "applicant", text: "Есть опыт", created_at: "2026-04-12T10:00:00Z" }
+  ], {
+    hh_vacancy_id: "132032392",
+    updated_at: "2026-04-12T10:00:00Z",
+    resume: { id: "resume-remap", url: "https://api.hh.ru/resumes/resume-remap" },
+    vacancy: { id: "132032392", name: "Менеджер по продажам" }
+  });
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot,
+    vacancyMappings: [{ hh_vacancy_id: "132032392", job_id: "job-zakup-china" }]
+  });
+
+  await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+
+  connector.vacancyMappings = [{ hh_vacancy_id: "132032392", job_id: "job-b2b-sales-manager" }];
+  const rerun = await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+
+  assert.equal(rerun.imported_negotiations, 0);
+  const negotiation = await store.findHhNegotiation("neg-remap-001");
+  assert.equal(negotiation.job_id, "job-b2b-sales-manager");
+  const conversation = await store.findConversation("conv-hh-neg-remap-001");
+  assert.equal(conversation.job_id, "job-b2b-sales-manager");
+  const run = store.pipelineRuns.get("run-hh-neg-remap-001");
+  assert.equal(run.job_id, "job-b2b-sales-manager");
+  assert.equal(run.template_id, store.getJob("job-b2b-sales-manager").pipeline_template.template_id);
+  const stepStates = store.getStepStates("run-hh-neg-remap-001");
+  assert.equal(stepStates[0].step_id, store.getJob("job-b2b-sales-manager").pipeline_template.steps[0].id);
+  assert.equal(stepStates[0].state, "active");
 });
 
 test("hh connector: syncApplicants keeps separate imported candidates per negotiation even for shared resume", async () => {
