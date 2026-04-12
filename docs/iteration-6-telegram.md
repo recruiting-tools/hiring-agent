@@ -2,34 +2,71 @@
 
 Дата: 2026-04-12
 
-Итерации 1-5 дали полный цикл чатбота с HH-интеграцией, модерационным UI и multi-tenant изоляцией. Проблема: рекрутер не знает в реальном времени, когда кандидат прошёл ключевой шаг пайплайна. Итерация 6 добавляет Telegram-уведомления: при `step_completed` или `run_rejected` подписанный рекрутер получает сообщение в Telegram.
+Итерация 5 закрыла multi-tenant изоляцию: рекрутер видит только своих кандидатов. Проблема: он не знает в реальном времени, когда кандидат прошёл ключевой шаг пайплайна. Итерация 6 добавляет Telegram-уведомления: при `step_completed` или `run_rejected` подписанный рекрутер мгновенно получает сообщение в Telegram.
 
 ## Что делаем
 
 1. **`tg_chat_id` колонка** на `chatbot.recruiters` (BIGINT, nullable) — хранит Telegram chat ID рекрутера.
 
-2. **`management.recruiter_subscriptions` таблица** — связывает рекрутера с комбинацией job+step_index+event_type, на которую он хочет получать уведомления.
+2. **`management.recruiter_subscriptions` таблица** — связывает рекрутера с комбинацией `job_id + step_index + event_type`, на которую он подписан.
 
-3. **`TelegramNotifier` класс** с интерфейсом `notify(chatId, message)` — обёртка над Telegram Bot API `sendMessage`.
+3. **`TelegramNotifier` класс** (`src/telegram-notifier.js`) — обёртка над Telegram Bot API `sendMessage`. Интерфейс: `notify(chatId, message)`.
 
-4. **`FakeTelegramClient`** — in-memory реализация для тестов, записывает отправленные сообщения в массив.
+4. **`FakeTelegramClient`** (`src/fake-telegram-client.js`) — in-memory fake для тестов: записывает сообщения в `this.sent[]`, HTTP не делает.
 
-5. **`NotificationDispatcher`** — принимает pipeline_events из `applyLlmDecision`, проверяет подписки, диспатчит через telegram client.
+5. **`NotificationDispatcher` класс** (`src/notification-dispatcher.js`) — принимает новые pipeline events из `applyLlmDecision`, проверяет подписки, вызывает telegram client. Stateless: нет внутреннего состояния.
 
-6. **Расширения `InMemoryHiringStore`**: массив `recruiterSubscriptions[]`, методы `addSubscription()`, `removeSubscription()`, `getSubscriptionsForStep()`, `getRecruiterById()`.
+6. **Расширения `InMemoryHiringStore`** (`src/store.js`):
+   - `this.recruiterSubscriptions = seed.recruiter_subscriptions ?? []` в конструктор
+   - `getRecruiterById(recruiterId)` — поиск по ID (не по token)
+   - `findRunById(pipelineRunId)` — поиск run по ID
+   - `addSubscription({ recruiter_id, job_id, step_index, event_type })` — добавляет подписку
+   - `removeSubscription(recruiterId, jobId, stepIndex, eventType)` — удаляет подписку
+   - `getSubscriptionsForStep(jobId, stepIndex, eventType)` — фильтр по трём полям
 
-7. **Миграция `007_iteration_6_telegram.sql`**.
+7. **Интеграция в `handlers.js`**: `createCandidateChatbot` принимает опциональный `notificationDispatcher`. После `applyLlmDecision` фиксируем дельту `pipelineEvents` и передаём в `dispatcher.dispatch(newEvents)`.
 
-8. **Новый тест-файл** `tests/integration/telegram-notifications.test.js` с 10 failing тестами.
+8. **Миграция** `007_iteration_6_telegram.sql`.
+
+9. **Seed-файл** `tests/fixtures/iteration-6-seed.json` с рекрутерами и `tg_chat_id`.
 
 ## Чего не делаем
 
-- Реальный Telegram Bot polling loop — нет `setInterval`/long-poll в этой итерации.
+- Telegram Bot polling loop — нет `setInterval`/long-poll в этой итерации.
 - Webhook-сервер для Telegram — вне скоупа.
 - Команды бота (`/subscribe`, `/unsubscribe`) — бонус если останется время; ядро — event dispatch.
 - Дедупликация / rate limiting уведомлений.
 - Отдельный notification service — всё живёт в `candidate-chatbot`.
 - Deploy в продакшн.
+- `PostgresHiringStore` — обновить seed() и query-методы — BONUS, не блокирует acceptance criteria.
+
+## Ключевой инвариант
+
+```
+applyLlmDecision(...)                      ← существующий код
+  → добавляет pipeline events в store
+
+handlers.js: newEvents = store.pipelineEvents.slice(beforeCount)
+  → dispatcher.dispatch(newEvents)
+
+NotificationDispatcher.dispatch([event]):
+  event.event_type = 'step_completed'
+  event.step_id    = 'tg_step_1'
+  → run = store.findRunById(event.pipeline_run_id)
+  → templateStep = store.getTemplateStep(run.job_id, event.step_id)
+    → step_index = 1
+  → subs = store.getSubscriptionsForStep(run.job_id, 1, 'step_completed')
+    → [{ recruiter_id: 'rec-tg-001', ... }]
+  → recruiter = store.getRecruiterById('rec-tg-001')
+    → { tg_chat_id: 123456789, ... }
+  → telegramClient.notify(123456789, 'Кандидат X прошёл шаг ...')
+
+  Если tg_chat_id IS NULL   → skip (no error, no message)
+  Если нет подписок          → skip (notifier не вызывается)
+  Если step_index не совпадает → skip
+  Если event_type не совпадает → skip
+  Если event_type не в допустимых → пропускается молча
+```
 
 ## DB Schema
 
@@ -50,8 +87,8 @@ CREATE TABLE IF NOT EXISTS management.recruiter_subscriptions (
   recruiter_id     TEXT NOT NULL,
   job_id           TEXT NOT NULL,
   step_index       INTEGER NOT NULL,
-  event_type       TEXT NOT NULL DEFAULT 'step_completed',
-  -- event_type: 'step_completed' | 'run_rejected'
+  event_type       TEXT NOT NULL DEFAULT 'step_completed'
+    CHECK (event_type IN ('step_completed', 'run_rejected')),
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (recruiter_id, job_id, step_index, event_type)
 );
@@ -61,12 +98,19 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_recruiter
 
 CREATE INDEX IF NOT EXISTS idx_subscriptions_job_step
   ON management.recruiter_subscriptions(job_id, step_index);
+
+-- 3. Seed demo tg_chat_id for test recruiters (idempotent)
+UPDATE chatbot.recruiters SET tg_chat_id = 123456789 WHERE recruiter_id = 'rec-tg-001';
+UPDATE chatbot.recruiters SET tg_chat_id = 987654321 WHERE recruiter_id = 'rec-tg-002';
+-- rec-tg-no-chat left NULL intentionally (tests null-skip path)
 ```
 
 Применяется через:
 ```bash
 psql $V2_DEV_NEON_URL -f services/candidate-chatbot/migrations/007_iteration_6_telegram.sql
 ```
+
+> **Почему `run_rejected`, а не `step_rejected`?** Существующий `applyLlmDecision` в `store.js` создаёт события с `event_type: "run_rejected"` — это финальный исход для всего run, а не для отдельного шага. Шаги не имеют своего "rejected" события; отклонение сразу завершает pipeline run. Подписки используют тот же vocabulary.
 
 ## Интерфейсы классов
 
@@ -528,12 +572,13 @@ test('tg: run_rejected fires notification for run_rejected subscription', async 
     candidate_id:    'cand-tg-001',
     event_type:      'run_rejected',
     step_id:         'tg_step_1',
-    payload:         {}
+    payload:         { reason: 'reject_when_matched' }
   });
 
   await dispatcher.dispatch([event]);
 
   assert.equal(tg.sent.length, 1);
+  assert.equal(tg.sent[0].chatId, 123456789);
 });
 ```
 
@@ -555,7 +600,7 @@ test('tg: step_completed subscription does NOT fire on run_rejected event', asyn
   const event = store.addPipelineEvent({
     pipeline_run_id: 'run-tg-001',
     candidate_id:    'cand-tg-001',
-    event_type:      'run_rejected',
+    event_type:      'run_rejected',  // другой event_type
     step_id:         'tg_step_1',
     payload:         {}
   });
@@ -659,7 +704,7 @@ test('tg: existing postWebhookMessage works without notificationDispatcher (no c
     occurred_at:        new Date().toISOString()
   });
 
-  // Завершается нормально
+  // Завершается нормально, без dispatcher
   assert.ok([200, 202].includes(res.status));
 });
 ```
@@ -679,27 +724,26 @@ test('tg: existing postWebhookMessage works without notificationDispatcher (no c
 9. Обновить `createCandidateChatbot` в `handlers.js`: добавить опциональный параметр `notificationDispatcher`, вызывать `dispatch(newEvents)` после `applyLlmDecision`.
 10. Создать `TelegramNotifier` в `src/telegram-notifier.js` (реальная реализация, в тестах не используется).
 11. Создать миграцию `007_iteration_6_telegram.sql`.
-12. Обновить `PostgresHiringStore`:
-    - Метод `getRecruiterById(id)`.
-    - `addSubscription` / `removeSubscription` (SQL INSERT/DELETE в `management.recruiter_subscriptions`).
-    - `getSubscriptionsForStep(jobId, stepIndex, eventType)` SQL-запрос.
-    - Загрузка `tg_chat_id` в рекрутерских запросах.
-13. Добавить скрипт в корневой `package.json`:
+12. Добавить скрипт в корневой `package.json`:
     ```json
     "test:telegram": "node --test tests/integration/telegram-notifications.test.js"
     ```
-14. Полный прогон:
+13. Полный прогон:
     ```bash
     pnpm test && pnpm test:telegram
+    ```
+14. (Если `V2_DEV_NEON_URL` доступен) применить миграцию:
+    ```bash
+    psql $V2_DEV_NEON_URL -f services/candidate-chatbot/migrations/007_iteration_6_telegram.sql
     ```
 
 ## Acceptance Criteria
 
 Итерация считается готовой, когда:
 
-- `pnpm test` — все 65+ существующих тестов зелёные. Ноль регрессий.
+- `pnpm test` — все 62 предыдущих теста зелёные. Ноль регрессий.
 - `pnpm test:telegram` — все 10 новых тестов зелёные.
-- `NotificationDispatcher.dispatch([stepCompletedEvent])` отправляет Telegram-сообщение через `FakeTelegramClient` на `tg_chat_id` подписанного рекрутера.
+- `NotificationDispatcher.dispatch([stepCompletedEvent])` при наличии подписки → `FakeTelegramClient.sent.length === 1`.
 - Рекрутер с `tg_chat_id = null` не вызывает ошибок.
 - Рекрутер без совпадающей подписки не получает уведомление.
 - `removeSubscription` работает — после удаления уведомление не приходит.
@@ -718,13 +762,13 @@ services/candidate-chatbot/
     telegram-notifier.js          # новый — обёртка над Telegram Bot API
     fake-telegram-client.js       # новый — in-memory fake для тестов
     notification-dispatcher.js    # новый — event → subscription → dispatch
-    store.js                      # обновить — recruiterSubscriptions + методы
+    store.js                      # обновить — recruiterSubscriptions + 5 методов
     handlers.js                   # обновить — опциональный notificationDispatcher
   migrations/
     007_iteration_6_telegram.sql  # новый
 tests/
   integration/
-    telegram-notifications.test.js  # новый
+    telegram-notifications.test.js  # новый (10 тестов)
   fixtures/
     iteration-6-seed.json           # новый
 package.json                        # +test:telegram script
