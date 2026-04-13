@@ -87,10 +87,15 @@ jobs:
             PORT=$(echo "$HEALTH" | jq -r '.port // "unknown"')
             echo "Local health: $STATUS / $MODE / sha=$DEPLOY_SHA / env=$APP_ENV / port=$PORT"
             ss -tlnp | grep ':3101 ' || { echo "Expected listener on 3101"; exit 1; }
-            pm2 jlist | jq -r '.[] | select(.name=="hiring-agent") | {name,pid,pm_exec_path:.pm2_env.pm_exec_path,pm_cwd:.pm2_env.pm_cwd,port:(.pm2_env.PORT // .pm2_env.env.PORT // "")}'
+            PM2_JSON=$(pm2 jlist | jq -r '.[] | select(.name=="hiring-agent")')
+            echo "$PM2_JSON" | jq -r '{name,pid,pm_exec_path:.pm2_env.pm_exec_path,pm_cwd:.pm2_env.pm_cwd,port:(.pm2_env.PORT // .pm2_env.env.PORT // ""),app_env:(.pm2_env.APP_ENV // .pm2_env.env.APP_ENV // ""),deploy_sha:(.pm2_env.DEPLOY_SHA // .pm2_env.env.DEPLOY_SHA // ""),management_database_url:(if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end)}'
             [ "$STATUS" = "ok" ] || { echo "VM VERIFY FAILED: status=$STATUS"; exit 1; }
             [ "$MODE" = "management-auth" ] || { echo "VM VERIFY FAILED: mode=$MODE"; exit 1; }
+            [ "$APP_ENV" = "prod" ] || { echo "VM VERIFY FAILED: app_env=$APP_ENV expected=prod"; exit 1; }
             [ "$DEPLOY_SHA" = "${{ github.sha }}" ] || { echo "VM VERIFY FAILED: deploy_sha=$DEPLOY_SHA expected=${{ github.sha }}"; exit 1; }
+            [ "$(echo "$PM2_JSON" | jq -r '(.pm2_env.APP_ENV // .pm2_env.env.APP_ENV // "")')" = "prod" ] || { echo "VM VERIFY FAILED: PM2 APP_ENV missing"; exit 1; }
+            [ "$(echo "$PM2_JSON" | jq -r '(.pm2_env.DEPLOY_SHA // .pm2_env.env.DEPLOY_SHA // "")')" = "${{ github.sha }}" ] || { echo "VM VERIFY FAILED: PM2 DEPLOY_SHA mismatch"; exit 1; }
+            [ "$(echo "$PM2_JSON" | jq -r 'if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end')" = "present" ] || { echo "VM VERIFY FAILED: PM2 MANAGEMENT_DATABASE_URL missing"; exit 1; }
           EOF
 
       - name: Post-deploy smoke
