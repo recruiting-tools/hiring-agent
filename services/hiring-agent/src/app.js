@@ -5,6 +5,12 @@ import { routePlaybook } from "./playbooks/router.js";
 
 export function createHiringAgentApp(options = {}) {
   const demoMode = options.demoMode ?? true;
+  const healthMetadata = {
+    app_env: options.appEnv ?? "local",
+    deploy_sha: options.deploySha ?? "unknown",
+    started_at: options.startedAt ?? null,
+    port: options.port ?? null
+  };
 
   return {
     getHealth() {
@@ -14,6 +20,7 @@ export function createHiringAgentApp(options = {}) {
           service: "hiring-agent",
           status: "ok",
           mode: demoMode ? "stateless-demo" : "management-auth",
+          ...healthMetadata,
           playbooks: getPlaybookRegistry().map((playbook) => ({
             playbook_key: playbook.playbook_key,
             enabled: playbook.enabled,

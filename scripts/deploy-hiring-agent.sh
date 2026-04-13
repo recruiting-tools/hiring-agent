@@ -1,7 +1,7 @@
 #!/bin/bash
 # Deploy hiring-agent to GCP VM (34.31.217.176) via SSH.
 # Usage: [VM_USER=username] [TARGET_PORT=3101] ./scripts/deploy-hiring-agent.sh
-set -e
+set -euo pipefail
 
 VM_HOST="${VM_HOST:-34.31.217.176}"
 VM_USER="${VM_USER:-vladimir}"
@@ -13,7 +13,33 @@ SHA=$(git rev-parse HEAD)
 echo "Deploying hiring-agent @ $SHA → $VM_USER@$VM_HOST (port $TARGET_PORT)..."
 
 ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
-  set -e
+  set -euo pipefail
+
+  require_bin() {
+    if ! command -v "\$1" >/dev/null 2>&1; then
+      echo "ERROR: required binary '\$1' is missing on VM"
+      exit 1
+    fi
+  }
+
+  echo "--- vm preflight ---"
+  require_bin git
+  require_bin node
+  require_bin pm2
+  require_bin jq
+  if ! command -v pnpm >/dev/null 2>&1 && ! command -v corepack >/dev/null 2>&1; then
+    echo "ERROR: neither pnpm nor corepack is available on VM"
+    exit 1
+  fi
+  echo "node: \$(node --version)"
+  echo "pm2: \$(pm2 --version | tail -1)"
+  echo "git: \$(git --version)"
+  echo "jq: \$(jq --version)"
+  if command -v pnpm >/dev/null 2>&1; then
+    echo "pnpm: \$(pnpm --version)"
+  else
+    echo "pnpm: unavailable, will use corepack pnpm"
+  fi
 
   # ── Port conflict check ────────────────────────────────────────────────────
   # Fail fast if another process (not our own PM2 hiring-agent) owns the port.
@@ -83,6 +109,7 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
 
   # Override port from env if passed
   export PORT=\$PORT
+  export DEPLOY_SHA="$SHA"
 
   pm2 delete hiring-agent >/dev/null 2>&1 || true
   pm2 start services/hiring-agent/ecosystem.config.cjs --env production --update-env
@@ -90,7 +117,8 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
 
   echo "Waiting for service to become healthy..."
   for i in \$(seq 1 10); do
-    STATUS=\$(curl -sf http://localhost:\$PORT/health | jq -r '.status' 2>/dev/null || echo "")
+    HEALTH_BODY=\$(curl -sf http://localhost:\$PORT/health 2>/dev/null || echo "")
+    STATUS=\$(printf '%s' "\$HEALTH_BODY" | jq -r '.status' 2>/dev/null || echo "")
     [ "\$STATUS" = "ok" ] && { echo "Health check passed (attempt \$i)"; break; }
     echo "Attempt \$i/10: not ready (status=\${STATUS:-no-response}), waiting..."
     sleep 2
@@ -114,6 +142,8 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
       }'
       echo "--- sockets ---"
       ss -tlnp | awk 'NR==1 || /LISTEN/'
+      echo "--- local health body ---"
+      printf '%s\n' "\${HEALTH_BODY:-}"
       echo "--- pm2 logs ---"
       pm2 logs hiring-agent --lines 80 --nostream || true
       exit 1

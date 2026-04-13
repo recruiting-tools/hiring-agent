@@ -12,6 +12,8 @@ test("hiring-agent runtime: APP_MODE=demo allows startup without management db",
   assert.equal(runtime.demoMode, true);
   assert.equal(runtime.port, 4100);
   assert.equal(runtime.appEnv, "local");
+  assert.equal(runtime.deploySha, "unknown");
+  assert.match(runtime.startedAt, /T/);
   assert.equal(runtime.startupMode, "demo");
   assert.equal(runtime.managementSql, null);
 });
@@ -28,11 +30,14 @@ test("hiring-agent runtime: non-demo mode requires MANAGEMENT_DATABASE_URL", () 
 test("hiring-agent runtime: management mode uses MANAGEMENT_DATABASE_URL", () => {
   const runtime = resolveHiringAgentRuntime({
     APP_ENV: "prod",
-    MANAGEMENT_DATABASE_URL: "postgres://example"
+    MANAGEMENT_DATABASE_URL: "postgres://example",
+    DEPLOY_SHA: "sha-123"
   });
 
   assert.equal(runtime.demoMode, false);
   assert.equal(runtime.appEnv, "prod");
+  assert.equal(runtime.deploySha, "sha-123");
+  assert.match(runtime.startedAt, /T/);
   assert.equal(runtime.startupMode, "management-auth");
   assert.equal(typeof runtime.managementSql, "function");
   assert.ok(runtime.managementStore);

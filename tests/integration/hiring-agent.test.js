@@ -45,12 +45,22 @@ async function loginResponse(server) {
 }
 
 test("hiring-agent: GET /health returns stateless demo status", async () => {
-  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  const server = createHiringAgentServer(createHiringAgentApp({
+    demoMode: true,
+    appEnv: "local",
+    deploySha: "test-sha-demo",
+    startedAt: "2026-04-13T00:00:00.000Z",
+    port: 0
+  })).listen(0);
   try {
     const { status, body } = await req(server, "GET", "/health");
     assert.equal(status, 200);
     assert.equal(body.service, "hiring-agent");
     assert.equal(body.mode, "stateless-demo");
+    assert.equal(body.app_env, "local");
+    assert.equal(body.deploy_sha, "test-sha-demo");
+    assert.equal(body.started_at, "2026-04-13T00:00:00.000Z");
+    assert.equal(typeof body.port, "number");
   } finally {
     server.close();
   }

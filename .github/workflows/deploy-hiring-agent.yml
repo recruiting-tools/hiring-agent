@@ -68,18 +68,39 @@ jobs:
         env:
           MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
         run: |
-          ENV_B64=$(printf 'NODE_ENV=production\nMANAGEMENT_DATABASE_URL=%s\n' "$MANAGEMENT_DATABASE_URL" | base64 -w0)
+          ENV_B64=$(printf 'NODE_ENV=production\nAPP_ENV=prod\nDEPLOY_SHA=%s\nMANAGEMENT_DATABASE_URL=%s\n' "${{ github.sha }}" "$MANAGEMENT_DATABASE_URL" | base64 -w0)
           ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST \
             "echo '$ENV_B64' | base64 -d > /opt/hiring-agent/.env && echo '.env written'"
 
       - name: Deploy
         run: bash ./scripts/deploy-hiring-agent.sh
 
+      - name: Verify runtime on VM
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST bash -s << 'EOF'
+            set -euo pipefail
+            HEALTH=$(curl -sf http://127.0.0.1:3101/health)
+            STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
+            MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
+            DEPLOY_SHA=$(echo "$HEALTH" | jq -r '.deploy_sha // "unknown"')
+            APP_ENV=$(echo "$HEALTH" | jq -r '.app_env // "unknown"')
+            PORT=$(echo "$HEALTH" | jq -r '.port // "unknown"')
+            echo "Local health: $STATUS / $MODE / sha=$DEPLOY_SHA / env=$APP_ENV / port=$PORT"
+            ss -tlnp | grep ':3101 ' || { echo "Expected listener on 3101"; exit 1; }
+            pm2 jlist | jq -r '.[] | select(.name=="hiring-agent") | {name,pid,pm_exec_path:.pm2_env.pm_exec_path,pm_cwd:.pm2_env.pm_cwd,port:(.pm2_env.PORT // .pm2_env.env.PORT // "")}'
+            [ "$STATUS" = "ok" ] || { echo "VM VERIFY FAILED: status=$STATUS"; exit 1; }
+            [ "$MODE" = "management-auth" ] || { echo "VM VERIFY FAILED: mode=$MODE"; exit 1; }
+            [ "$DEPLOY_SHA" = "${{ github.sha }}" ] || { echo "VM VERIFY FAILED: deploy_sha=$DEPLOY_SHA expected=${{ github.sha }}"; exit 1; }
+          EOF
+
       - name: Post-deploy smoke
         run: |
           HEALTH=$(curl -sf https://hiring-chat.recruiter-assistant.com/health 2>/dev/null || echo '{}')
           STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
           MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
-          echo "Health: $STATUS / $MODE"
+          DEPLOY_SHA=$(echo "$HEALTH" | jq -r '.deploy_sha // "unknown"')
+          APP_ENV=$(echo "$HEALTH" | jq -r '.app_env // "unknown"')
+          echo "Health: $STATUS / $MODE / sha=$DEPLOY_SHA / env=$APP_ENV"
           [ "$STATUS" = "ok" ] || { echo "SMOKE FAILED: status=$STATUS"; exit 1; }
           [ "$MODE" = "management-auth" ] || { echo "SMOKE FAILED: mode=$MODE (expected management-auth)"; exit 1; }
+          [ "$DEPLOY_SHA" = "${{ github.sha }}" ] || { echo "SMOKE FAILED: deploy_sha=$DEPLOY_SHA expected=${{ github.sha }}"; exit 1; }
