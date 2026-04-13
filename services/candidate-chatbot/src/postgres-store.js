@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { randomUUID, randomBytes } from "node:crypto";
+import { getModerationAutoSendDelayMs } from "./config.js";
 
 export class PostgresHiringStore {
   constructor({ connectionString }) {
@@ -288,7 +289,7 @@ export class PostgresHiringStore {
     // Pre-generate IDs for all events and planned message
     const plannedMessageId = llmOutput.next_message ? randomUUID() : null;
     const stepId = llmOutput.rejected_step_id ?? nextActiveStepId ?? run.active_step_id;
-    const sendAfter = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const sendAfter = new Date(Date.now() + getModerationAutoSendDelayMs()).toISOString();
 
     // Build the full list of SQL queries to execute as a batch transaction
     const queries = [];
@@ -436,6 +437,8 @@ export class PostgresHiringStore {
         (hh_negotiation_id, job_id, candidate_id, hh_vacancy_id, hh_collection, channel_thread_id)
       VALUES (${hh_negotiation_id}, ${job_id}, ${candidate_id}, ${hh_vacancy_id}, ${hh_collection}, ${channel_thread_id})
       ON CONFLICT (hh_negotiation_id) DO UPDATE SET
+        job_id = EXCLUDED.job_id,
+        candidate_id = EXCLUDED.candidate_id,
         hh_vacancy_id = EXCLUDED.hh_vacancy_id,
         hh_collection = EXCLUDED.hh_collection,
         channel_thread_id = EXCLUDED.channel_thread_id,
@@ -443,6 +446,116 @@ export class PostgresHiringStore {
       RETURNING *
     `;
     return rows[0];
+  }
+
+  async ensureImportedHhNegotiation({ hhNegotiation, job_id, resume }) {
+    const job = this.getJob(job_id);
+    const candidate_id = `cand-hh-${hhNegotiation.id}`;
+    const conversation_id = `conv-hh-${hhNegotiation.id}`;
+    const pipeline_run_id = `run-hh-${hhNegotiation.id}`;
+    const template = job.pipeline_template;
+    const existingRunRows = await this.sql`
+      SELECT pipeline_run_id, job_id, candidate_id, template_id, template_version, active_step_id, status
+      FROM chatbot.pipeline_runs
+      WHERE pipeline_run_id = ${pipeline_run_id}
+      LIMIT 1
+    `;
+    const existingRun = existingRunRows[0] ?? null;
+    const needsReset = !existingRun
+      || existingRun.job_id !== job_id
+      || existingRun.template_id !== template.template_id
+      || existingRun.template_version !== template.template_version;
+
+    await this.sql`
+      INSERT INTO chatbot.candidates (candidate_id, canonical_email, display_name, resume_text)
+      VALUES (
+        ${candidate_id},
+        ${resume?.email ?? null},
+        ${buildResumeDisplayName(resume, hhNegotiation.resume?.id)},
+        ${buildResumeText(resume)}
+      )
+      ON CONFLICT (candidate_id) DO UPDATE SET
+        canonical_email = COALESCE(EXCLUDED.canonical_email, chatbot.candidates.canonical_email),
+        display_name = COALESCE(EXCLUDED.display_name, chatbot.candidates.display_name),
+        resume_text = COALESCE(NULLIF(EXCLUDED.resume_text, ''), chatbot.candidates.resume_text)
+    `;
+
+    await this.sql`
+      INSERT INTO chatbot.conversations (conversation_id, job_id, candidate_id, channel, channel_thread_id, status, client_id)
+      VALUES (${conversation_id}, ${job_id}, ${candidate_id}, 'hh', ${conversation_id}, 'open', ${job.client_id ?? null})
+      ON CONFLICT (conversation_id) DO UPDATE SET
+        job_id = EXCLUDED.job_id,
+        candidate_id = EXCLUDED.candidate_id,
+        status = 'open',
+        client_id = EXCLUDED.client_id
+    `;
+
+    if (!existingRun) {
+      await this.sql`
+        INSERT INTO chatbot.pipeline_runs (pipeline_run_id, job_id, candidate_id, template_id, template_version, active_step_id, status, client_id)
+        VALUES (
+          ${pipeline_run_id},
+          ${job_id},
+          ${candidate_id},
+          ${template.template_id},
+          ${template.template_version},
+          ${template.steps[0]?.id ?? null},
+          'active',
+          ${job.client_id ?? null}
+        )
+      `;
+    } else if (needsReset) {
+      await this.sql`
+        UPDATE chatbot.pipeline_runs
+        SET job_id = ${job_id},
+            candidate_id = ${candidate_id},
+            template_id = ${template.template_id},
+            template_version = ${template.template_version},
+            active_step_id = ${template.steps[0]?.id ?? null},
+            status = 'active',
+            client_id = ${job.client_id ?? null},
+            updated_at = now()
+        WHERE pipeline_run_id = ${pipeline_run_id}
+      `;
+      await this.sql`
+        DELETE FROM chatbot.pipeline_step_state
+        WHERE pipeline_run_id = ${pipeline_run_id}
+      `;
+      await this.sql`
+        UPDATE chatbot.planned_messages
+        SET review_status = 'blocked',
+            reason = CASE
+              WHEN reason IS NULL OR reason = '' THEN 'Заблокировано после HH re-import remap.'
+              WHEN position('HH re-import remap' in reason) > 0 THEN reason
+              ELSE reason || ' Заблокировано после HH re-import remap.'
+            END
+        WHERE conversation_id = ${conversation_id}
+          AND review_status IN ('pending', 'approved')
+      `;
+    }
+
+    if (!existingRun || needsReset) {
+      for (let i = 0; i < template.steps.length; i += 1) {
+        const step = template.steps[i];
+        await this.sql`
+          INSERT INTO chatbot.pipeline_step_state
+            (pipeline_run_id, step_id, step_index, state, awaiting_reply)
+          VALUES (${pipeline_run_id}, ${step.id}, ${step.step_index}, ${i === 0 ? "active" : "pending"}, ${i === 0})
+          ON CONFLICT (pipeline_run_id, step_id) DO NOTHING
+        `;
+      }
+    }
+
+    await this.upsertHhNegotiation({
+      hh_negotiation_id: hhNegotiation.id,
+      job_id,
+      candidate_id,
+      hh_vacancy_id: hhNegotiation.vacancy?.id ?? hhNegotiation.hh_vacancy_id ?? "",
+      hh_collection: hhNegotiation.state?.id ?? hhNegotiation.collection ?? "response",
+      channel_thread_id: conversation_id
+    });
+
+    return { candidate_id, conversation_id, pipeline_run_id };
   }
 
   async findHhNegotiationByChannelThreadId(channelThreadId) {
@@ -485,6 +598,32 @@ export class PostgresHiringStore {
         last_sender = EXCLUDED.last_sender,
         awaiting_reply = EXCLUDED.awaiting_reply,
         next_poll_at = EXCLUDED.next_poll_at
+      RETURNING *
+    `;
+    return rows[0];
+  }
+
+  async upsertImportedMessage({
+    conversation_id,
+    candidate_id,
+    direction,
+    body,
+    channel,
+    channel_message_id,
+    occurred_at
+  }) {
+    const existing = await this.sql`
+      SELECT message_id, conversation_id, candidate_id, direction, message_type, body, channel, channel_message_id, occurred_at, received_at
+      FROM chatbot.messages
+      WHERE conversation_id = ${conversation_id} AND channel_message_id = ${channel_message_id}
+      LIMIT 1
+    `;
+    if (existing[0]) return null;
+
+    const rows = await this.sql`
+      INSERT INTO chatbot.messages
+        (message_id, conversation_id, candidate_id, direction, message_type, body, channel, channel_message_id, occurred_at)
+      VALUES (${randomUUID()}, ${conversation_id}, ${candidate_id}, ${direction}, 'text', ${body}, ${channel}, ${channel_message_id}, ${occurred_at})
       RETURNING *
     `;
     return rows[0];
@@ -664,7 +803,9 @@ export class PostgresHiringStore {
         pm.conversation_id,
         cand.display_name AS candidate_display_name,
         j.title AS job_title,
-        pm.step_id AS active_step_goal,
+        j.job_id,
+        pm.step_id,
+        pr.active_step_id,
         pm.body,
         pm.reason,
         pm.review_status,
@@ -674,12 +815,16 @@ export class PostgresHiringStore {
       JOIN chatbot.conversations c    ON c.conversation_id = pm.conversation_id
       JOIN chatbot.candidates cand    ON cand.candidate_id = pm.candidate_id
       JOIN chatbot.jobs j             ON j.job_id = c.job_id
+      LEFT JOIN chatbot.pipeline_runs pr ON pr.pipeline_run_id = pm.pipeline_run_id
       JOIN chatbot.recruiters r       ON r.recruiter_token = ${recruiterToken}
       WHERE pm.review_status IN ('pending', 'approved')
         AND (j.client_id IS NULL OR j.client_id = r.client_id)
       ORDER BY pm.auto_send_after ASC
     `;
-    return rows;
+    return rows.map((row) => ({
+      ...row,
+      active_step_goal: this.getTemplateStep(row.job_id, row.active_step_id ?? row.step_id)?.goal ?? row.active_step_id ?? row.step_id ?? ""
+    }));
   }
 
   async blockMessage(plannedMessageId) {
@@ -891,6 +1036,23 @@ export class PostgresHiringStore {
     `;
     return rows[0];
   }
+}
+
+function buildResumeDisplayName(resume, fallbackId) {
+  const fullName = [resume?.first_name, resume?.last_name].filter(Boolean).join(" ").trim();
+  return fullName || resume?.title || fallbackId || "HH candidate";
+}
+
+function buildResumeText(resume) {
+  if (!resume) return "";
+  const parts = [
+    resume.title ? `Title: ${resume.title}` : null,
+    resume.first_name || resume.last_name
+      ? `Name: ${[resume.first_name, resume.last_name].filter(Boolean).join(" ").trim()}`
+      : null,
+    resume.email ? `Email: ${resume.email}` : null
+  ].filter(Boolean);
+  return parts.join("\n");
 }
 
 function normalizeStepState(row) {

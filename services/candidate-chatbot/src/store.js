@@ -1,3 +1,5 @@
+import { getModerationAutoSendDelayMs } from "./config.js";
+
 export class InMemoryHiringStore {
   constructor(seed) {
     // Support both single recruiter (old format) and array (new format)
@@ -267,8 +269,8 @@ export class InMemoryHiringStore {
       reason: buildPlannedMessageReason(llmOutput, job),
       review_status: "pending",
       moderation_policy: "window_to_reject",
-      send_after: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-      auto_send_after: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      send_after: new Date(Date.now() + getModerationAutoSendDelayMs()).toISOString(),
+      auto_send_after: new Date(Date.now() + getModerationAutoSendDelayMs()).toISOString(),
       idempotency_key: `${run.pipeline_run_id}:${llmOutput.rejected_step_id ?? run.active_step_id}:${this.pipelineEvents.filter((e) => e.pipeline_run_id === run.pipeline_run_id && e.event_type === "message_planned").length}`
     };
     this.plannedMessages.push(plannedMessage);
@@ -394,6 +396,85 @@ export class InMemoryHiringStore {
     return negotiation;
   }
 
+  async ensureImportedHhNegotiation({ hhNegotiation, job_id, resume }) {
+    const job = this.getJob(job_id);
+    const candidate_id = `cand-hh-${hhNegotiation.id}`;
+    const conversation_id = `conv-hh-${hhNegotiation.id}`;
+    const pipeline_run_id = `run-hh-${hhNegotiation.id}`;
+    const template = job.pipeline_template;
+    const existingRun = this.pipelineRuns.get(pipeline_run_id) ?? null;
+    const needsReset = !existingRun
+      || existingRun.job_id !== job_id
+      || existingRun.template_id !== template.template_id
+      || existingRun.template_version !== template.template_version;
+
+    this.candidates.set(candidate_id, {
+      candidate_id,
+      canonical_email: resume?.email ?? this.candidates.get(candidate_id)?.canonical_email ?? null,
+      display_name: buildResumeDisplayName(resume, hhNegotiation.resume?.id),
+      resume_text: buildResumeText(resume)
+    });
+
+    this.conversations.set(conversation_id, {
+      conversation_id,
+      job_id,
+      candidate_id,
+      channel: "hh",
+      channel_thread_id: conversation_id,
+      status: "open",
+      client_id: job.client_id ?? null
+    });
+
+    this.pipelineRuns.set(pipeline_run_id, {
+      pipeline_run_id,
+      job_id,
+      candidate_id,
+      template_id: template.template_id,
+      template_version: template.template_version,
+      active_step_id: needsReset
+        ? (template.steps[0]?.id ?? null)
+        : (existingRun?.active_step_id ?? template.steps[0]?.id ?? null),
+      state_json: existingRun?.state_json ?? {},
+      status: needsReset ? "active" : (existingRun?.status ?? "active")
+    });
+
+    if (needsReset || !this.pipelineStepState.has(pipeline_run_id)) {
+      this.pipelineStepState.set(
+        pipeline_run_id,
+        template.steps.map((step, index) => ({
+          pipeline_run_id,
+          step_id: step.id,
+          step_index: step.step_index,
+          state: index === 0 ? "active" : "pending",
+          awaiting_reply: index === 0,
+          extracted_facts: {},
+          last_reason: null,
+          completed_at: null
+        }))
+      );
+    }
+
+    if (needsReset) {
+      for (const plannedMessage of this.plannedMessages) {
+        if (plannedMessage.conversation_id !== conversation_id) continue;
+        if (!["pending", "approved"].includes(plannedMessage.review_status)) continue;
+        plannedMessage.review_status = "blocked";
+        plannedMessage.reason = appendImportResetReason(plannedMessage.reason);
+      }
+    }
+
+    await this.upsertHhNegotiation({
+      hh_negotiation_id: hhNegotiation.id,
+      job_id,
+      candidate_id,
+      hh_vacancy_id: hhNegotiation.vacancy?.id ?? hhNegotiation.hh_vacancy_id ?? "",
+      hh_collection: hhNegotiation.state?.id ?? hhNegotiation.collection ?? "response",
+      channel_thread_id: conversation_id
+    });
+
+    return { candidate_id, conversation_id, pipeline_run_id };
+  }
+
   async findHhNegotiationByChannelThreadId(channelThreadId) {
     for (const neg of this.hhNegotiations.values()) {
       if (neg.channel_thread_id === channelThreadId) return neg;
@@ -434,6 +515,36 @@ export class InMemoryHiringStore {
     };
     this.hhPollStates.set(hhNegotiationId, pollState);
     return pollState;
+  }
+
+  async upsertImportedMessage({
+    conversation_id,
+    candidate_id,
+    direction,
+    body,
+    channel,
+    channel_message_id,
+    occurred_at
+  }) {
+    const existing = this.messages.find(
+      (message) => message.conversation_id === conversation_id && message.channel_message_id === channel_message_id
+    );
+    if (existing) return null;
+
+    const stored = {
+      message_id: this.nextId("msg"),
+      conversation_id,
+      candidate_id,
+      direction,
+      message_type: "text",
+      body,
+      channel,
+      channel_message_id,
+      occurred_at,
+      received_at: new Date().toISOString()
+    };
+    this.messages.push(stored);
+    return stored;
   }
 
   // ─── Cron Sender ─────────────────────────────────────────────────────────────
@@ -733,6 +844,23 @@ export class InMemoryHiringStore {
   }
 }
 
+function buildResumeDisplayName(resume, fallbackId) {
+  const fullName = [resume?.first_name, resume?.last_name].filter(Boolean).join(" ").trim();
+  return fullName || resume?.title || fallbackId || "HH candidate";
+}
+
+function buildResumeText(resume) {
+  if (!resume) return "";
+  const parts = [
+    resume.title ? `Title: ${resume.title}` : null,
+    resume.first_name || resume.last_name
+      ? `Name: ${[resume.first_name, resume.last_name].filter(Boolean).join(" ").trim()}`
+      : null,
+    resume.email ? `Email: ${resume.email}` : null
+  ].filter(Boolean);
+  return parts.join("\n");
+}
+
 function buildPlannedMessageReason(llmOutput, job) {
   const completed = llmOutput.completed_step_ids.length
     ? `Закрыты шаги ${llmOutput.completed_step_ids.join(", ")}.`
@@ -744,4 +872,10 @@ function buildPlannedMessageReason(llmOutput, job) {
     ? ` Отказ по шагу ${llmOutput.rejected_step_id}.`
     : "";
   return `${completed}${missing}${reject} Вакансия: ${job.title}.`;
+}
+
+function appendImportResetReason(reason) {
+  const suffix = " Заблокировано после HH re-import remap.";
+  if (!reason) return suffix.trim();
+  return reason.includes("HH re-import remap") ? reason : `${reason}${suffix}`;
 }

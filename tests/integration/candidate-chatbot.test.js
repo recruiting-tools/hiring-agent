@@ -176,6 +176,24 @@ test("pending queue returns created planned message", async () => {
   assert.equal(queueResponse.body.items[0].review_status, "pending");
 });
 
+test("planned message defaults to 2 hour moderation window", async () => {
+  const { app, store } = createRuntime();
+  const before = Date.now();
+
+  const webhookResponse = await app.postWebhookMessage(requestFor(
+    "conv-zakup-001",
+    seed.candidate_fixtures[0].inbound_text
+  ));
+
+  assert.equal(webhookResponse.status, 200);
+  const plannedMessage = store.plannedMessages.find((item) => item.planned_message_id === webhookResponse.body.planned_message_id);
+  assert.ok(plannedMessage, "planned message should exist");
+
+  const delayMs = new Date(plannedMessage.auto_send_after).getTime() - before;
+  assert.ok(delayMs >= 2 * 60 * 60 * 1000 - 10_000, `expected about 2h delay, got ${delayMs}ms`);
+  assert.ok(delayMs <= 2 * 60 * 60 * 1000 + 10_000, `expected about 2h delay, got ${delayMs}ms`);
+});
+
 test("webhook returns 404 for unknown conversation", async () => {
   const { app } = createRuntime();
 

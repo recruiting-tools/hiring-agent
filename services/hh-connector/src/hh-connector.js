@@ -1,8 +1,20 @@
+import { HhImporter } from "./hh-importer.js";
+
 export class HhConnector {
-  constructor({ store, hhClient, chatbot }) {
+  constructor({ store, hhClient, chatbot, vacancyMappings = [] }) {
     this.store = store;
     this.hhClient = hhClient;
     this.chatbot = chatbot; // createCandidateChatbot({ store, llmAdapter })
+    this.importer = new HhImporter({ store, hhClient });
+    this.vacancyMappings = vacancyMappings;
+  }
+
+  async syncApplicants({ windowStart, windowEnd, vacancyMappings = this.vacancyMappings } = {}) {
+    if (!windowStart) throw new Error("syncApplicants requires windowStart");
+    if (!vacancyMappings?.length) {
+      return { ok: true, imported_collections: 0, imported_negotiations: 0, imported_messages: 0, results: [] };
+    }
+    return this.importer.syncApplicants({ vacancyMappings, windowStart, windowEnd });
   }
 
   // Poll all negotiations where next_poll_at <= now
