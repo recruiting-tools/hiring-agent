@@ -48,6 +48,40 @@ echo "Deploying $SERVICE @ $DEPLOY_SHA..."
 
 set +e
 
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  echo "CI mode detected: deploying directly from source..."
+  deploy_output=$(gcloud run deploy "$SERVICE" \
+    --source . \
+    --region "$REGION" \
+    --project "$PROJECT" \
+    --set-secrets "$SECRETS" \
+    --set-env-vars "$ENV_VARS" \
+    --allow-unauthenticated \
+    --port 8080 \
+    --memory 512Mi \
+    --min-instances 0 \
+    --quiet \
+    2>&1)
+  exit_code=$?
+  set -e
+
+  if [ $exit_code -eq 0 ]; then
+    echo "Deploy succeeded."
+  else
+    echo "Deploy FAILED:"
+    echo "$deploy_output"
+  fi
+
+  if [ -n "$CALLBACK_URL" ]; then
+    status=$( [ $exit_code -eq 0 ] && echo "success" || echo "failed" )
+    curl -s -X POST "$CALLBACK_URL" \
+      -H "Content-Type: application/json" \
+      -d "{\"status\":\"$status\",\"sha\":\"$DEPLOY_SHA\",\"service\":\"$SERVICE\",\"output\":$(echo "$deploy_output" | jq -R -s .)}"
+  fi
+
+  exit $exit_code
+fi
+
 # Step 1: build image via Cloud Build (~30s)
 echo "Step 1/2: building Docker image..."
 build_output=$(gcloud builds submit . --tag "$IMAGE" --project "$PROJECT" --quiet --async --format=json 2>&1)
