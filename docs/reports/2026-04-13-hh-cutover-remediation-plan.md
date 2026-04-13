@@ -60,12 +60,15 @@ Exit criteria:
 ### 4. Repair production verification
 
 1. Extend smoke checks beyond `/health` and `/login`.
-2. Add a release-readiness check that asserts:
+2. Decide explicitly whether cutover-class checks are:
+   - automated release gates
+   - manual operator sign-off gates
+3. Add a release-readiness check that asserts:
    - target recruiter exists
    - target jobs exist
    - imported counts are above zero for the scoped cutover
    - demo-only state is not the only visible state
-3. Make this check run against the same production DB secret as runtime.
+4. Make this check run against the same production DB secret as runtime.
 
 Exit criteria:
 
@@ -86,10 +89,12 @@ Exit criteria:
 ## Suggested Execution Order
 
 1. Confirm whether expected data exists on a non-production Neon branch/project.
-2. Patch release pipeline so the same mistake cannot recur during the fix.
-3. Apply missing migrations to production.
-4. Execute idempotent production import.
-5. Run business-data smoke and manual recruiter verification.
+2. Decide the production verification mode for cutover-class releases: automated gate or manual sign-off.
+3. Build or verify the idempotent production import path and execution logging.
+4. Patch release pipeline so the same mistake cannot recur during the fix.
+5. Apply missing migrations to production.
+6. Execute idempotent production import.
+7. Run business-data smoke and manual recruiter verification.
 
 ## Open Questions
 

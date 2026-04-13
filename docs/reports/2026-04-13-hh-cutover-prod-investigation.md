@@ -26,6 +26,13 @@ It is intentionally forensic first:
 | `#4` | https://github.com/recruiting-tools/hiring-agent/pull/4 | recruiter access bootstrap tooling |
 | `#6` | https://github.com/recruiting-tools/hiring-agent/pull/6 | recruiter access review fixes |
 
+### HH vacancy IDs explicitly in PR `#2` scope
+
+- `131345849` — менеджер по закупкам из Китая
+- `131532142` — дизайнер
+- `131812494` — дизайнер
+- `132032392` — менеджер по продажам
+
 ### Production deploy runs
 
 | Run | URL | Created at UTC | Head SHA | Result |
@@ -69,6 +76,7 @@ Observed gap:
 
 - no client row corresponding to the 4 HH vacancies described in PR `#2`
 - no tenant that obviously represents the migrated real recruiter account
+- one recruiter row still references `client-demo-001`, but that client row is absent from `management.clients`
 
 ### Jobs
 
@@ -134,6 +142,7 @@ Observed gap:
 Observed gap:
 
 - migration `009_hh_oauth_and_flags.sql` is not applied
+- migration `010_step_follow_up_count.sql` is not applied
 - production also lacks the tables introduced by that migration:
   - `management.oauth_tokens`
   - `management.feature_flags`
