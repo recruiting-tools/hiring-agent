@@ -177,6 +177,7 @@ https://hh.ru/oauth/authorize?response_type=code&client_id=THFMPVJIDL4MHTM5EE4AF
 ### Workflow: Code Review & Risky Changes
 
 - **Non-trivial features**: use coordinator flow — Codex implements → Claude reviews. Never skip the review step.
+- **Delegation guide**: follow [`docs/delegation-guide.md`](docs/delegation-guide.md) for delegation/coordinator rules in this repo.
 - **Risky schema changes**: before merging, create an ephemeral Neon branch via `scripts/create-feature-branch.sh <pr-N>`, run migrations + targeted tests, then delete the branch. See [`docs/neon-sandbox-runbook.md`](docs/neon-sandbox-runbook.md).
 - **Sandbox gate**: before promoting to production, all of `pnpm test:all`, `pnpm test:sandbox`, `pnpm smoke:sandbox` must pass on a seeded sandbox. CI enforces this via `.github/workflows/sandbox-release-gate.yml`.
 

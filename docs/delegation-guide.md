@@ -1,0 +1,1 @@
+/Users/vova/Documents/GitHub/claude-session-manager/docs/delegation-guide.md
