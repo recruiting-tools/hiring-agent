@@ -115,6 +115,24 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
   pm2 start services/hiring-agent/ecosystem.config.cjs --env production --update-env
   pm2 save
 
+  PM2_JSON=\$(pm2 jlist | jq -r '.[] | select(.name=="hiring-agent")')
+  PM2_APP_ENV=\$(printf '%s' "\$PM2_JSON" | jq -r '(.pm2_env.APP_ENV // .pm2_env.env.APP_ENV // "")')
+  PM2_DEPLOY_SHA=\$(printf '%s' "\$PM2_JSON" | jq -r '(.pm2_env.DEPLOY_SHA // .pm2_env.env.DEPLOY_SHA // "")')
+  PM2_MANAGEMENT_DB=\$(printf '%s' "\$PM2_JSON" | jq -r 'if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end')
+
+  [ "\$PM2_APP_ENV" = "\${APP_ENV:-}" ] || {
+    echo "ERROR: PM2 runtime APP_ENV mismatch: expected='\${APP_ENV:-}' actual='\${PM2_APP_ENV:-}'"
+    exit 1
+  }
+  [ "\$PM2_DEPLOY_SHA" = "\$DEPLOY_SHA" ] || {
+    echo "ERROR: PM2 runtime DEPLOY_SHA mismatch: expected='\$DEPLOY_SHA' actual='\${PM2_DEPLOY_SHA:-}'"
+    exit 1
+  }
+  [ "\$PM2_MANAGEMENT_DB" = "present" ] || {
+    echo "ERROR: PM2 runtime MANAGEMENT_DATABASE_URL is missing"
+    exit 1
+  }
+
   echo "Waiting for service to become healthy..."
   for i in \$(seq 1 10); do
     HEALTH_BODY=\$(curl -sf http://localhost:\$PORT/health 2>/dev/null || echo "")
@@ -137,6 +155,8 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
         pm_cwd: .pm2_env.pm_cwd,
         port: (.pm2_env.PORT // .pm2_env.env.PORT // ""),
         node_env: (.pm2_env.NODE_ENV // .pm2_env.env.NODE_ENV // ""),
+        app_env: (.pm2_env.APP_ENV // .pm2_env.env.APP_ENV // ""),
+        deploy_sha: (.pm2_env.DEPLOY_SHA // .pm2_env.env.DEPLOY_SHA // ""),
         app_mode: (.pm2_env.APP_MODE // .pm2_env.env.APP_MODE // ""),
         management_database_url: (if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end)
       }'
