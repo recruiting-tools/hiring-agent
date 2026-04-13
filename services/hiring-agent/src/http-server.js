@@ -319,7 +319,7 @@ export function createHiringAgentServer(app) {
 
       if (request.method === "POST" && request.url === "/api/chat") {
         const body = await readJsonBody(request);
-        const result = app.postChatMessage(body);
+        const result = await app.postChatMessage(body);
         writeJson(response, result.status, result.body);
         return;
       }

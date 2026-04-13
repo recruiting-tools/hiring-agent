@@ -1,9 +1,13 @@
 import { getDemoRuntimeData } from "./demo-runtime-data.js";
-import { runCandidateFunnelPlaybook } from "./playbooks/candidate-funnel.js";
+import postgres from "postgres";
+import { executeWithDb, runCandidateFunnelPlaybook } from "./playbooks/candidate-funnel.js";
 import { findPlaybook, getPlaybookRegistry } from "./playbooks/registry.js";
 import { routePlaybook } from "./playbooks/router.js";
 
 export function createHiringAgentApp() {
+  const databaseUrl = process.env.DATABASE_URL ?? null;
+  const sql = databaseUrl ? postgres(databaseUrl) : null;
+
   return {
     getHealth() {
       return {
@@ -11,7 +15,7 @@ export function createHiringAgentApp() {
         body: {
           service: "hiring-agent",
           status: "ok",
-          mode: "stateless-demo",
+          mode: sql ? "db-connected" : "stateless-demo",
           playbooks: getPlaybookRegistry().map((playbook) => ({
             playbook_key: playbook.playbook_key,
             enabled: playbook.enabled,
@@ -21,7 +25,7 @@ export function createHiringAgentApp() {
       };
     },
 
-    postChatMessage({ message }) {
+    async postChatMessage({ message, recruiter_token: _recruiterToken, job_id: jobId }) {
       const playbookKey = routePlaybook(message);
       if (!playbookKey) {
         return {
@@ -63,7 +67,9 @@ export function createHiringAgentApp() {
         return {
           status: 200,
           body: {
-            reply: runCandidateFunnelPlaybook({ runtimeData: getDemoRuntimeData() })
+            reply: sql
+              ? await executeWithDb({ sql, jobId })
+              : runCandidateFunnelPlaybook({ runtimeData: getDemoRuntimeData() })
           }
         };
       }
