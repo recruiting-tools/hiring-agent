@@ -1,0 +1,51 @@
+{
+  "clients": [
+    {
+      "client_id": "client-sandbox-beta-001",
+      "name": "Sandbox Beta"
+    }
+  ],
+  "recruiters": [
+    {
+      "recruiter_id": "recruiter-sandbox-beta-001",
+      "client_id": "client-sandbox-beta-001",
+      "email": "demo-beta@hiring-agent.app",
+      "recruiter_token": "rec-tok-sandbox-beta-001"
+    }
+  ],
+  "jobs": [
+    {
+      "job_id": "job-sandbox-beta-ops",
+      "client_id": "client-sandbox-beta-001",
+      "title": "Sandbox Operations Lead",
+      "description": "Sandbox tenant beta role for access-isolation checks.",
+      "pipeline_template": {
+        "template_id": "tpl-sandbox-beta-ops-v1",
+        "template_version": 1,
+        "name": "sandbox-beta-ops-v1",
+        "steps": [
+          {
+            "id": "beta_ops_experience",
+            "step_index": 1,
+            "kind": "question",
+            "goal": "Проверить опыт operations",
+            "done_when": "кандидат описывает релевантный operations опыт",
+            "reject_when": "нет operations опыта",
+            "prompt_key": "step.beta_ops_experience"
+          }
+        ]
+      }
+    }
+  ],
+  "candidate_fixtures": [
+    {
+      "candidate_id": "cand-sandbox-beta-001",
+      "job_id": "job-sandbox-beta-ops",
+      "conversation_id": "conv-sandbox-beta-001",
+      "pipeline_run_id": "run-sandbox-beta-001",
+      "display_name": "Sandbox Beta Candidate",
+      "resume_text": "Operations lead with 6 years of experience.",
+      "inbound_text": "Здравствуйте. 6 лет в operations, управлял командами и SLA."
+    }
+  ]
+}
