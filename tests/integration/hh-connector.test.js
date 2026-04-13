@@ -367,6 +367,55 @@ test("hh connector: syncApplicants continues import when one resume is unavailab
   assert.equal(importedCandidate.display_name, "Мария Иванова");
 });
 
+test("hh connector: syncApplicants continues import when one negotiation messages fetch fails", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.addNegotiation("neg-messages-broken", [
+    { id: "msg-1", author: "applicant", text: "Первый кандидат", created_at: "2026-04-12T09:00:00Z" }
+  ], {
+    hh_vacancy_id: "131345849",
+    updated_at: "2026-04-12T09:30:00Z",
+    resume: { id: "resume-broken", url: "https://api.hh.ru/resumes/resume-broken" },
+    vacancy: { id: "131345849", name: "Закупщик (Китай)" }
+  });
+  hhClient.addNegotiation("neg-messages-good", [
+    { id: "msg-2", author: "applicant", text: "Второй кандидат", created_at: "2026-04-12T09:30:00Z" }
+  ], {
+    hh_vacancy_id: "131345849",
+    updated_at: "2026-04-12T09:00:00Z",
+    resume: { id: "resume-good-2", url: "https://api.hh.ru/resumes/resume-good-2" },
+    vacancy: { id: "131345849", name: "Закупщик (Китай)" }
+  });
+  hhClient.seedResume({ id: "resume-broken", first_name: "Иван", last_name: "Петров" });
+  hhClient.seedResume({ id: "resume-good-2", first_name: "Мария", last_name: "Иванова" });
+  const originalGetMessages = hhClient.getMessages.bind(hhClient);
+  hhClient.getMessages = async (negotiationId) => {
+    if (negotiationId === "neg-messages-broken") {
+      const error = new Error("Forbidden");
+      error.status = 403;
+      throw error;
+    }
+    return originalGetMessages(negotiationId);
+  };
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot,
+    vacancyMappings: [{ hh_vacancy_id: "131345849", job_id: "job-zakup-china" }]
+  });
+
+  const result = await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+
+  assert.equal(result.imported_negotiations, 2);
+  assert.equal(result.imported_messages, 1);
+  assert.ok(await store.findHhNegotiation("neg-messages-broken"));
+  assert.ok(await store.findHhNegotiation("neg-messages-good"));
+  assert.equal(store.messages.filter((item) => item.conversation_id === "conv-hh-neg-messages-broken").length, 0);
+  assert.equal(store.messages.filter((item) => item.conversation_id === "conv-hh-neg-messages-good").length, 1);
+});
+
 test("hh connector: syncApplicants blocks stale planned messages when remap resets imported run", async () => {
   const store = new InMemoryHiringStore(seed);
   const llmAdapter = new FakeLlmAdapter();

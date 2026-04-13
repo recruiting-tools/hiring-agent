@@ -64,7 +64,7 @@ export class HhImporter {
       job_id,
       resume
     });
-    const messages = await this.hhClient.getMessages(item.id);
+    const messages = await this.getMessagesSafe(item.id);
     const sorted = [...messages].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
     let imported_messages = 0;
@@ -103,6 +103,15 @@ export class HhImporter {
     } catch (error) {
       console.warn(`Failed to import HH resume ${item.resume.id} for negotiation ${item.id}: ${error instanceof Error ? error.message : String(error)}`);
       return null;
+    }
+  }
+
+  async getMessagesSafe(negotiationId) {
+    try {
+      return await this.hhClient.getMessages(negotiationId);
+    } catch (error) {
+      console.warn(`Failed to import HH messages for negotiation ${negotiationId}: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
     }
   }
 }

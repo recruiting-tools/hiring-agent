@@ -246,6 +246,14 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhIm
           return;
         }
         const body = await readJsonBody(request).catch(() => ({}));
+        if (!isValidIsoDateTime(body.window_start)) {
+          writeJson(response, 400, { error: "invalid_window_start" });
+          return;
+        }
+        if (body.window_end != null && !isValidIsoDateTime(body.window_end)) {
+          writeJson(response, 400, { error: "invalid_window_end" });
+          return;
+        }
         const result = await hhImportRunner.syncApplicants({
           windowStart: body.window_start,
           windowEnd: body.window_end
@@ -390,6 +398,11 @@ function parseCookies(cookieHeader) {
     if (name) cookies[name] = value;
   }
   return cookies;
+}
+
+function isValidIsoDateTime(value) {
+  if (typeof value !== "string" || !value.trim()) return false;
+  return Number.isFinite(new Date(value).getTime());
 }
 
 function writeJson(response, status, body) {

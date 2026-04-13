@@ -805,6 +805,7 @@ export class PostgresHiringStore {
         j.title AS job_title,
         j.job_id,
         pm.step_id,
+        pr.active_step_id,
         pm.body,
         pm.reason,
         pm.review_status,
@@ -814,6 +815,7 @@ export class PostgresHiringStore {
       JOIN chatbot.conversations c    ON c.conversation_id = pm.conversation_id
       JOIN chatbot.candidates cand    ON cand.candidate_id = pm.candidate_id
       JOIN chatbot.jobs j             ON j.job_id = c.job_id
+      LEFT JOIN chatbot.pipeline_runs pr ON pr.pipeline_run_id = pm.pipeline_run_id
       JOIN chatbot.recruiters r       ON r.recruiter_token = ${recruiterToken}
       WHERE pm.review_status IN ('pending', 'approved')
         AND (j.client_id IS NULL OR j.client_id = r.client_id)
@@ -821,7 +823,7 @@ export class PostgresHiringStore {
     `;
     return rows.map((row) => ({
       ...row,
-      active_step_goal: this.getTemplateStep(row.job_id, row.step_id)?.goal ?? row.step_id ?? ""
+      active_step_goal: this.getTemplateStep(row.job_id, row.active_step_id ?? row.step_id)?.goal ?? row.active_step_id ?? row.step_id ?? ""
     }));
   }
 

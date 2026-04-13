@@ -211,3 +211,80 @@ test("internal hh import: passes import window to runner when authorized", async
     server.close();
   }
 });
+
+test("internal hh import: rejects invalid window_start", async () => {
+  const { app, store } = createRuntime();
+  await store.setFeatureFlag("hh_import", true);
+  let called = false;
+  const server = createHttpServer(app, {
+    store,
+    internalApiToken: "secret-123",
+    hhImportRunner: {
+      async syncApplicants() {
+        called = true;
+        return { ok: true };
+      }
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/internal/hh-import`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer secret-123",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ window_start: "not-a-date" })
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(body.error, "invalid_window_start");
+    assert.equal(called, false);
+  } finally {
+    server.close();
+  }
+});
+
+test("internal hh import: rejects invalid window_end", async () => {
+  const { app, store } = createRuntime();
+  await store.setFeatureFlag("hh_import", true);
+  let called = false;
+  const server = createHttpServer(app, {
+    store,
+    internalApiToken: "secret-123",
+    hhImportRunner: {
+      async syncApplicants() {
+        called = true;
+        return { ok: true };
+      }
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/internal/hh-import`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer secret-123",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        window_start: "2026-04-08T00:00:00Z",
+        window_end: "not-a-date"
+      })
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(body.error, "invalid_window_end");
+    assert.equal(called, false);
+  } finally {
+    server.close();
+  }
+});
