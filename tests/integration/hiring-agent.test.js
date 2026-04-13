@@ -32,6 +32,18 @@ async function login(server) {
   return response.headers.get("set-cookie");
 }
 
+async function loginResponse(server) {
+  const port = server.address().port;
+  return fetch(`http://localhost:${port}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email: "demo@local",
+      password: "demo"
+    })
+  });
+}
+
 test("hiring-agent: GET /health returns stateless demo status", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {
@@ -86,5 +98,40 @@ test("hiring-agent: GET / serves HTML shell after auth", async () => {
     assert.ok(body.includes("demo@local"));
   } finally {
     server.close();
+  }
+});
+
+test("hiring-agent: POST /auth/login sets 30 day cookie without secure outside production", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  try {
+    const response = await loginResponse(server);
+    const setCookie = response.headers.get("set-cookie");
+
+    assert.match(setCookie, /Max-Age=2592000/);
+    assert.doesNotMatch(setCookie, /;\s*Secure/i);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: auth cookies include secure in production", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  try {
+    const loginSetCookie = (await loginResponse(server)).headers.get("set-cookie");
+    assert.match(loginSetCookie, /;\s*Secure/i);
+
+    const port = server.address().port;
+    const logoutResponse = await fetch(`http://localhost:${port}/logout`, {
+      method: "GET",
+      redirect: "manual"
+    });
+    const logoutSetCookie = logoutResponse.headers.get("set-cookie");
+    assert.match(logoutSetCookie, /;\s*Secure/i);
+  } finally {
+    server.close();
+    process.env.NODE_ENV = previousNodeEnv;
   }
 });

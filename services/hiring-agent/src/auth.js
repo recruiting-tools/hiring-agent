@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
 
+const SESSION_TTL_DAYS = 30;
+const SESSION_RENEWAL_WINDOW_DAYS = 7;
+
 const DEMO_RECRUITER = {
   recruiter_id: "demo-recruiter",
   client_id: "demo-client",
@@ -30,14 +33,30 @@ export async function resolveSession(sql, token) {
   if (!sql) return { ...DEMO_RECRUITER };
 
   const rows = await sql`
-    SELECT r.recruiter_id, r.client_id, r.recruiter_token, r.email
+    SELECT r.recruiter_id, r.client_id, r.recruiter_token, r.email, s.expires_at
     FROM chatbot.sessions s
     JOIN chatbot.recruiters r ON r.recruiter_id = s.recruiter_id
     WHERE s.session_token = ${token}
       AND s.expires_at > now()
   `;
 
-  return rows[0] ?? null;
+  const session = rows[0] ?? null;
+  if (!session) return null;
+
+  if (session.expires_at && session.expires_at.getTime() < Date.now() + SESSION_RENEWAL_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
+    void sql`
+      UPDATE chatbot.sessions
+      SET expires_at = now() + ${`${SESSION_TTL_DAYS} days`}::interval
+      WHERE session_token = ${token}
+    `.catch(() => {});
+  }
+
+  return {
+    recruiter_id: session.recruiter_id,
+    client_id: session.client_id,
+    recruiter_token: session.recruiter_token,
+    email: session.email
+  };
 }
 
 export async function createSession(sql, recruiterId) {
@@ -46,7 +65,7 @@ export async function createSession(sql, recruiterId) {
   const token = randomBytes(32).toString("hex");
   await sql`
     INSERT INTO chatbot.sessions (session_token, recruiter_id, expires_at)
-    VALUES (${token}, ${recruiterId}, now() + interval '7 days')
+    VALUES (${token}, ${recruiterId}, now() + ${`${SESSION_TTL_DAYS} days`}::interval)
   `;
   return token;
 }

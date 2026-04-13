@@ -602,6 +602,7 @@ export function createHiringAgentServer(app, options = {}) {
         const body = await readJsonBody(request);
         const email = String(body.email ?? "").trim().toLowerCase();
         const password = String(body.password ?? "");
+        const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
 
         if (!email || !password) {
           writeJson(response, 400, { error: "email and password required" });
@@ -623,16 +624,17 @@ export function createHiringAgentServer(app, options = {}) {
         const sessionToken = await createSession(sql, recruiter.recruiter_id);
         response.writeHead(200, {
           "content-type": "application/json; charset=utf-8",
-          "set-cookie": `session=${sessionToken}; HttpOnly; Path=/; Max-Age=604800; SameSite=Strict`
+          "set-cookie": `session=${sessionToken}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Strict${secure}`
         });
         response.end(JSON.stringify({ redirect: "/" }));
         return;
       }
 
       if (request.method === "GET" && requestUrl.pathname === "/logout") {
+        const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
         response.writeHead(302, {
           location: "/login",
-          "set-cookie": "session=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict"
+          "set-cookie": `session=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict${secure}`
         });
         response.end();
         return;
