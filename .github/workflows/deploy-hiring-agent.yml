@@ -8,6 +8,11 @@ on:
       - 'infra/hiring-agent/**'
       - 'scripts/deploy-hiring-agent.sh'
   workflow_dispatch:
+    inputs:
+      target_port:
+        description: 'Port to run hiring-agent on (default: 3101)'
+        required: false
+        default: '3101'
 
 permissions:
   contents: read
@@ -20,6 +25,12 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      VM_HOST: 34.31.217.176
+      VM_USER: github-ci-hiring-agent
+      TARGET_PORT: ${{ inputs.target_port || '3101' }}
+      DEPLOY_REF: ${{ github.ref_name }}
+
     steps:
       - uses: actions/checkout@v5
 
@@ -32,13 +43,10 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v3
 
-      - name: Load SSH key from GCP Secret Manager
+      - name: Load SSH key
         run: |
           mkdir -p ~/.ssh
-          gcloud secrets versions access latest \
-            --secret=VM_SSH_KEY \
-            --project=project-5d8dd8a0-67af-44ba-b6e \
-            > ~/.ssh/vm_key
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/vm_key
           chmod 600 ~/.ssh/vm_key
           eval "$(ssh-agent -s)"
           ssh-add ~/.ssh/vm_key
@@ -46,10 +54,25 @@ jobs:
       - name: Add VM to known_hosts
         run: ssh-keyscan -H 34.31.217.176 >> ~/.ssh/known_hosts
 
-      - name: Deploy
+      - name: Check port availability on VM
+        run: |
+          echo "Checking port $TARGET_PORT on VM..."
+          ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST bash -s << 'EOF'
+            echo "=== Listening ports ==="
+            ss -tlnp | awk 'NR==1 || /LISTEN/' || netstat -tlnp 2>/dev/null || true
+            echo "=== PM2 processes ==="
+            pm2 list 2>/dev/null || echo "(pm2 not running)"
+          EOF
+
+      - name: Write .env on VM
         env:
-          VM_HOST: 34.31.217.176
-          VM_USER: vladimir
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          ENV_B64=$(printf 'NODE_ENV=production\nDATABASE_URL=%s\n' "$PROD_DATABASE_URL" | base64 -w0)
+          ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST \
+            "echo '$ENV_B64' | base64 -d > /opt/hiring-agent/.env && echo '.env written'"
+
+      - name: Deploy
         run: bash ./scripts/deploy-hiring-agent.sh
 
       - name: Post-deploy smoke
