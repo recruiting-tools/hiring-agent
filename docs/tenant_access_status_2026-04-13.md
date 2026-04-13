@@ -30,6 +30,8 @@ These decisions are already fixed for the current implementation slice:
 - phase 1 does not support `shared_schema`
 - tenant DB routing uses `management.database_connections`
 - MVP stores raw `connection_string` there
+- `seed-dev-db.js`, `seed-sandbox-db.js`, and `seed-prod-db.js` remain tenant-operational seed scripts in this PR
+- `bootstrap-demo-user.js` is the canonical demo auth bootstrap path for `hiring-agent`
 
 ## Implemented
 
@@ -165,6 +167,9 @@ Current bootstrap truth:
 - demo user bootstrap now writes to `management.*`
 - old env names still work as transitional fallback
 - preferred env name is `MANAGEMENT_DATABASE_URL`
+- rerun safety is now handled for `bind-all`
+- tenant bootstrap now fails explicitly if source `management.clients` is missing
+- recruiter bootstrap now skips duplicate-email rows with warnings instead of aborting the whole run
 
 ### 9. Deploy / Dev Wiring
 
@@ -249,14 +254,20 @@ Current state:
 
 These still update `chatbot.recruiters` directly.
 
-What remains:
+Accepted decision in this PR:
 
-- decide whether these scripts stay tenant-DB-only for candidate-chatbot scope
-- or split them into:
-  - tenant operational seed
-  - management auth/bootstrap seed
+- these scripts remain tenant-operational seed scripts
+- they are not the canonical control-plane bootstrap path for `hiring-agent`
+- `bootstrap-demo-user.js` is the control-plane-oriented demo auth/bootstrap path
 
-This is the biggest remaining bootstrap ambiguity.
+What still remains:
+
+- decide later whether to split or replace these scripts as part of a broader `candidate-chatbot` auth migration
+
+Why this stays deferred:
+
+- changing `seed-dev/sandbox/prod` now would couple this PR more tightly to `candidate-chatbot` runtime and legacy fixtures
+- that is a broader operational migration than the control-plane slice itself
 
 ### 3. End-to-End Management Login Bootstrap on Real DB
 
@@ -317,15 +328,14 @@ What remains:
 
 - full main sync after parallel deploy edits
 - verified end-to-end real-environment bootstrap
-- cleanup of remaining old auth/bootstrap assumptions in seed scripts
 - explicit rollout checklist for management DB initialization in production
 
 ## Recommended Next Steps
 
 1. Sync branch with latest `origin/main` after local parallel deploy edits are settled.
 2. Run the real management bootstrap path on the target environment.
-3. Decide and refactor legacy seed scripts so auth/bootstrap no longer points at `chatbot.recruiters` by default.
-4. Remove or centralize duplicate auth lookup logic between `auth.js` and `management-store.js`.
+3. Remove or centralize duplicate auth lookup logic between `auth.js` and `management-store.js`.
+4. Add an explicit rollout checklist for management DB initialization in production.
 5. After the above, run deploy and smoke against VM with `MANAGEMENT_DATABASE_URL`.
 
 ## Quick Readiness Checklist
@@ -338,6 +348,7 @@ What remains:
 - [x] tenant job ownership is validated before funnel query
 - [x] deploy writes `MANAGEMENT_DATABASE_URL`
 - [x] smoke expects `management-auth`
+- [x] legacy seed scripts explicitly remain tenant-operational in this PR
 - [ ] branch is reconciled with latest `main`
 - [ ] production bootstrap path verified end-to-end
-- [ ] remaining legacy auth/bootstrap assumptions removed or explicitly accepted
+- [ ] production rollout checklist for management DB initialization is written

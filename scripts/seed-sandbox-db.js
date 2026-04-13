@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Seed the tenant operational sandbox DB.
+// This script intentionally keeps writing tenant-local auth rows in chatbot.recruiters
+// for candidate-chatbot compatibility. It is not the control-plane bootstrap path for hiring-agent.
 
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";

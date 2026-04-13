@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// Seed the V2 dev Neon DB with iteration-1 fixtures.
+// Seed the tenant operational dev DB with iteration-1 fixtures.
+// This script intentionally keeps writing tenant-local auth rows in chatbot.recruiters
+// for candidate-chatbot compatibility. It is not the control-plane bootstrap path for hiring-agent.
 // Usage: V2_DEV_NEON_URL=... node scripts/seed-dev-db.js
 
 import { readFile } from "node:fs/promises";

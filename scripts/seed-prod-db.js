@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// Seed the production Neon DB with 1 client, 1 job+pipeline, and demo recruiter.
+// Seed the tenant operational production DB with 1 client, 1 job+pipeline, and demo recruiter.
+// This script intentionally keeps writing tenant-local auth rows in chatbot.recruiters
+// for candidate-chatbot compatibility. It is not the control-plane bootstrap path for hiring-agent.
 // Usage: DATABASE_URL=... node scripts/seed-prod-db.js
 
 import bcrypt from "bcryptjs";
