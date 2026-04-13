@@ -7,6 +7,7 @@ VM_HOST="${VM_HOST:-34.31.217.176}"
 VM_USER="${VM_USER:-vladimir}"
 TARGET_PORT="${TARGET_PORT:-3101}"
 DEPLOY_REF="${DEPLOY_REF:-main}"
+REPO_URL="${REPO_URL:-$(gh repo view --json sshUrl -q .sshUrl 2>/dev/null || git remote get-url origin)}"
 SHA=$(git rev-parse HEAD)
 
 echo "Deploying hiring-agent @ $SHA → $VM_USER@$VM_HOST (port $TARGET_PORT)..."
@@ -37,6 +38,13 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
   fi
 
   # ── Deploy ─────────────────────────────────────────────────────────────────
+  if [ ! -d /opt/hiring-agent/.git ]; then
+    echo "First deploy detected: cloning repository into /opt/hiring-agent"
+    mkdir -p /opt
+    rm -rf /opt/hiring-agent
+    git clone "$REPO_URL" /opt/hiring-agent
+  fi
+
   cd /opt/hiring-agent
 
   git fetch origin "$DEPLOY_REF"
