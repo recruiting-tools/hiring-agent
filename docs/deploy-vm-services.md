@@ -1,5 +1,11 @@
 # VM Deploy Guide
 
+> Hiring-agent section below is partially historical.
+> Live production runtime now uses `PM2`, app dir `/opt/hiring-agent`, port `3101`,
+> and deploy workflow `.github/workflows/deploy-hiring-agent.yml`.
+> Any `systemd`, `/home/vova/hiring-agent`, or `3100` instructions for `hiring-agent`
+> should be treated as stale unless explicitly updated.
+
 Этот документ покрывает только VM-based сервисы из этого репозитория:
 
 - `hiring-agent` → `services/hiring-agent/` → `hiring-chat.recruiter-assistant.com`
@@ -134,6 +140,16 @@ ssh hiring-vm
 Если сервис остаётся workspace-dependent, сначала нужно собрать deploy bundle без зависимости на корневой monorepo layout.
 
 ## Hiring-Agent
+
+> Current live contract:
+> - runtime user: `vova`
+> - app dir: `/opt/hiring-agent`
+> - process manager: `PM2`
+> - listen port: `3101`
+> - local healthcheck: `http://127.0.0.1:3101/health`
+> - public URL: `https://hiring-chat.recruiter-assistant.com`
+>
+> The detailed systemd-based skeleton below is kept only as historical reference.
 
 ### Service Snapshot
 
