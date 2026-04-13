@@ -44,8 +44,8 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
   # ── Port conflict check ────────────────────────────────────────────────────
   # Fail fast if another process (not our own PM2 hiring-agent) owns the port.
   PORT=$TARGET_PORT
-  if ss -tlnp 2>/dev/null | grep -q ":$PORT "; then
-    PORT_LINE=\$(ss -tlnp | grep ":$PORT ")
+  if ss -tlnp 2>/dev/null | grep -q ":\$PORT "; then
+    PORT_LINE=\$(ss -tlnp | grep ":\$PORT ")
     PORT_PID=\$(echo "\$PORT_LINE" | grep -oP 'pid=\K[0-9]+' | head -1)
     PM2_PID=\$(pm2 pid hiring-agent 2>/dev/null | tr -d ' \n' || echo "")
     if [ -z "\$PM2_PID" ] || [ "\$PORT_PID" != "\$PM2_PID" ]; then
