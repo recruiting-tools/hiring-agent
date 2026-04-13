@@ -1,0 +1,60 @@
+name: Deploy hiring-agent to VM
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/hiring-agent/**'
+      - 'infra/hiring-agent/**'
+      - 'scripts/deploy-hiring-agent.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-hiring-agent
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Load SSH key from GCP Secret Manager
+        run: |
+          mkdir -p ~/.ssh
+          gcloud secrets versions access latest \
+            --secret=VM_SSH_KEY \
+            --project=project-5d8dd8a0-67af-44ba-b6e \
+            > ~/.ssh/vm_key
+          chmod 600 ~/.ssh/vm_key
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/vm_key
+
+      - name: Add VM to known_hosts
+        run: ssh-keyscan -H 34.31.217.176 >> ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          VM_HOST: 34.31.217.176
+          VM_USER: vladimir
+        run: bash ./scripts/deploy-hiring-agent.sh
+
+      - name: Post-deploy smoke
+        run: |
+          STATUS=$(curl -sf https://hiring-chat.recruiter-assistant.com/health \
+            | jq -r '.status' 2>/dev/null || echo "failed")
+          echo "Health: $STATUS"
+          [ "$STATUS" = "ok" ] || { echo "SMOKE FAILED"; exit 1; }

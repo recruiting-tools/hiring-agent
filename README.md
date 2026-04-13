@@ -78,7 +78,7 @@ GEMINI_API_KEY=...         # уже есть в shell
 
 5. **Text2SQL только поверх marts**: `output_data_marts.candidate_funnel` — единственная таблица для аналитических запросов. Не давать LLM доступ к operational tables.
 
-6. **Cloudflare не в пути кандидата**: все публичные эндпоинты для кандидатов — только GCP (Cloud Run). Cloudflare = DNS only.
+6. **DNS**: `recruiter-assistant.com` управляется через Google Domains (NS: `ns-cloud-a*.googledomains.com`). НЕ Cloudflare. Публичные эндпоинты кандидатов — только GCP (Cloud Run).
 
 7. **Домен**: `recruiter-assistant.com` — единственный. `recruiter-asisstant.com` (двойная s) — не продлевать.
 
@@ -174,10 +174,20 @@ https://hh.ru/oauth/authorize?response_type=code&client_id=THFMPVJIDL4MHTM5EE4AF
 - Не добавлять фичи без теста
 - Не деплоить без зелёных тестов
 
+### E2E Delivery — Claude as Orchestrator
+
+**Read:** `/Users/vova/Documents/GitHub/claude-session-manager/docs/e2e-delivery-skill.md`
+
+Short version:
+- **Claude** = orchestrator + reviewer. Does not write code (exceptions: ≤5 trivial lines, or Codex failed 2×).
+- **Codex** = coder. All non-trivial implementation delegated via Session Manager (`agent: "codex"`, `path` = this repo root).
+- **Done** = deployed to prod + CI green + smoke test passing. Not just "code written".
+
+Per-task cycle: Claude describes task → Codex implements → Claude reviews → OK or NEEDS_FIX → repeat → PR → deploy.
+
 ### Workflow: Code Review & Risky Changes
 
-- **Non-trivial features**: use coordinator flow — Codex implements → Claude reviews. Never skip the review step.
-- **Delegation guide**: follow [`docs/delegation-guide.md`](docs/delegation-guide.md) for delegation/coordinator rules in this repo.
+- **Delegation + coordinator rules**: [`/Users/vova/Documents/GitHub/claude-session-manager/docs/delegation-guide.md`](../claude-session-manager/docs/delegation-guide.md)
 - **Risky schema changes**: before merging, create an ephemeral Neon branch via `scripts/create-feature-branch.sh <pr-N>`, run migrations + targeted tests, then delete the branch. See [`docs/neon-sandbox-runbook.md`](docs/neon-sandbox-runbook.md).
 - **Sandbox gate**: before promoting to production, all of `pnpm test:all`, `pnpm test:sandbox`, `pnpm smoke:sandbox` must pass on a seeded sandbox. CI enforces this via `.github/workflows/sandbox-release-gate.yml`.
 
