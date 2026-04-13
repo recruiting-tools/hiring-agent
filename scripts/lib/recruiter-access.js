@@ -217,19 +217,27 @@ export async function bootstrapRecruiterAccess(client, {
 
   const nextPassword = password || generatePassword();
   const passwordHash = await bcrypt.hash(nextPassword, 10);
+  const updateValues = [
+    recruiter.recruiter_id,
+    nextEmail,
+    nextToken,
+    passwordHash
+  ];
+  const clientGuardSql = clientId
+    ? `AND client_id = $${updateValues.push(clientId)}`
+    : "";
   const result = await client.query(`
     UPDATE chatbot.recruiters
     SET email = COALESCE($2, email),
         recruiter_token = COALESCE($3, recruiter_token),
         password_hash = $4
     WHERE recruiter_id = $1
+      ${clientGuardSql}
     RETURNING recruiter_id, client_id, email, recruiter_token
-  `, [
-    recruiter.recruiter_id,
-    nextEmail,
-    nextToken,
-    passwordHash
-  ]);
+  `, updateValues);
+  if (result.rows.length === 0) {
+    throw new Error(`Recruiter update affected 0 rows for recruiter ${recruiter.recruiter_id}`);
+  }
 
   return {
     database_name: recruiter.database_name,
