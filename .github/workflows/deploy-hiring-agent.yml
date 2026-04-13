@@ -29,6 +29,7 @@ jobs:
       VM_HOST: 34.31.217.176
       VM_USER: vladimir
       TARGET_PORT: ${{ inputs.target_port || '3101' }}
+      DEPLOY_REF: ${{ github.ref_name }}
 
     steps:
       - uses: actions/checkout@v5

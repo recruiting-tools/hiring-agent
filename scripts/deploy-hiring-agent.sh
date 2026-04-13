@@ -6,6 +6,7 @@ set -e
 VM_HOST="${VM_HOST:-34.31.217.176}"
 VM_USER="${VM_USER:-vladimir}"
 TARGET_PORT="${TARGET_PORT:-3101}"
+DEPLOY_REF="${DEPLOY_REF:-main}"
 SHA=$(git rev-parse HEAD)
 
 echo "Deploying hiring-agent @ $SHA → $VM_USER@$VM_HOST (port $TARGET_PORT)..."
@@ -38,9 +39,9 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
   # ── Deploy ─────────────────────────────────────────────────────────────────
   cd /opt/hiring-agent
 
-  git fetch origin main
-  git checkout main
-  git pull origin main
+  git fetch origin "$DEPLOY_REF"
+  git checkout "$DEPLOY_REF"
+  git pull origin "$DEPLOY_REF"
 
   pnpm install --frozen-lockfile
 
