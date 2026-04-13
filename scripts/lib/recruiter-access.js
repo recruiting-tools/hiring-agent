@@ -126,6 +126,24 @@ export async function assertEmailAvailable(client, email, recruiterId = null) {
   }
 }
 
+export async function assertTokenAvailable(client, token, recruiterId = null) {
+  if (!token) return;
+  const values = [token];
+  const recruiterFilter = recruiterId
+    ? `AND recruiter_id <> $${values.push(recruiterId)}`
+    : "";
+  const result = await client.query(`
+    SELECT recruiter_id
+    FROM chatbot.recruiters
+    WHERE recruiter_token = $1
+    ${recruiterFilter}
+    LIMIT 1
+  `, values);
+  if (result.rows.length > 0) {
+    throw new Error(`Recruiter token is already used by recruiter ${result.rows[0].recruiter_id}: ${token}`);
+  }
+}
+
 export async function createRecruiterAccess(client, {
   recruiterId,
   clientId,
@@ -148,6 +166,7 @@ export async function createRecruiterAccess(client, {
 
   const clientRow = await ensureClientExists(client, clientId);
   await assertEmailAvailable(client, email);
+  await assertTokenAvailable(client, token);
 
   const nextPassword = password || generatePassword();
   const passwordHash = await bcrypt.hash(nextPassword, 10);
@@ -194,6 +213,7 @@ export async function bootstrapRecruiterAccess(client, {
     throw new Error(`Recruiter ${recruiter.recruiter_id} belongs to client ${recruiter.client_id}, expected ${clientId}`);
   }
   await assertEmailAvailable(client, nextEmail, recruiter.recruiter_id);
+  await assertTokenAvailable(client, nextToken, recruiter.recruiter_id);
 
   const nextPassword = password || generatePassword();
   const passwordHash = await bcrypt.hash(nextPassword, 10);

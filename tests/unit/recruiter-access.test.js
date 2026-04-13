@@ -65,6 +65,9 @@ test("recruiter access: createRecruiterAccess inserts recruiter with hashed pass
       if (text.includes("FROM chatbot.recruiters") && text.includes("WHERE email = $1")) {
         return { rows: [] };
       }
+      if (text.includes("FROM chatbot.recruiters") && text.includes("WHERE recruiter_token = $1")) {
+        return { rows: [] };
+      }
       if (text.includes("INSERT INTO chatbot.recruiters")) {
         return {
           rows: [{
@@ -135,6 +138,37 @@ test("recruiter access: createRecruiterAccess rejects duplicate email", async ()
   );
 });
 
+test("recruiter access: createRecruiterAccess rejects duplicate recruiter token", async () => {
+  const client = {
+    async query(sql) {
+      const text = String(sql);
+      if (text.includes("FROM chatbot.recruiters") && text.includes("WHERE recruiter_id = $1")) {
+        return { rows: [] };
+      }
+      if (text.includes("FROM management.clients")) {
+        return { rows: [{ client_id: "client-001", name: "Client One" }] };
+      }
+      if (text.includes("FROM chatbot.recruiters") && text.includes("WHERE email = $1")) {
+        return { rows: [] };
+      }
+      if (text.includes("FROM chatbot.recruiters") && text.includes("WHERE recruiter_token = $1")) {
+        return { rows: [{ recruiter_id: "rec-existing" }] };
+      }
+      throw new Error(`Unexpected query: ${text}`);
+    }
+  };
+
+  await assert.rejects(
+    createRecruiterAccess(client, {
+      recruiterId: "rec-001",
+      clientId: "client-001",
+      email: "new@example.com",
+      token: "tok-used"
+    }),
+    /Recruiter token is already used by recruiter rec-existing/
+  );
+});
+
 test("recruiter access: bootstrapRecruiterAccess updates existing recruiter and returns generated password", async () => {
   const calls = [];
   const client = {
@@ -142,6 +176,9 @@ test("recruiter access: bootstrapRecruiterAccess updates existing recruiter and 
       calls.push({ sql, values });
       const text = String(sql);
       if (text.includes("FROM chatbot.recruiters") && text.includes("WHERE email = $1")) {
+        return { rows: [] };
+      }
+      if (text.includes("FROM chatbot.recruiters") && text.includes("WHERE recruiter_token = $1")) {
         return { rows: [] };
       }
       if (text.includes("FROM chatbot.recruiters") && text.includes("GROUP BY")) {
@@ -252,5 +289,42 @@ test("recruiter access: bootstrapRecruiterAccess rejects email collision on upda
       nextEmail: "used@example.com"
     }),
     /Email is already used by recruiter rec-002/
+  );
+});
+
+test("recruiter access: bootstrapRecruiterAccess rejects token collision on update", async () => {
+  const client = {
+    async query(sql) {
+      const text = String(sql);
+      if (text.includes("FROM chatbot.recruiters") && text.includes("GROUP BY")) {
+        return {
+          rows: [{
+            database_name: "neondb",
+            recruiter_id: "rec-001",
+            client_id: "client-001",
+            client_name: "Client One",
+            email: "rec@example.com",
+            recruiter_token: "tok-001",
+            has_password: true,
+            visible_jobs: 2
+          }]
+        };
+      }
+      if (text.includes("WHERE recruiter_token = $1")) {
+        return { rows: [{ recruiter_id: "rec-002" }] };
+      }
+      if (text.includes("WHERE email = $1")) {
+        return { rows: [] };
+      }
+      throw new Error(`Unexpected query: ${text}`);
+    }
+  };
+
+  await assert.rejects(
+    bootstrapRecruiterAccess(client, {
+      lookup: { recruiterId: "rec-001" },
+      nextToken: "tok-used"
+    }),
+    /Recruiter token is already used by recruiter rec-002/
   );
 });

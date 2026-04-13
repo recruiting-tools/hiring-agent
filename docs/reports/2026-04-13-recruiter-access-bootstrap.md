@@ -51,6 +51,7 @@ DATABASE_URL=... node scripts/bootstrap-recruiter-access.js set-password \
 - Lookup must resolve to exactly one recruiter.
 - `--client-id` acts as a tenant guard and fails if the recruiter belongs to another client.
 - `create` and `set-password --set-email` fail if the email is already used by another recruiter.
+- `create` and `set-password --set-token` fail if the recruiter token is already used by another recruiter.
 - Output includes `database_name`, `client_id`, `client_name`, and `visible_jobs` so the operator can verify they are touching the correct tenant.
 
 ## Intended Use
