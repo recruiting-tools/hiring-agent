@@ -8,7 +8,7 @@ import { createHiringAgentServer } from "./http-server.js";
 
 export function resolveHiringAgentRuntime(env = process.env) {
   const appMode = env.APP_MODE ?? null;
-  const appEnv = env.APP_ENV ?? "local";
+  const appEnv = env.APP_ENV ?? null;
   const port = Number(env.PORT ?? 3100);
   const managementDatabaseUrl = env.MANAGEMENT_DATABASE_URL ?? null;
   const deploySha = env.DEPLOY_SHA ?? env.GITHUB_SHA ?? "unknown";
@@ -17,7 +17,7 @@ export function resolveHiringAgentRuntime(env = process.env) {
   if (appMode === "demo") {
     return {
       port,
-      appEnv,
+      appEnv: appEnv ?? "local",
       deploySha,
       startedAt,
       demoMode: true,
@@ -26,6 +26,10 @@ export function resolveHiringAgentRuntime(env = process.env) {
       poolRegistry: createPoolRegistry(),
       startupMode: "demo"
     };
+  }
+
+  if (!appEnv) {
+    throw new Error("APP_ENV is required unless APP_MODE=demo");
   }
 
   if (!managementDatabaseUrl) {

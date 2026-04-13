@@ -66,6 +66,25 @@ test("hiring-agent: GET /health returns stateless demo status", async () => {
   }
 });
 
+test("hiring-agent: GET /health exposes configured app env in management mode", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp({
+    demoMode: false,
+    appEnv: "prod",
+    deploySha: "test-sha-prod",
+    startedAt: "2026-04-13T00:00:00.000Z",
+    port: 3101
+  })).listen(0);
+  try {
+    const { status, body } = await req(server, "GET", "/health");
+    assert.equal(status, 200);
+    assert.equal(body.mode, "management-auth");
+    assert.equal(body.app_env, "prod");
+    assert.equal(body.deploy_sha, "test-sha-prod");
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: POST /api/chat returns funnel payload for funnel request", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {
