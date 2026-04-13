@@ -47,17 +47,24 @@ jobs:
 
   migration-check:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
       - name: Check for migration changes
         id: check
         run: |
           if git diff --name-only HEAD~1 HEAD | grep -q 'services/candidate-chatbot/migrations/'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+      - name: Install pnpm and dependencies
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          npm install -g pnpm
+          pnpm install --frozen-lockfile
       - name: Install neonctl
         if: steps.check.outputs.changed == 'true'
         run: npm install -g neonctl
@@ -82,7 +89,8 @@ jobs:
             --branch pr-${{ github.run_id }} \
             --pooled)
           echo "Ephemeral branch ready."
-          # TODO: DATABASE_URL="$EPHEMERAL_DB_URL" node scripts/migrate.js
+          DATABASE_URL="$EPHEMERAL_DB_URL" node scripts/migrate.js
+          DATABASE_URL="$EPHEMERAL_DB_URL" pnpm test:sandbox
       - name: Delete ephemeral Neon branch
         if: always()
         env:

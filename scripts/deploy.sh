@@ -46,6 +46,14 @@ fi
 
 echo "Deploying $SERVICE @ $DEPLOY_SHA..."
 
+# Run database migrations before deploying (local runs only; CI handles this in a separate workflow step)
+if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+  echo "Running database migrations..."
+  DB_URL=$(gcloud secrets versions access latest --secret="$DB_SECRET_NAME" --project="$PROJECT" 2>&1)
+  DATABASE_URL="$DB_URL" node scripts/migrate.js
+  echo "Migrations complete."
+fi
+
 set +e
 
 if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
