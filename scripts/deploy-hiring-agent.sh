@@ -69,10 +69,17 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
 
   run_pnpm install --frozen-lockfile
 
-  # PM2 does not auto-read .env — source it so MANAGEMENT_DATABASE_URL reaches the process
-  set -a
-  [ -f .env ] && source .env
-  set +a
+  # PM2 does not auto-read .env. Load key=value lines without shell-evaluating values,
+  # because connection strings may contain characters like '&' that break `source .env`.
+  if [ -f .env ]; then
+    while IFS= read -r line || [ -n "\$line" ]; do
+      [ -z "\$line" ] && continue
+      case "\$line" in
+        \#*) continue ;;
+      esac
+      export "\$line"
+    done < .env
+  fi
 
   # Override port from env if passed
   export PORT=\$PORT
