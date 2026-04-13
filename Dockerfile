@@ -12,6 +12,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY services/candidate-chatbot/src ./services/candidate-chatbot/src
 COPY services/candidate-chatbot/migrations ./services/candidate-chatbot/migrations
+COPY services/hh-connector/src ./services/hh-connector/src
 USER node
 ENV NODE_ENV=production
 ENV PORT=8080
