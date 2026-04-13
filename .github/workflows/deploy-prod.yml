@@ -41,5 +41,14 @@ jobs:
 
       - name: Post-deploy smoke
         env:
-          SANDBOX_URL: ${{ secrets.DEPLOY_PUBLIC_URL }}
-        run: pnpm smoke:sandbox:cloud
+          DEPLOY_PUBLIC_URL: ${{ secrets.DEPLOY_PUBLIC_URL }}
+        run: |
+          root_status=$(curl -sS -o /tmp/root.body -w "%{http_code}" "$DEPLOY_PUBLIC_URL/")
+          login_status=$(curl -sS -o /tmp/login.body -w "%{http_code}" "$DEPLOY_PUBLIC_URL/login")
+          health_status=$(curl -sS -o /tmp/health.body -w "%{http_code}" "$DEPLOY_PUBLIC_URL/health")
+
+          [[ "$root_status" =~ ^(2|3)[0-9][0-9]$ ]] || { echo "GET / failed: $root_status"; cat /tmp/root.body; exit 1; }
+          [ "$login_status" = "200" ] || { echo "GET /login failed: $login_status"; cat /tmp/login.body; exit 1; }
+          grep -qi "<html" /tmp/login.body || { echo "/login did not return HTML"; cat /tmp/login.body; exit 1; }
+          [ "$health_status" = "200" ] || { echo "GET /health failed: $health_status"; cat /tmp/health.body; exit 1; }
+          grep -q '"status":"ok"' /tmp/health.body || { echo "/health is not ok"; cat /tmp/health.body; exit 1; }
