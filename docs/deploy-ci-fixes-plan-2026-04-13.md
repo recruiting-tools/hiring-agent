@@ -1,5 +1,10 @@
 # Deploy / CI Fixes Plan
 
+> Historical document.
+> Most items below were resolved by later deploy hardening work.
+> Current source of truth for next deploy improvements is
+> [docs/hiring-agent-deploy-hardening-task-2026-04-13.md](/private/tmp/hiring-agent-followup/docs/hiring-agent-deploy-hardening-task-2026-04-13.md).
+
 Date: 2026-04-13
 Status: Active
 Independent of: tenant access layer refactor
