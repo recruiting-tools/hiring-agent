@@ -21,10 +21,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 2
-      - run: corepack enable pnpm
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 20
       - name: Impact check
         run: node scripts/impact-check.js
 
