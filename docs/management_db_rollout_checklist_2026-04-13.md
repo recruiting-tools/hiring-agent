@@ -87,6 +87,14 @@ This checklist describes the minimum rollout sequence required to turn on manage
    - recruiter exists in `management.recruiters`
    - one primary binding exists for `(tenant_id, environment)`
    - the referenced `db_alias` exists in `management.database_connections`
+   Command:
+   ```bash
+   MANAGEMENT_DATABASE_URL="$MANAGEMENT_DATABASE_URL" \
+   node scripts/check-management-readiness.js \
+     --tenant-id="$TENANT_ID" \
+     --app-env="$APP_ENV" \
+     --recruiter-id="$RECRUITER_ID"
+   ```
 
 9. Deploy `hiring-agent` with `MANAGEMENT_DATABASE_URL` present in runtime env.
    Expected:
