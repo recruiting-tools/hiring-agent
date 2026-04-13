@@ -41,6 +41,7 @@ Added:
 
 - [tenat_recruiter_access_via_layers_13_apr.md](/Users/vova/Documents/GitHub/hiring-agent/docs/tenat_recruiter_access_via_layers_13_apr.md)
 - [tenant_recruiter_access_implementation_roadmap_13_apr.md](/Users/vova/Documents/GitHub/hiring-agent/docs/tenant_recruiter_access_implementation_roadmap_13_apr.md)
+- [management_db_rollout_checklist_2026-04-13.md](/Users/vova/Documents/GitHub/hiring-agent/docs/management_db_rollout_checklist_2026-04-13.md)
 
 These documents now define:
 
@@ -263,6 +264,7 @@ Current state:
 - management fixtures exist
 - management bootstrap scripts exist
 - management-backed HTTP path exists
+- rollout checklist now exists in [management_db_rollout_checklist_2026-04-13.md](/Users/vova/Documents/GitHub/hiring-agent/docs/management_db_rollout_checklist_2026-04-13.md)
 
 What remains:
 
@@ -315,14 +317,13 @@ What remains:
 
 - full main sync after parallel deploy edits
 - verified end-to-end real-environment bootstrap
-- explicit rollout checklist for management DB initialization in production
+- execution of the rollout checklist on a real environment
 
 ## Recommended Next Steps
 
 1. Sync branch with latest `origin/main` after local parallel deploy edits are settled.
 2. Run the real management bootstrap path on the target environment.
-3. Add an explicit rollout checklist for management DB initialization in production.
-4. After the above, run deploy and smoke against VM with `MANAGEMENT_DATABASE_URL`.
+3. After the above, run deploy and smoke against VM with `MANAGEMENT_DATABASE_URL`.
 
 ## Quick Readiness Checklist
 
@@ -335,6 +336,6 @@ What remains:
 - [x] deploy writes `MANAGEMENT_DATABASE_URL`
 - [x] smoke expects `management-auth`
 - [x] legacy seed scripts explicitly remain tenant-operational in this PR
+- [x] production rollout checklist for management DB initialization is written
 - [ ] branch is reconciled with latest `main`
 - [ ] production bootstrap path verified end-to-end
-- [ ] production rollout checklist for management DB initialization is written
