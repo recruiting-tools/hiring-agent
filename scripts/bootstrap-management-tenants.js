@@ -22,6 +22,19 @@ await managementClient.connect();
 await sourceClient.connect();
 
 try {
+  const sourceTableCheck = await sourceClient.query(`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'management'
+        AND table_name = 'clients'
+    ) AS exists
+  `);
+
+  if (!sourceTableCheck.rows[0]?.exists) {
+    throw new Error("Source DB does not contain management.clients; cannot bootstrap tenants from this source");
+  }
+
   const clients = await sourceClient.query(`
     SELECT client_id, name
     FROM management.clients

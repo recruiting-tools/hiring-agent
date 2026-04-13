@@ -120,7 +120,13 @@ try {
           is_primary
         )
         VALUES ($1, $2, $3, $4, $5, $6, true)
-      `, [randomUUID(), row.tenant_id, environment, bindingKind, dbAlias, schemaName]);
+        ON CONFLICT (tenant_id, environment) WHERE is_primary = true
+        DO UPDATE SET
+          binding_kind = EXCLUDED.binding_kind,
+          db_alias = EXCLUDED.db_alias,
+          schema_name = EXCLUDED.schema_name,
+          is_primary = EXCLUDED.is_primary
+      `, [buildPrimaryBindingId(row.tenant_id, environment), row.tenant_id, environment, bindingKind, dbAlias, schemaName]);
       console.log(`Bound tenant ${row.tenant_id} to ${dbAlias} in ${environment}`);
     }
 
@@ -133,6 +139,10 @@ try {
   process.exit(1);
 } finally {
   await client.end();
+}
+
+function buildPrimaryBindingId(tenantId, environment) {
+  return `bind-${tenantId}-${environment}`;
 }
 
 function parseArgs(argv) {

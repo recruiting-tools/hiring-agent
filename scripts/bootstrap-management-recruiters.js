@@ -29,28 +29,43 @@ try {
     ORDER BY recruiter_id
   `);
 
+  let duplicateEmailCount = 0;
+
   for (const row of recruiters.rows) {
-    await managementClient.query(`
-      INSERT INTO management.recruiters (
-        recruiter_id,
-        tenant_id,
-        email,
-        password_hash,
-        status,
-        role
-      )
-      VALUES ($1, $2, $3, $4, 'active', 'recruiter')
-      ON CONFLICT (recruiter_id) DO UPDATE SET
-        tenant_id = EXCLUDED.tenant_id,
-        email = EXCLUDED.email,
-        password_hash = EXCLUDED.password_hash
-    `, [
-      row.recruiter_id,
-      row.client_id,
-      row.email,
-      row.password_hash
-    ]);
-    console.log(`Upserted recruiter ${row.recruiter_id}`);
+    try {
+      await managementClient.query(`
+        INSERT INTO management.recruiters (
+          recruiter_id,
+          tenant_id,
+          email,
+          password_hash,
+          status,
+          role
+        )
+        VALUES ($1, $2, $3, $4, 'active', 'recruiter')
+        ON CONFLICT (recruiter_id) DO UPDATE SET
+          tenant_id = EXCLUDED.tenant_id,
+          email = EXCLUDED.email,
+          password_hash = EXCLUDED.password_hash
+      `, [
+        row.recruiter_id,
+        row.client_id,
+        row.email,
+        row.password_hash
+      ]);
+      console.log(`Upserted recruiter ${row.recruiter_id}`);
+    } catch (error) {
+      if (error?.code === "23505") {
+        duplicateEmailCount += 1;
+        console.warn(`Skipping recruiter ${row.recruiter_id}: duplicate email ${row.email}`);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (duplicateEmailCount > 0) {
+    console.warn(`Skipped ${duplicateEmailCount} recruiter rows due to duplicate email conflicts.`);
   }
 } finally {
   await sourceClient.end();
