@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VM_HOST: 34.31.217.176
-      VM_USER: github-ci-hiring-agent
+      VM_USER: vova
       TARGET_PORT: ${{ inputs.target_port || '3101' }}
       DEPLOY_REF: ${{ github.ref_name }}
 
