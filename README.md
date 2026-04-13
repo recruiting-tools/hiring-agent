@@ -43,6 +43,51 @@ GEMINI_API_KEY=...         # уже есть в shell
 **CI gate (авто):** `sandbox-gate` workflow — должен быть зелёным для merge
 **Deploy (авто):** `deploy-prod` workflow запускается при merge в main
 
+### CI/CD Observability
+
+Для GitHub Actions удобно смотреть так:
+
+```bash
+gh run list --limit 10
+gh run watch <run-id> --exit-status
+gh run view <run-id> --log-failed
+```
+
+Для `hiring-agent` deploy workflow:
+
+- source of truth: `.github/workflows/deploy-hiring-agent.yml`
+- deploy проверяет три слоя:
+  - VM preflight
+  - local VM runtime verify
+  - public smoke
+
+Быстрая диагностика:
+
+- local VM verify failed, public smoke ещё не начался:
+  проблема внутри VM/runtime/env/PM2
+- local VM verify passed, public smoke failed:
+  проблема в nginx, DNS, TLS или внешней маршрутизации
+- `/health` надо читать вместе с:
+  - `mode`
+  - `deploy_sha`
+  - `app_env`
+  - `port`
+
+Полезные команды:
+
+```bash
+# GitHub
+gh run list --workflow "Deploy hiring-agent to VM" --limit 5
+gh run view <run-id> --log-failed
+
+# VM
+ssh -i ~/.ssh/google_compute_engine vova@34.31.217.176
+pm2 list
+pm2 logs hiring-agent
+curl -sf http://127.0.0.1:3101/health | jq
+ss -tlnp | grep ':3101 '
+```
+
 Для сессий с CI callback — включай в тело PR:
 ```
 <!-- ci-callback: https://RELAY_URL/api/sessions/SESSION_ID/reply -->
