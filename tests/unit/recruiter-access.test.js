@@ -169,6 +169,31 @@ test("recruiter access: createRecruiterAccess rejects duplicate recruiter token"
   );
 });
 
+test("recruiter access: createRecruiterAccess rejects unknown client", async () => {
+  const client = {
+    async query(sql) {
+      const text = String(sql);
+      if (text.includes("FROM chatbot.recruiters") && text.includes("WHERE recruiter_id = $1")) {
+        return { rows: [] };
+      }
+      if (text.includes("FROM management.clients")) {
+        return { rows: [] };
+      }
+      throw new Error(`Unexpected query: ${text}`);
+    }
+  };
+
+  await assert.rejects(
+    createRecruiterAccess(client, {
+      recruiterId: "rec-001",
+      clientId: "client-missing",
+      email: "new@example.com",
+      token: "tok-001"
+    }),
+    /Client not found: client-missing/
+  );
+});
+
 test("recruiter access: bootstrapRecruiterAccess updates existing recruiter and returns generated password", async () => {
   const calls = [];
   const client = {
@@ -229,6 +254,7 @@ test("recruiter access: bootstrapRecruiterAccess updates existing recruiter and 
   assert.equal(updateCall.values[1], "new@example.com");
   assert.equal(updateCall.values[2], "tok-new");
   assert.equal(await bcrypt.compare("ReadablePass234", updateCall.values[3]), true);
+  assert.equal(updateCall.values[4], "client-001");
 });
 
 test("recruiter access: bootstrapRecruiterAccess rejects client mismatch", async () => {
@@ -290,6 +316,58 @@ test("recruiter access: bootstrapRecruiterAccess rejects email collision on upda
     }),
     /Email is already used by recruiter rec-002/
   );
+});
+
+test("recruiter access: bootstrapRecruiterAccess updates without tenant guard when clientId omitted", async () => {
+  const calls = [];
+  const client = {
+    async query(sql, values) {
+      calls.push({ sql, values });
+      const text = String(sql);
+      if (text.includes("WHERE email = $1")) {
+        return { rows: [] };
+      }
+      if (text.includes("WHERE recruiter_token = $1")) {
+        return { rows: [] };
+      }
+      if (text.includes("GROUP BY")) {
+        return {
+          rows: [{
+            database_name: "neondb",
+            recruiter_id: "rec-001",
+            client_id: "client-001",
+            client_name: "Client One",
+            email: "rec@example.com",
+            recruiter_token: "tok-001",
+            has_password: true,
+            visible_jobs: 2
+          }]
+        };
+      }
+      if (text.includes("UPDATE chatbot.recruiters")) {
+        return {
+          rows: [{
+            recruiter_id: "rec-001",
+            client_id: "client-001",
+            email: "rec@example.com",
+            recruiter_token: "tok-001"
+          }]
+        };
+      }
+      throw new Error(`Unexpected query: ${text}`);
+    }
+  };
+
+  const result = await bootstrapRecruiterAccess(client, {
+    lookup: { recruiterId: "rec-001" },
+    password: "ReadablePass234"
+  });
+
+  assert.equal(result.recruiter_id, "rec-001");
+  const updateCall = calls.find((call) => String(call.sql).includes("UPDATE chatbot.recruiters"));
+  assert.ok(updateCall, "expected update query");
+  assert.equal(updateCall.values.length, 4);
+  assert.ok(!String(updateCall.sql).includes("AND client_id = $5"));
 });
 
 test("recruiter access: bootstrapRecruiterAccess rejects token collision on update", async () => {
