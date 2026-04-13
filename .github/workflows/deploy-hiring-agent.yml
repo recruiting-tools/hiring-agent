@@ -8,6 +8,11 @@ on:
       - 'infra/hiring-agent/**'
       - 'scripts/deploy-hiring-agent.sh'
   workflow_dispatch:
+    inputs:
+      target_port:
+        description: 'Port to run hiring-agent on (default: 3101)'
+        required: false
+        default: '3101'
 
 permissions:
   contents: read
@@ -20,6 +25,11 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      VM_HOST: 34.31.217.176
+      VM_USER: vladimir
+      TARGET_PORT: ${{ inputs.target_port || '3101' }}
+
     steps:
       - uses: actions/checkout@v5
 
@@ -46,10 +56,17 @@ jobs:
       - name: Add VM to known_hosts
         run: ssh-keyscan -H 34.31.217.176 >> ~/.ssh/known_hosts
 
+      - name: Check port availability on VM
+        run: |
+          echo "Checking port $TARGET_PORT on VM..."
+          ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST bash -s << 'EOF'
+            echo "=== Listening ports ==="
+            ss -tlnp | awk 'NR==1 || /LISTEN/' || netstat -tlnp 2>/dev/null || true
+            echo "=== PM2 processes ==="
+            pm2 list 2>/dev/null || echo "(pm2 not running)"
+          EOF
+
       - name: Deploy
-        env:
-          VM_HOST: 34.31.217.176
-          VM_USER: vladimir
         run: bash ./scripts/deploy-hiring-agent.sh
 
       - name: Post-deploy smoke
