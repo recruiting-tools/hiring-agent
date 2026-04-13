@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS management.database_connections (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT exactly_one_connection_source CHECK (
     ((secret_name IS NOT NULL)::int + (connection_string IS NOT NULL)::int) = 1
+  ),
+  CONSTRAINT database_connections_status_check CHECK (
+    status IN ('active', 'disabled')
   )
 );
 

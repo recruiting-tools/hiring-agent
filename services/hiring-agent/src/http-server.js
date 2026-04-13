@@ -699,6 +699,11 @@ export function createHiringAgentServer(app, options = {}) {
 
       writeJson(response, 404, { error: "not_found" });
     } catch (error) {
+      if (error instanceof InvalidJsonError) {
+        writeJson(response, 400, { error: "invalid_json" });
+        return;
+      }
+
       writeJson(response, 500, {
         error: "internal_error",
         message: error instanceof Error ? error.message : "Unknown error"
@@ -720,6 +725,15 @@ async function requireAccessContext(request, response, options = {}) {
         tenantSql: null
       };
     }
+
+    if (unauthorizedStatus === 302) {
+      response.writeHead(302, { location: "/login" });
+      response.end();
+      return null;
+    }
+
+    writeJson(response, unauthorizedStatus, { error: "unauthorized" });
+    return null;
   }
 
   try {
@@ -759,7 +773,13 @@ async function readJsonBody(request) {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
   const rawBody = Buffer.concat(chunks).toString("utf8");
-  return rawBody ? JSON.parse(rawBody) : {};
+  if (!rawBody) return {};
+
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    throw new InvalidJsonError();
+  }
 }
 
 function writeJson(response, status, body) {
@@ -774,4 +794,11 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+class InvalidJsonError extends Error {
+  constructor() {
+    super("Request body is not valid JSON");
+    this.name = "InvalidJsonError";
+  }
 }

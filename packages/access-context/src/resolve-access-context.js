@@ -50,7 +50,7 @@ export async function resolveAccessContext({
   const databaseConnection = await managementStore.getDatabaseConnection(binding.db_alias);
   if (!databaseConnection) {
     throw new AccessContextError(
-      "ERROR_TENANT_NOT_FOUND",
+      "ERROR_DATABASE_CONNECTION_UNAVAILABLE",
       `Database connection ${binding.db_alias} was not found`,
       { httpStatus: 503 }
     );

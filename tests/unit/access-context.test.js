@@ -111,6 +111,32 @@ test("resolveAccessContext rejects suspended recruiter", async () => {
   );
 });
 
+test("resolveAccessContext rejects disabled recruiter", async () => {
+  await assert.rejects(
+    resolveAccessContext({
+      appEnv: "prod",
+      sessionToken: "sess-1",
+      managementStore: {
+        async getRecruiterSession() {
+          return {
+            recruiter_id: "rec-1",
+            recruiter_status: "disabled",
+            tenant_id: "tenant-1",
+            tenant_status: "active"
+          };
+        }
+      },
+      poolRegistry: {}
+    }),
+    (error) => {
+      assert.ok(error instanceof AccessContextError);
+      assert.equal(error.code, "ERROR_RECRUITER_SUSPENDED");
+      assert.equal(error.httpStatus, 403);
+      return true;
+    }
+  );
+});
+
 test("resolveAccessContext rejects missing binding", async () => {
   await assert.rejects(
     resolveAccessContext({
@@ -136,6 +162,115 @@ test("resolveAccessContext rejects missing binding", async () => {
     (error) => {
       assert.ok(error instanceof AccessContextError);
       assert.equal(error.code, "ERROR_BINDING_MISSING");
+      assert.equal(error.httpStatus, 503);
+      return true;
+    }
+  );
+});
+
+test("resolveAccessContext rejects suspended tenant", async () => {
+  await assert.rejects(
+    resolveAccessContext({
+      appEnv: "prod",
+      sessionToken: "sess-1",
+      managementStore: {
+        async getRecruiterSession() {
+          return {
+            recruiter_id: "rec-1",
+            recruiter_status: "active",
+            role: "recruiter",
+            tenant_id: "tenant-1",
+            tenant_status: "suspended",
+            expires_at: new Date()
+          };
+        }
+      },
+      poolRegistry: {}
+    }),
+    (error) => {
+      assert.ok(error instanceof AccessContextError);
+      assert.equal(error.code, "ERROR_TENANT_SUSPENDED");
+      assert.equal(error.httpStatus, 403);
+      return true;
+    }
+  );
+});
+
+test("resolveAccessContext rejects missing database connection with infrastructure error", async () => {
+  await assert.rejects(
+    resolveAccessContext({
+      appEnv: "prod",
+      sessionToken: "sess-1",
+      managementStore: {
+        async getRecruiterSession() {
+          return {
+            recruiter_id: "rec-1",
+            recruiter_status: "active",
+            role: "recruiter",
+            tenant_id: "tenant-1",
+            tenant_status: "active",
+            expires_at: new Date()
+          };
+        },
+        async getPrimaryBinding() {
+          return {
+            binding_id: "bind-1",
+            db_alias: "db-1",
+            binding_kind: "shared_db",
+            schema_name: null
+          };
+        },
+        async getDatabaseConnection() {
+          return null;
+        }
+      },
+      poolRegistry: {}
+    }),
+    (error) => {
+      assert.ok(error instanceof AccessContextError);
+      assert.equal(error.code, "ERROR_DATABASE_CONNECTION_UNAVAILABLE");
+      assert.equal(error.httpStatus, 503);
+      return true;
+    }
+  );
+});
+
+test("resolveAccessContext rejects database connection without connection string", async () => {
+  await assert.rejects(
+    resolveAccessContext({
+      appEnv: "prod",
+      sessionToken: "sess-1",
+      managementStore: {
+        async getRecruiterSession() {
+          return {
+            recruiter_id: "rec-1",
+            recruiter_status: "active",
+            role: "recruiter",
+            tenant_id: "tenant-1",
+            tenant_status: "active",
+            expires_at: new Date()
+          };
+        },
+        async getPrimaryBinding() {
+          return {
+            binding_id: "bind-1",
+            db_alias: "db-1",
+            binding_kind: "shared_db",
+            schema_name: null
+          };
+        },
+        async getDatabaseConnection() {
+          return {
+            db_alias: "db-1",
+            connection_string: null
+          };
+        }
+      },
+      poolRegistry: {}
+    }),
+    (error) => {
+      assert.ok(error instanceof AccessContextError);
+      assert.equal(error.code, "ERROR_DATABASE_CONNECTION_UNAVAILABLE");
       assert.equal(error.httpStatus, 503);
       return true;
     }

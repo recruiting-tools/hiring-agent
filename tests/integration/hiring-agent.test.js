@@ -139,6 +139,25 @@ test("hiring-agent: auth cookies include secure in production", async () => {
   }
 });
 
+test("hiring-agent: invalid JSON request body returns 400", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+
+  try {
+    const port = server.address().port;
+    const response = await fetch(`http://localhost:${port}/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{invalid"
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(body.error, "invalid_json");
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: management-backed GET /api/jobs resolves tenant sql via access context", async () => {
   const tenantSql = async (strings, ...values) => {
     const text = strings.reduce((result, chunk, index) => (
@@ -224,6 +243,51 @@ test("hiring-agent: management-backed access denies suspended recruiter", async 
     const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
     assert.equal(status, 403);
     assert.equal(body.error, "ERROR_RECRUITER_SUSPENDED");
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed access denies archived tenant", async () => {
+  const app = createHiringAgentApp({ demoMode: false });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "archived",
+          expires_at: new Date()
+        };
+      }
+    },
+    poolRegistry: {
+      getOrCreate() {
+        throw new Error("should not be called");
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
+    assert.equal(status, 403);
+    assert.equal(body.error, "ERROR_TENANT_SUSPENDED");
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: demo mode missing session returns 401 explicitly", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+
+  try {
+    const { status, body } = await req(server, "GET", "/api/jobs");
+    assert.equal(status, 401);
+    assert.equal(body.error, "unauthorized");
   } finally {
     server.close();
   }
