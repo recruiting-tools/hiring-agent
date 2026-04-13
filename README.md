@@ -118,6 +118,11 @@ pm2 logs hiring-agent
 pm2 restart hiring-agent --update-env
 ```
 
+**Важно для логина hiring-agent:**
+`hiring-chat.recruiter-assistant.com/login` использует `management.recruiters` и `management.sessions`.
+Если нужно завести или обновить demo/login доступ для `hiring-agent`, canonical path — `pnpm bootstrap:demo-user`,
+а не legacy script `pnpm bootstrap:recruiter-access`, который меняет только `chatbot.recruiters`.
+
 **Добавить DNS-запись:**
 ```bash
 gcloud dns record-sets create <name>.recruiter-assistant.com. \

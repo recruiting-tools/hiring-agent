@@ -4,6 +4,15 @@ Date: 2026-04-13
 
 Purpose: give admins a deterministic way to inspect recruiter users in a target database and issue or rotate login credentials without hand-editing SQL.
 
+> This script is legacy tenant-local tooling.
+> It updates `chatbot.recruiters` only.
+> It does NOT create or update `management.recruiters`, so it is not the correct bootstrap path
+> for `hiring-chat.recruiter-assistant.com/login`.
+>
+> For `hiring-agent` login/bootstrap use:
+> - `scripts/bootstrap-demo-user.js` for demo/bootstrap flows
+> - `scripts/bootstrap-management-recruiters.js` when mirroring recruiters into `management.*`
+
 ## Commands
 
 List recruiters in the current database:
@@ -60,3 +69,9 @@ DATABASE_URL=... node scripts/bootstrap-recruiter-access.js set-password \
 - controlled recruiter creation when migration created jobs but not the recruiter row
 - password rotation
 - tenant-safe recovery when the recruiter row already exists
+
+## Not Intended For
+
+- bootstrapping `hiring-chat.recruiter-assistant.com/login`
+- validating `management.sessions`
+- provisioning control-plane auth for the management-backed `hiring-agent`
