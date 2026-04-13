@@ -50,7 +50,7 @@ set +e
 
 # Step 1: build image via Cloud Build (~30s)
 echo "Step 1/2: building Docker image..."
-build_output=$(gcloud builds submit . --tag "$IMAGE" --project "$PROJECT" --quiet 2>&1)
+build_output=$(gcloud builds submit . --tag "$IMAGE" --project "$PROJECT" --quiet --async --format=json 2>&1)
 build_exit=$?
 
 if [ $build_exit -ne 0 ]; then
@@ -64,7 +64,34 @@ if [ $build_exit -ne 0 ]; then
   exit $build_exit
 fi
 
-echo "Build succeeded."
+build_id=$(echo "$build_output" | jq -r '.metadata.build.id // .id // empty')
+if [ -z "$build_id" ]; then
+  echo "Build FAILED: unable to parse Cloud Build id"
+  echo "$build_output"
+  exit 1
+fi
+
+echo "Cloud Build started: $build_id"
+
+build_status=""
+while true; do
+  build_status=$(gcloud builds describe "$build_id" --project "$PROJECT" --format='value(status)' 2>/dev/null || true)
+  case "$build_status" in
+    SUCCESS)
+      echo "Build succeeded."
+      break
+      ;;
+    FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+      echo "Build FAILED with status: $build_status"
+      gcloud builds describe "$build_id" --project "$PROJECT" --format=json || true
+      exit 1
+      ;;
+    *)
+      echo "Build status: ${build_status:-UNKNOWN}; waiting..."
+      sleep 5
+      ;;
+  esac
+done
 
 # Step 2: deploy the image to Cloud Run (~10s)
 echo "Step 2/2: deploying to Cloud Run..."
