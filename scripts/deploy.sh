@@ -64,7 +64,8 @@ if [ $build_exit -ne 0 ]; then
   exit $build_exit
 fi
 
-build_id=$(echo "$build_output" | jq -r '.metadata.build.id // .id // empty')
+build_json=$(echo "$build_output" | sed -n '/^{/,$p')
+build_id=$(echo "$build_json" | jq -r '.metadata.build.id // .id // empty')
 if [ -z "$build_id" ]; then
   echo "Build FAILED: unable to parse Cloud Build id"
   echo "$build_output"
