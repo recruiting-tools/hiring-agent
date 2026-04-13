@@ -396,7 +396,7 @@ export class InMemoryHiringStore {
     return negotiation;
   }
 
-  async ensureImportedHhNegotiation({ hhNegotiation, job_id, resume }) {
+  async ensureImportedHhNegotiation({ hhNegotiation, job_id, collection = "response", resume }) {
     const job = this.getJob(job_id);
     const candidate_id = `cand-hh-${hhNegotiation.id}`;
     const conversation_id = `conv-hh-${hhNegotiation.id}`;
@@ -415,13 +415,21 @@ export class InMemoryHiringStore {
       resume_text: buildResumeText(resume)
     });
 
+    const initialStepId = resolveInitialStepId(template, collection);
+    const initialStepIndex = template.steps.findIndex((s) => s.id === initialStepId);
+
+    // Preserve status for existing conversations — do not reopen completed/withdrawn (M1)
+    const existingConv = this.conversations.get(conversation_id);
+    const convStatus = existingConv && ["completed", "withdrawn"].includes(existingConv.status)
+      ? existingConv.status
+      : "open";
     this.conversations.set(conversation_id, {
       conversation_id,
       job_id,
       candidate_id,
       channel: "hh",
       channel_thread_id: conversation_id,
-      status: "open",
+      status: convStatus,
       client_id: job.client_id ?? null
     });
 
@@ -432,8 +440,8 @@ export class InMemoryHiringStore {
       template_id: template.template_id,
       template_version: template.template_version,
       active_step_id: needsReset
-        ? (template.steps[0]?.id ?? null)
-        : (existingRun?.active_step_id ?? template.steps[0]?.id ?? null),
+        ? initialStepId
+        : (existingRun?.active_step_id ?? initialStepId),
       state_json: existingRun?.state_json ?? {},
       status: needsReset ? "active" : (existingRun?.status ?? "active")
     });
@@ -441,16 +449,20 @@ export class InMemoryHiringStore {
     if (needsReset || !this.pipelineStepState.has(pipeline_run_id)) {
       this.pipelineStepState.set(
         pipeline_run_id,
-        template.steps.map((step, index) => ({
-          pipeline_run_id,
-          step_id: step.id,
-          step_index: step.step_index,
-          state: index === 0 ? "active" : "pending",
-          awaiting_reply: index === 0,
-          extracted_facts: {},
-          last_reason: null,
-          completed_at: null
-        }))
+        template.steps.map((step, index) => {
+          const isPrior = index < initialStepIndex;
+          const isInitial = step.id === initialStepId;
+          return {
+            pipeline_run_id,
+            step_id: step.id,
+            step_index: step.step_index,
+            state: isPrior ? "completed" : (isInitial ? "active" : "pending"),
+            awaiting_reply: isInitial,
+            extracted_facts: {},
+            last_reason: null,
+            completed_at: null
+          };
+        })
       );
     }
 
@@ -878,4 +890,18 @@ function appendImportResetReason(reason) {
   const suffix = " Заблокировано после HH re-import remap.";
   if (!reason) return suffix.trim();
   return reason.includes("HH re-import remap") ? reason : `${reason}${suffix}`;
+}
+
+// Determine starting pipeline step for an imported HH candidate based on HH collection.
+// "response"        -> step[0] (brand-new applicant, start from beginning)
+// "phone_interview" -> step[1] (past initial screen; step[0] is marked completed on import)
+// all other values  -> step[0] with a console.warn for manual review
+function resolveInitialStepId(template, collection) {
+  if (collection === "phone_interview" && template.steps.length > 1) {
+    return template.steps[1].id;
+  }
+  if (collection !== "response" && collection !== "phone_interview") {
+    console.warn(`resolveInitialStepId: unknown HH collection '${collection}', defaulting to step[0]`);
+  }
+  return template.steps[0]?.id ?? null;
 }

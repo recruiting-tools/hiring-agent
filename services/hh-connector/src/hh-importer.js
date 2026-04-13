@@ -9,22 +9,35 @@ export class HhImporter {
     const results = [];
     for (const mapping of vacancyMappings) {
       for (const collection of (mapping.collections ?? this.collections)) {
-        const imported = await this.syncVacancyCollection({
-          hh_vacancy_id: mapping.hh_vacancy_id,
-          job_id: mapping.job_id,
-          collection,
-          windowStart,
-          windowEnd
-        });
-        results.push(imported);
+        try {
+          const imported = await this.syncVacancyCollection({
+            hh_vacancy_id: mapping.hh_vacancy_id,
+            job_id: mapping.job_id,
+            collection,
+            windowStart,
+            windowEnd
+          });
+          results.push(imported);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          console.error(`syncApplicants: failed vacancy=${mapping.hh_vacancy_id} job=${mapping.job_id} collection=${collection}: ${msg}`);
+          results.push({
+            hh_vacancy_id: mapping.hh_vacancy_id,
+            job_id: mapping.job_id,
+            collection,
+            error: msg,
+            imported_negotiations: 0,
+            imported_messages: 0
+          });
+        }
       }
     }
 
     return {
       ok: true,
       imported_collections: results.length,
-      imported_negotiations: results.reduce((sum, item) => sum + item.imported_negotiations, 0),
-      imported_messages: results.reduce((sum, item) => sum + item.imported_messages, 0),
+      imported_negotiations: results.reduce((sum, item) => sum + (item.imported_negotiations ?? 0), 0),
+      imported_messages: results.reduce((sum, item) => sum + (item.imported_messages ?? 0), 0),
       results
     };
   }
@@ -58,10 +71,12 @@ export class HhImporter {
 
   async importNegotiation({ item, job_id }) {
     const existing = await this.store.findHhNegotiation(item.id);
+    const collection = item.state?.id ?? item.collection ?? "response";
     const resume = await this.getResumeSafe(item);
     const ids = await this.store.ensureImportedHhNegotiation({
       hhNegotiation: item,
       job_id,
+      collection,
       resume
     });
     const messages = await this.getMessagesSafe(item.id);
