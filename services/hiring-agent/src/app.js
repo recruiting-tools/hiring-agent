@@ -3,9 +3,9 @@ import { executeWithDb, runCandidateFunnelPlaybook } from "./playbooks/candidate
 import { findPlaybook, getPlaybookRegistry } from "./playbooks/registry.js";
 import { routePlaybook } from "./playbooks/router.js";
 
-// sql is an optional postgres client — if null the app falls back to demo data.
-// Callers (index.js, tests) create and own the client; they must call sql.end() on shutdown.
-export function createHiringAgentApp(sql = null) {
+export function createHiringAgentApp(options = {}) {
+  const demoMode = options.demoMode ?? true;
+
   return {
     getHealth() {
       return {
@@ -13,7 +13,7 @@ export function createHiringAgentApp(sql = null) {
         body: {
           service: "hiring-agent",
           status: "ok",
-          mode: sql ? "db-connected" : "stateless-demo",
+          mode: demoMode ? "stateless-demo" : "management-auth",
           playbooks: getPlaybookRegistry().map((playbook) => ({
             playbook_key: playbook.playbook_key,
             enabled: playbook.enabled,
@@ -23,7 +23,7 @@ export function createHiringAgentApp(sql = null) {
       };
     },
 
-    async postChatMessage({ message, recruiter_token: _recruiterToken, job_id: jobId }) {
+    async postChatMessage({ message, tenantSql = null, tenantId = null, job_id: jobId }) {
       const playbookKey = routePlaybook(message);
       if (!playbookKey) {
         return {
@@ -62,11 +62,23 @@ export function createHiringAgentApp(sql = null) {
       }
 
       if (playbook.playbook_key === "candidate_funnel") {
+        if (tenantSql && tenantId && jobId) {
+          const tenantJob = await getTenantJobById(tenantSql, tenantId, jobId);
+          if (!tenantJob) {
+            return {
+              status: 404,
+              body: {
+                error: "job_not_found"
+              }
+            };
+          }
+        }
+
         return {
           status: 200,
           body: {
-            reply: sql
-              ? await executeWithDb({ sql, jobId })
+            reply: tenantSql
+              ? await executeWithDb({ sql: tenantSql, tenantId, jobId })
               : runCandidateFunnelPlaybook({ runtimeData: getDemoRuntimeData() })
           }
         };
@@ -80,8 +92,8 @@ export function createHiringAgentApp(sql = null) {
       };
     },
 
-    async getJobs(clientId) {
-      if (!sql) {
+    async getJobs({ tenantSql = null, tenantId = null }) {
+      if (!tenantSql || !tenantId) {
         return {
           status: 200,
           body: {
@@ -90,10 +102,10 @@ export function createHiringAgentApp(sql = null) {
         };
       }
 
-      const rows = await sql`
+      const rows = await tenantSql`
         SELECT job_id, title
         FROM chatbot.jobs
-        WHERE client_id = ${clientId}
+        WHERE client_id = ${tenantId}
         ORDER BY created_at DESC
       `;
 
@@ -105,4 +117,16 @@ export function createHiringAgentApp(sql = null) {
       };
     }
   };
+}
+
+async function getTenantJobById(tenantSql, tenantId, jobId) {
+  const rows = await tenantSql`
+    SELECT job_id, title
+    FROM chatbot.jobs
+    WHERE job_id = ${jobId}
+      AND client_id = ${tenantId}
+    LIMIT 1
+  `;
+
+  return rows[0] ?? null;
 }

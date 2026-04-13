@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VM_HOST: 34.31.217.176
-      VM_USER: github-ci-hiring-agent
+      VM_USER: vova
       TARGET_PORT: ${{ inputs.target_port || '3101' }}
       DEPLOY_REF: ${{ github.ref_name }}
 
@@ -66,9 +66,9 @@ jobs:
 
       - name: Write .env on VM
         env:
-          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
         run: |
-          ENV_B64=$(printf 'NODE_ENV=production\nDATABASE_URL=%s\n' "$PROD_DATABASE_URL" | base64 -w0)
+          ENV_B64=$(printf 'NODE_ENV=production\nMANAGEMENT_DATABASE_URL=%s\n' "$MANAGEMENT_DATABASE_URL" | base64 -w0)
           ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST \
             "echo '$ENV_B64' | base64 -d > /opt/hiring-agent/.env && echo '.env written'"
 
@@ -82,4 +82,4 @@ jobs:
           MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
           echo "Health: $STATUS / $MODE"
           [ "$STATUS" = "ok" ] || { echo "SMOKE FAILED: status=$STATUS"; exit 1; }
-          [ "$MODE" = "db-connected" ] || { echo "SMOKE FAILED: mode=$MODE (expected db-connected)"; exit 1; }
+          [ "$MODE" = "management-auth" ] || { echo "SMOKE FAILED: mode=$MODE (expected management-auth)"; exit 1; }

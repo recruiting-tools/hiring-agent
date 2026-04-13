@@ -1,6 +1,10 @@
 import { createServer } from "node:http";
 import bcrypt from "bcryptjs";
 import { createSession, getRecruiterByEmail, parseCookies, resolveSession } from "./auth.js";
+import {
+  AccessContextError,
+  resolveAccessContext
+} from "../../../packages/access-context/src/index.js";
 
 const STYLE_BLOCK = `
   <style>
@@ -580,7 +584,10 @@ const CHAT_HTML = `<!DOCTYPE html>
 </html>`;
 
 export function createHiringAgentServer(app, options = {}) {
-  const sql = options.sql ?? null;
+  const managementSql = options.managementSql ?? options.sql ?? null;
+  const managementStore = options.managementStore ?? null;
+  const poolRegistry = options.poolRegistry ?? null;
+  const appEnv = options.appEnv ?? "local";
 
   return createServer(async (request, response) => {
     try {
@@ -609,19 +616,20 @@ export function createHiringAgentServer(app, options = {}) {
           return;
         }
 
-        const recruiter = await getRecruiterByEmail(sql, email);
-        const validPassword = sql
+        const recruiter = await getRecruiterByEmail(managementSql, email);
+        const validPassword = managementSql
           ? recruiter?.password_hash
             ? await bcrypt.compare(password, recruiter.password_hash)
             : false
           : Boolean(recruiter);
 
-        if (!recruiter || !validPassword) {
+        const activeRecruiter = !managementSql || recruiter?.status === "active";
+        if (!recruiter || !validPassword || !activeRecruiter) {
           writeJson(response, 401, { error: "Invalid credentials" });
           return;
         }
 
-        const sessionToken = await createSession(sql, recruiter.recruiter_id);
+        const sessionToken = await createSession(managementSql, recruiter.recruiter_id);
         response.writeHead(200, {
           "content-type": "application/json; charset=utf-8",
           "set-cookie": `session=${sessionToken}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Strict${secure}`
@@ -641,31 +649,48 @@ export function createHiringAgentServer(app, options = {}) {
       }
 
       if (request.method === "GET" && requestUrl.pathname === "/") {
-        const recruiter = await requireRecruiter(request, response, sql, { unauthorizedStatus: 302 });
-        if (!recruiter) return;
+        const accessContext = await requireAccessContext(request, response, {
+          managementStore,
+          poolRegistry,
+          appEnv,
+          unauthorizedStatus: 302
+        });
+        if (!accessContext) return;
 
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end(CHAT_HTML.replace("__RECRUITER_EMAIL__", escapeHtml(recruiter.email)));
+        response.end(CHAT_HTML.replace("__RECRUITER_EMAIL__", escapeHtml(accessContext.recruiterEmail)));
         return;
       }
 
       if (request.method === "GET" && requestUrl.pathname === "/api/jobs") {
-        const recruiter = await requireRecruiter(request, response, sql);
-        if (!recruiter) return;
+        const accessContext = await requireAccessContext(request, response, {
+          managementStore,
+          poolRegistry,
+          appEnv
+        });
+        if (!accessContext) return;
 
-        const result = await app.getJobs(recruiter.client_id);
+        const result = await app.getJobs({
+          tenantSql: accessContext.tenantSql,
+          tenantId: accessContext.tenantId
+        });
         writeJson(response, result.status, result.body);
         return;
       }
 
       if (request.method === "POST" && requestUrl.pathname === "/api/chat") {
-        const recruiter = await requireRecruiter(request, response, sql);
-        if (!recruiter) return;
+        const accessContext = await requireAccessContext(request, response, {
+          managementStore,
+          poolRegistry,
+          appEnv
+        });
+        if (!accessContext) return;
 
         const body = await readJsonBody(request);
         const result = await app.postChatMessage({
           message: body.message,
-          recruiter_token: recruiter.recruiter_token,
+          tenantSql: accessContext.tenantSql,
+          tenantId: accessContext.tenantId,
           job_id: body.job_id
         });
         writeJson(response, result.status, result.body);
@@ -674,6 +699,11 @@ export function createHiringAgentServer(app, options = {}) {
 
       writeJson(response, 404, { error: "not_found" });
     } catch (error) {
+      if (error instanceof InvalidJsonError) {
+        writeJson(response, 400, { error: "invalid_json" });
+        return;
+      }
+
       writeJson(response, 500, {
         error: "internal_error",
         message: error instanceof Error ? error.message : "Unknown error"
@@ -682,27 +712,74 @@ export function createHiringAgentServer(app, options = {}) {
   });
 }
 
-async function requireRecruiter(request, response, sql, options = {}) {
+async function requireAccessContext(request, response, options = {}) {
   const unauthorizedStatus = options.unauthorizedStatus ?? 401;
   const cookies = parseCookies(request.headers.cookie);
-  const recruiter = await resolveSession(sql, cookies.session);
-  if (recruiter) return recruiter;
+  if (!options.managementStore || !options.poolRegistry) {
+    const recruiter = await resolveSession(null, cookies.session);
+    if (recruiter) {
+      return {
+        recruiterId: recruiter.recruiter_id,
+        recruiterEmail: recruiter.email,
+        tenantId: recruiter.tenant_id,
+        tenantSql: null
+      };
+    }
 
-  if (unauthorizedStatus === 302) {
-    response.writeHead(302, { location: "/login" });
-    response.end();
+    if (unauthorizedStatus === 302) {
+      response.writeHead(302, { location: "/login" });
+      response.end();
+      return null;
+    }
+
+    writeJson(response, unauthorizedStatus, { error: "unauthorized" });
     return null;
   }
 
-  writeJson(response, unauthorizedStatus, { error: "unauthorized" });
-  return null;
+  try {
+    return await resolveAccessContext({
+      managementStore: options.managementStore,
+      poolRegistry: options.poolRegistry,
+      appEnv: options.appEnv ?? "local",
+      sessionToken: cookies.session
+    });
+  } catch (error) {
+    if (error instanceof AccessContextError && error.code === "ERROR_UNAUTHENTICATED" && unauthorizedStatus === 302) {
+      response.writeHead(302, { location: "/login" });
+      response.end();
+      return null;
+    }
+
+    if (error instanceof AccessContextError) {
+      writeJson(response, error.httpStatus, {
+        error: error.code,
+        message: error.message
+      });
+      return null;
+    }
+
+    if (unauthorizedStatus === 302) {
+      response.writeHead(302, { location: "/login" });
+      response.end();
+      return null;
+    }
+
+    writeJson(response, unauthorizedStatus, { error: "unauthorized" });
+    return null;
+  }
 }
 
 async function readJsonBody(request) {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
   const rawBody = Buffer.concat(chunks).toString("utf8");
-  return rawBody ? JSON.parse(rawBody) : {};
+  if (!rawBody) return {};
+
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    throw new InvalidJsonError();
+  }
 }
 
 function writeJson(response, status, body) {
@@ -717,4 +794,11 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+class InvalidJsonError extends Error {
+  constructor() {
+    super("Request body is not valid JSON");
+    this.name = "InvalidJsonError";
+  }
 }

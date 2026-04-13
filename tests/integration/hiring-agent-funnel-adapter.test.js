@@ -22,8 +22,8 @@ if (!DB_URL) {
 
     try {
       await sql`
-        insert into chatbot.jobs (job_id, title)
-        values (${jobId}, ${'test-funnel-adapter'})
+        insert into chatbot.jobs (job_id, title, client_id)
+        values (${jobId}, ${'test-funnel-adapter'}, ${'tenant-test-001'})
       `;
 
       await sql`
@@ -41,11 +41,11 @@ if (!DB_URL) {
       `;
 
       await sql`
-        insert into chatbot.pipeline_runs (pipeline_run_id, job_id, template_version, status)
+        insert into chatbot.pipeline_runs (pipeline_run_id, job_id, template_version, status, client_id)
         values
-          (${runIds[0]}, ${jobId}, 1, 'active'),
-          (${runIds[1]}, ${jobId}, 1, 'active'),
-          (${runIds[2]}, ${jobId}, 1, 'rejected')
+          (${runIds[0]}, ${jobId}, 1, 'active', ${'tenant-test-001'}),
+          (${runIds[1]}, ${jobId}, 1, 'active', ${'tenant-test-001'}),
+          (${runIds[2]}, ${jobId}, 1, 'rejected', ${'tenant-test-001'})
       `;
 
       await sql`
@@ -65,7 +65,10 @@ if (!DB_URL) {
           (${runIds[2]}, 'qualification', 1, 'pending', false)
       `;
 
-      const rows = await getFunnelData(sql, jobId);
+      const rows = await getFunnelData(sql, {
+        tenantId: "tenant-test-001",
+        jobId
+      });
       assert.ok(rows.length > 0);
 
       const screening = rows.find((row) => row.step_id === "screening");

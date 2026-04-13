@@ -62,7 +62,7 @@ export function runCandidateFunnelPlaybook({ runtimeData }) {
   };
 }
 
-export async function executeWithDb({ sql, jobId }) {
-  const rows = await getFunnelData(sql, jobId);
+export async function executeWithDb({ sql, tenantId, jobId }) {
+  const rows = await getFunnelData(sql, { tenantId, jobId });
   return buildReplyFromRows(rows);
 }

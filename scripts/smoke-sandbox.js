@@ -10,6 +10,9 @@ const baseUrl = baseUrlEnv.replace(/\/$/, "");
 const demoEmail = process.env.SANDBOX_DEMO_EMAIL ?? process.env.DEMO_EMAIL ?? "demo@hiring-agent.app";
 const demoPassword = process.env.SANDBOX_DEMO_PASSWORD ?? process.env.DEMO_PASSWORD;
 const recruiterToken = process.env.SANDBOX_DEMO_RECRUITER_TOKEN ?? process.env.DEMO_RECRUITER_TOKEN ?? "rec-tok-demo-001";
+const secondaryDemoEmail = process.env.SANDBOX_SECONDARY_DEMO_EMAIL ?? null;
+const secondaryDemoPassword = process.env.SANDBOX_SECONDARY_DEMO_PASSWORD ?? demoPassword;
+const secondaryRecruiterToken = process.env.SANDBOX_SECONDARY_DEMO_RECRUITER_TOKEN ?? "rec-tok-sandbox-beta-001";
 
 if (!demoPassword) {
   console.error("ERROR: SANDBOX_DEMO_PASSWORD or DEMO_PASSWORD environment variable is required");
@@ -63,6 +66,32 @@ async function main() {
   assert(queue.status === 200, `Expected queue JSON 200, got ${queue.status}`);
   const queueBody = await queue.json();
   assert(Array.isArray(queueBody.items), "Expected queue response to include items array");
+  const queueIds = queueBody.items.map((item) => item.planned_message_id);
+  assert(queueIds.includes("pm-sandbox-primary"), "Expected primary queue to include sandbox primary moderation item");
+  assert(!queueIds.includes("pm-sandbox-secondary"), "Expected primary queue to exclude secondary tenant moderation item");
+
+  if (secondaryDemoEmail) {
+    const secondaryLoginResponse = await fetch(`${baseUrl}/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: secondaryDemoEmail, password: secondaryDemoPassword }),
+      redirect: "manual"
+    });
+    assert(secondaryLoginResponse.status === 200, `Expected secondary POST /auth/login to return 200, got ${secondaryLoginResponse.status}`);
+    const secondaryLoginBody = await secondaryLoginResponse.json();
+    assert(
+      secondaryLoginBody.redirect === `/recruiter/${secondaryRecruiterToken}`,
+      `Unexpected secondary login redirect: ${secondaryLoginBody.redirect}`
+    );
+
+    const secondaryQueue = await fetch(`${baseUrl}/recruiter/${secondaryRecruiterToken}/queue`);
+    assert(secondaryQueue.status === 200, `Expected secondary queue JSON 200, got ${secondaryQueue.status}`);
+    const secondaryQueueBody = await secondaryQueue.json();
+    assert(Array.isArray(secondaryQueueBody.items), "Expected secondary queue response to include items array");
+    const secondaryQueueIds = secondaryQueueBody.items.map((item) => item.planned_message_id);
+    assert(secondaryQueueIds.includes("pm-sandbox-secondary"), "Expected secondary queue to include sandbox secondary moderation item");
+    assert(!secondaryQueueIds.includes("pm-sandbox-primary"), "Expected secondary queue to exclude primary tenant moderation item");
+  }
 
   const health = await fetch(`${baseUrl}/health`);
   assert(health.status === 200, `Expected health 200, got ${health.status}`);

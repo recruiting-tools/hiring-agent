@@ -7,6 +7,7 @@ VM_HOST="${VM_HOST:-34.31.217.176}"
 VM_USER="${VM_USER:-vladimir}"
 TARGET_PORT="${TARGET_PORT:-3101}"
 DEPLOY_REF="${DEPLOY_REF:-main}"
+REPO_URL="${REPO_URL:-$(gh repo view --json sshUrl -q .sshUrl 2>/dev/null || git remote get-url origin)}"
 SHA=$(git rev-parse HEAD)
 
 echo "Deploying hiring-agent @ $SHA → $VM_USER@$VM_HOST (port $TARGET_PORT)..."
@@ -37,24 +38,54 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
   fi
 
   # ── Deploy ─────────────────────────────────────────────────────────────────
+  if [ ! -d /opt/hiring-agent/.git ]; then
+    echo "First deploy detected: cloning repository into /opt/hiring-agent"
+    mkdir -p /opt
+    rm -rf /opt/hiring-agent
+    git clone "$REPO_URL" /opt/hiring-agent
+  fi
+
   cd /opt/hiring-agent
 
   git fetch origin "$DEPLOY_REF"
   git checkout "$DEPLOY_REF"
   git pull origin "$DEPLOY_REF"
 
-  pnpm install --frozen-lockfile
+  run_pnpm() {
+    if command -v pnpm >/dev/null 2>&1; then
+      pnpm "\$@"
+      return
+    fi
 
-  # PM2 does not auto-read .env — source it so DATABASE_URL reaches the process
-  set -a
-  [ -f .env ] && source .env
-  set +a
+    if command -v corepack >/dev/null 2>&1; then
+      corepack enable >/dev/null 2>&1 || true
+      corepack pnpm "\$@"
+      return
+    fi
+
+    npm install -g pnpm
+    pnpm "\$@"
+  }
+
+  run_pnpm install --frozen-lockfile
+
+  # PM2 does not auto-read .env. Load key=value lines without shell-evaluating values,
+  # because connection strings may contain characters like '&' that break `source .env`.
+  if [ -f .env ]; then
+    while IFS= read -r line || [ -n "\$line" ]; do
+      [ -z "\$line" ] && continue
+      case "\$line" in
+        \#*) continue ;;
+      esac
+      export "\$line"
+    done < .env
+  fi
 
   # Override port from env if passed
   export PORT=\$PORT
 
-  pm2 restart hiring-agent --update-env \
-    || pm2 start services/hiring-agent/ecosystem.config.cjs --env production --update-env
+  pm2 delete hiring-agent >/dev/null 2>&1 || true
+  pm2 start services/hiring-agent/ecosystem.config.cjs --env production --update-env
   pm2 save
 
   echo "Waiting for service to become healthy..."
@@ -63,7 +94,30 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
     [ "\$STATUS" = "ok" ] && { echo "Health check passed (attempt \$i)"; break; }
     echo "Attempt \$i/10: not ready (status=\${STATUS:-no-response}), waiting..."
     sleep 2
-    [ "\$i" = "10" ] && { echo "HEALTH CHECK FAILED after 10 attempts"; exit 1; }
+    [ "\$i" = "10" ] && {
+      echo "HEALTH CHECK FAILED after 10 attempts"
+      echo "--- deploy sha ---"
+      git rev-parse HEAD
+      echo "--- effective env ---"
+      env | egrep '^(PORT|NODE_ENV|APP_MODE|APP_ENV|MANAGEMENT_DATABASE_URL)=' \
+        | sed 's/^MANAGEMENT_DATABASE_URL=.*/MANAGEMENT_DATABASE_URL=[set]/'
+      echo "--- pm2 jlist ---"
+      pm2 jlist | jq -r '.[] | select(.name=="hiring-agent") | {
+        name,
+        pid,
+        pm_exec_path: .pm2_env.pm_exec_path,
+        pm_cwd: .pm2_env.pm_cwd,
+        port: (.pm2_env.PORT // .pm2_env.env.PORT // ""),
+        node_env: (.pm2_env.NODE_ENV // .pm2_env.env.NODE_ENV // ""),
+        app_mode: (.pm2_env.APP_MODE // .pm2_env.env.APP_MODE // ""),
+        management_database_url: (if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end)
+      }'
+      echo "--- sockets ---"
+      ss -tlnp | awk 'NR==1 || /LISTEN/'
+      echo "--- pm2 logs ---"
+      pm2 logs hiring-agent --lines 80 --nostream || true
+      exit 1
+    }
   done
 REMOTE
 
