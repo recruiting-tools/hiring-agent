@@ -31,6 +31,8 @@ Exit criteria:
 
 ### 2. Repair production migration discipline
 
+Depends on WS3: the CI migration gate (step 3 below) must codify the promotion path defined in WS3, so WS3 must be designed before WS2 is implemented.
+
 1. Decide whether production deploy must run migrations automatically or via an explicit pre-deploy job.
 2. Add a production-safe migration step that targets the same DB secret used by the running service.
 3. Add a hard check that fails release if production DB is behind repo migrations.
@@ -76,7 +78,7 @@ Exit criteria:
 
 ### 5. Re-run the HH cutover correctly
 
-1. Apply missing production migrations.
+1. Apply missing production migrations (`009_hh_oauth_and_flags.sql` and `010_step_follow_up_count.sql`).
 2. Create or verify the real recruiter tenant in production.
 3. Import the in-scope HH vacancies and recent dialogs into production.
 4. Verify recruiter UI against the intended tenant.
@@ -101,7 +103,12 @@ Exit criteria:
 1. Was the HH import ever run against any persistent Neon branch, or only planned in PR scope?
 2. If it was run, which exact project/branch contains the imported records now?
 3. Should production migrations happen inside GitHub Actions, or as an explicit gated operator step with logging?
-4. Do we want production deploy to block on business-data verification for cutover-class changes?
+
+## Decisions
+
+**Q4 — Business-data verification for cutover-class deploys: YES, automated gate.**
+
+Given the failure mode observed (code merged, production DB empty, no release process caught it), cutover-class changes must block on an automated business-data gate, not only on transport smoke. The mechanism: a `cutover` label or deploy workflow parameter triggers an additional verification job that asserts recruiter/job/import counts above zero against the production DB secret before the release is marked successful. Routine deploys (no `cutover` label) continue to use the existing transport smoke only.
 
 ## Non-goal
 
