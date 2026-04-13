@@ -27,6 +27,9 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Install pnpm
+        run: npm install -g pnpm
+
       - name: Deploy to Cloud Run
         env:
           SERVICE: candidate-chatbot-v2
