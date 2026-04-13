@@ -224,6 +224,9 @@ const HTML = `<!DOCTYPE html>
     const chatLog = document.getElementById("chatLog");
     const resultPanel = document.getElementById("resultPanel");
     const messageInput = document.getElementById("messageInput");
+    const searchParams = new URLSearchParams(window.location.search);
+    const recruiterToken = searchParams.get("token");
+    const jobId = searchParams.get("job_id");
 
     function addBubble(role, text) {
       const bubble = document.createElement("div");
@@ -291,7 +294,11 @@ const HTML = `<!DOCTYPE html>
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message })
+        body: JSON.stringify({
+          message,
+          recruiter_token: recruiterToken,
+          job_id: jobId
+        })
       });
       const data = await response.json();
       renderReply(data.reply);
@@ -305,19 +312,21 @@ const HTML = `<!DOCTYPE html>
 export function createHiringAgentServer(app) {
   return createServer(async (request, response) => {
     try {
-      if (request.method === "GET" && request.url === "/health") {
+      const requestUrl = new URL(request.url ?? "/", "http://localhost");
+
+      if (request.method === "GET" && requestUrl.pathname === "/health") {
         const result = app.getHealth();
         writeJson(response, result.status, result.body);
         return;
       }
 
-      if (request.method === "GET" && request.url === "/") {
+      if (request.method === "GET" && requestUrl.pathname === "/") {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         response.end(HTML);
         return;
       }
 
-      if (request.method === "POST" && request.url === "/api/chat") {
+      if (request.method === "POST" && requestUrl.pathname === "/api/chat") {
         const body = await readJsonBody(request);
         const result = await app.postChatMessage(body);
         writeJson(response, result.status, result.body);

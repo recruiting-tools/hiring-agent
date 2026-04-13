@@ -1,46 +1,57 @@
 export async function getFunnelData(sql, jobId = null) {
   const jobFilter = jobId
-    ? sql`where pipeline_runs.job_id = ${jobId}`
+    ? sql`and pipeline_runs.job_id = ${jobId}`
     : sql``;
 
+  // Use a CTE to apply the job filter before lateral joins, so jsonb_array_elements
+  // only sees rows we actually care about (avoids "cannot extract elements from a scalar"
+  // on unrelated legacy rows in shared dev DBs).
   const rows = await sql`
+    with scoped_runs as (
+      select pipeline_run_id, job_id
+      from chatbot.pipeline_runs
+      where true ${jobFilter}
+    )
     select
-      pipeline_step_state.step_id,
-      pipeline_step_state.step_index,
-      coalesce(step_meta.step_name, pipeline_step_state.step_id) as step_name,
+      pss.step_id,
+      pss.step_index,
+      coalesce(step_meta.step_name, pss.step_id) as step_name,
       count(*)::int as total,
       count(*) filter (
-        where pipeline_step_state.state = 'active'
-          and coalesce(pipeline_step_state.awaiting_reply, false) = false
+        where pss.state = 'active'
+          and coalesce(pss.awaiting_reply, false) = false
       )::int as in_progress,
-      count(*) filter (where pipeline_step_state.state = 'completed')::int as completed,
+      count(*) filter (where pss.state = 'completed')::int as completed,
       count(*) filter (
-        where pipeline_step_state.state = 'active'
-          and coalesce(pipeline_step_state.awaiting_reply, false) = true
+        where pss.state = 'active'
+          and coalesce(pss.awaiting_reply, false) = true
       )::int as stuck,
-      count(*) filter (where pipeline_step_state.state = 'rejected')::int as rejected
-    from chatbot.pipeline_step_state
-    join chatbot.pipeline_runs
-      on pipeline_runs.pipeline_run_id = pipeline_step_state.pipeline_run_id
+      count(*) filter (where pss.state = 'rejected')::int as rejected
+    from chatbot.pipeline_step_state pss
+    join scoped_runs sr on sr.pipeline_run_id = pss.pipeline_run_id
     left join lateral (
-      select pipeline_templates.steps_json
-      from chatbot.pipeline_templates
-      where pipeline_templates.job_id = pipeline_runs.job_id
-      order by pipeline_templates.template_id desc
+      select pt.steps_json
+      from chatbot.pipeline_templates pt
+      where pt.job_id = sr.job_id
+      order by pt.template_version desc
       limit 1
     ) template_data on true
     left join lateral (
       select step_entry ->> 'goal' as step_name
-      from jsonb_array_elements(coalesce(template_data.steps_json, '[]'::jsonb)) as step_entry
-      where step_entry ->> 'id' = pipeline_step_state.step_id
+      from jsonb_array_elements(
+        case when jsonb_typeof(template_data.steps_json) = 'array'
+             then template_data.steps_json
+             else '[]'::jsonb
+        end
+      ) as step_entry
+      where step_entry ->> 'id' = pss.step_id
       limit 1
     ) step_meta on true
-    ${jobFilter}
     group by
-      pipeline_step_state.step_id,
-      pipeline_step_state.step_index,
-      coalesce(step_meta.step_name, pipeline_step_state.step_id)
-    order by pipeline_step_state.step_index asc
+      pss.step_id,
+      pss.step_index,
+      coalesce(step_meta.step_name, pss.step_id)
+    order by pss.step_index asc
   `;
 
   return rows.map((row) => ({
