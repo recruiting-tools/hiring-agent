@@ -26,6 +26,8 @@
 
 Для демо не нужно делать общий умный агент "на всё". Лучше сделать recruiter chat как thin shell над ограниченным набором playbooks.
 
+Важно для PR 1: recruiter chat делаем stateless. Без новых таблиц `chat_sessions` / `chat_messages` и без миграций под persistent chat history. История живёт только в UI-сессии браузера. Persistent storage переносится в следующий этап.
+
 Рекомендуемая модель:
 
 - все playbooks можно хранить в registry
@@ -75,6 +77,8 @@
 
 Ключевой принцип: playbook не должен напрямую рисовать UI. Playbook возвращает структурированный payload, а UI слой его рендерит.
 
+Важно для PR 1: `hiring-mcp` не входит в scope. `hiring-agent` использует локальный read-only query module внутри своего сервиса. После стабилизации contract этот слой можно вынести в `hiring-mcp` отдельным PR.
+
 ## 4. Три стартовых playbook-сценария
 
 ### 4.1 Visualize Candidate Funnel
@@ -90,6 +94,8 @@
 - получает агрегаты по goal-based шагам, а не по HH-статусам
 - показывает основной progression path
 - отдельно показывает exit branches: rejected, disqualified, stuck / waiting, no response
+
+Источник данных для PR 1: локальный adapter поверх runtime-shaped данных. Он должен быть first-class deliverable, а не временной сноской. Его контракт должен быть стабильным и независимым от будущего mart.
 
 Рекомендация по UX:
 
@@ -157,6 +163,10 @@ Scope:
 - registry playbooks
 - entitlement / disabled-state
 - один рабочий playbook: funnel visualization
+- stateless recruiter chat без DB migrations
+- local funnel query module внутри `hiring-agent`
+- pattern-based intent router
+- тесты на router, funnel adapter и HTTP integration
 
 ### PR 2. Communication Plan Playbook
 
@@ -187,7 +197,18 @@ Scope:
 - `services/hiring-agent/src/ui/*`
 - read-only data adapter для funnel metrics
 
+Router для PR 1 должен быть deterministic: keyword / pattern matching без LLM-classifier.
+
 Важно не привязывать funnel playbook к HH statuses. Источник должен быть goal-based. Если mart ещё не готов, на первом этапе можно сделать адаптер поверх текущих runtime tables, но через отдельный query layer, чтобы потом заменить на mart без переписывания UI и playbook logic.
+
+Минимальный стабильный контракт адаптера для PR 1:
+
+- `step_name`
+- `total`
+- `in_progress`
+- `completed`
+- `stuck`
+- `rejected`
 
 ## 8. Что пока не делать
 
@@ -202,3 +223,12 @@ Scope:
 2. Собрать 3-5 реалистичных funnel examples.
 3. Выбрать один UI concept для таблицы + branch indicators.
 4. Под этот contract поднять каркас `services/hiring-agent`.
+
+## 10. Test Gates For PR 1
+
+Перед реализацией и по ходу итераций нужны failing tests минимум на:
+
+- router contract: сообщение → ожидаемый `playbook_key`
+- locked playbook contract: выключенный playbook → `playbook_locked`
+- funnel adapter contract: runtime-shaped input → стабильный aggregate output
+- HTTP integration: `POST /api/chat` возвращает `render_funnel` для funnel intent
