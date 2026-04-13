@@ -6,7 +6,6 @@ import { routePlaybook } from "./playbooks/router.js";
 // sql is an optional postgres client — if null the app falls back to demo data.
 // Callers (index.js, tests) create and own the client; they must call sql.end() on shutdown.
 export function createHiringAgentApp(sql = null) {
-
   return {
     getHealth() {
       return {
@@ -77,6 +76,31 @@ export function createHiringAgentApp(sql = null) {
         status: 501,
         body: {
           error: "playbook_not_implemented"
+        }
+      };
+    },
+
+    async getJobs(clientId) {
+      if (!sql) {
+        return {
+          status: 200,
+          body: {
+            jobs: []
+          }
+        };
+      }
+
+      const rows = await sql`
+        SELECT job_id, title
+        FROM chatbot.jobs
+        WHERE client_id = ${clientId}
+        ORDER BY created_at DESC
+      `;
+
+      return {
+        status: 200,
+        body: {
+          jobs: rows
         }
       };
     }
