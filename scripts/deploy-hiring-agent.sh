@@ -53,18 +53,18 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
 
   run_pnpm() {
     if command -v pnpm >/dev/null 2>&1; then
-      pnpm "$@"
+      pnpm "\$@"
       return
     fi
 
     if command -v corepack >/dev/null 2>&1; then
       corepack enable >/dev/null 2>&1 || true
-      corepack pnpm "$@"
+      corepack pnpm "\$@"
       return
     fi
 
     npm install -g pnpm
-    pnpm "$@"
+    pnpm "\$@"
   }
 
   run_pnpm install --frozen-lockfile
