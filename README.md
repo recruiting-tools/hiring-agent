@@ -78,7 +78,7 @@ GEMINI_API_KEY=...         # уже есть в shell
 
 5. **Text2SQL только поверх marts**: `output_data_marts.candidate_funnel` — единственная таблица для аналитических запросов. Не давать LLM доступ к operational tables.
 
-6. **DNS**: `recruiter-assistant.com` управляется через Google Domains (NS: `ns-cloud-a*.googledomains.com`). НЕ Cloudflare. Публичные эндпоинты кандидатов — только GCP (Cloud Run).
+6. **DNS**: `recruiter-assistant.com` управляется через **Google Cloud DNS** (NS: `ns-cloud-a*.googledomains.com`). Зона `recruiter-assistant` в проекте `skillset-analytics-487510` (аккаунт `vladimir@skillset.ae`). НЕ Cloudflare, НЕ Google Domains UI. Публичные эндпоинты кандидатов — только GCP (Cloud Run).
 
 7. **Домен**: `recruiter-assistant.com` — единственный. `recruiter-asisstant.com` (двойная s) — не продлевать.
 
@@ -92,9 +92,42 @@ GEMINI_API_KEY=...         # уже есть в shell
 
 ### GCP
 
-- Deploy проект: `project-5d8dd8a0-67af-44ba-b6e` (Ludmila account)
-- Регион: `europe-west1`
-- VM IP: `34.31.217.176` (для hiring-agent UI)
+| Ресурс | Значение |
+|---|---|
+| Deploy-проект | `project-5d8dd8a0-67af-44ba-b6e` (аккаунт `ludmilachramcova@gmail.com`) |
+| Регион | `europe-west1` |
+| VM IP | `34.31.217.176` |
+| VM hostname | `claude-code-vm` |
+| VM user | `vova` (SSH: `~/.ssh/google_compute_engine`) |
+| VM app dir | `/opt/hiring-agent` |
+| PM2 process | `hiring-agent` (порт 3101) |
+| Port 3100 | Skillset Next.js app — не трогать |
+| SSL cert | `/etc/letsencrypt/live/hiring-chat.recruiter-assistant.com/` (certbot, автообновление) |
+| DNS зона | Cloud DNS `recruiter-assistant` в проекте `skillset-analytics-487510` (аккаунт `vladimir@skillset.ae`) |
+
+**SSH на VM:**
+```bash
+ssh -i ~/.ssh/google_compute_engine vova@34.31.217.176
+```
+
+**Управление сервисом:**
+```bash
+# На VM:
+pm2 list
+pm2 logs hiring-agent
+pm2 restart hiring-agent --update-env
+```
+
+**Добавить DNS-запись:**
+```bash
+gcloud dns record-sets create <name>.recruiter-assistant.com. \
+  --zone=recruiter-assistant \
+  --project=skillset-analytics-487510 \
+  --account=vladimir@skillset.ae \
+  --type=A --ttl=300 --rrdatas=<IP>
+```
+
+Подробно: [`docs/google-cloud-playbooks.md`](docs/google-cloud-playbooks.md)
 
 ### Deploy — candidate-chatbot
 
