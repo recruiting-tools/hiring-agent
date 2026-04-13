@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { createManagementStore } from "../../../packages/access-context/src/index.js";
 
 const SESSION_TTL_DAYS = 30;
 const SESSION_RENEWAL_WINDOW_DAYS = 7;
@@ -31,25 +32,12 @@ export async function resolveSession(sql, token) {
   if (!token) return null;
   if (!sql) return { ...DEMO_RECRUITER };
 
-  const rows = await sql`
-    SELECT r.recruiter_id, r.tenant_id, r.email, r.role, r.status AS recruiter_status,
-           t.status AS tenant_status, s.expires_at
-    FROM management.sessions s
-    JOIN management.recruiters r ON r.recruiter_id = s.recruiter_id
-    JOIN management.tenants t ON t.tenant_id = r.tenant_id
-    WHERE s.session_token = ${token}
-      AND s.expires_at > now()
-  `;
-
-  const session = rows[0] ?? null;
+  const managementStore = createManagementStore(sql);
+  const session = await managementStore.getRecruiterSession(token);
   if (!session) return null;
 
   if (session.expires_at && session.expires_at.getTime() < Date.now() + SESSION_RENEWAL_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
-    void sql`
-      UPDATE management.sessions
-      SET expires_at = now() + ${`${SESSION_TTL_DAYS} days`}::interval
-      WHERE session_token = ${token}
-    `.catch(() => {});
+    void managementStore.renewSessionIfNeeded(token, session.expires_at).catch(() => {});
   }
 
   return {
@@ -64,13 +52,7 @@ export async function resolveSession(sql, token) {
 
 export async function createSession(sql, recruiterId) {
   if (!sql) return `demo-session-${randomBytes(16).toString("hex")}`;
-
-  const token = randomBytes(32).toString("hex");
-  await sql`
-    INSERT INTO management.sessions (session_token, recruiter_id, expires_at)
-    VALUES (${token}, ${recruiterId}, now() + ${`${SESSION_TTL_DAYS} days`}::interval)
-  `;
-  return token;
+  return createManagementStore(sql).createSession(recruiterId);
 }
 
 export async function getRecruiterByEmail(sql, email) {
@@ -82,12 +64,5 @@ export async function getRecruiterByEmail(sql, email) {
       password_hash: null
     };
   }
-
-  const rows = await sql`
-    SELECT recruiter_id, tenant_id, email, password_hash, status, role
-    FROM management.recruiters
-    WHERE email = ${email}
-  `;
-
-  return rows[0] ?? null;
+  return createManagementStore(sql).getRecruiterByEmail(email);
 }

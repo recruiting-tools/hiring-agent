@@ -132,6 +132,7 @@ Current behavior:
 - auth sessions read from `management.sessions`
 - recruiter lookup reads from `management.recruiters`
 - session renewal still works
+- management-backed session / recruiter lookups now reuse shared `createManagementStore()` queries instead of keeping a second SQL copy in `auth.js`
 - invalid JSON now returns `400 invalid_json`
 - demo-mode unauthorized path is explicit and no longer relies on accidental TypeError handling
 
@@ -230,21 +231,7 @@ These items were considered but intentionally not done in this slice:
 
 These are the main remaining items before calling the migration slice production-ready.
 
-### 1. Auth Query Duplication
-
-Current state:
-
-- `services/hiring-agent/src/auth.js`
-- `packages/access-context/src/management-store.js`
-
-Both contain overlapping session/recruiter lookup logic.
-
-What remains:
-
-- collapse onto one source of truth
-- ideally `auth.js` becomes a thin wrapper over shared control-plane queries or is removed from non-demo path
-
-### 2. Legacy Seed Scripts Still Write Old Auth Data
+### 1. Legacy Seed Scripts Still Write Old Auth Data
 
 Current state:
 
@@ -269,7 +256,7 @@ Why this stays deferred:
 - changing `seed-dev/sandbox/prod` now would couple this PR more tightly to `candidate-chatbot` runtime and legacy fixtures
 - that is a broader operational migration than the control-plane slice itself
 
-### 3. End-to-End Management Login Bootstrap on Real DB
+### 2. End-to-End Management Login Bootstrap on Real DB
 
 Current state:
 
@@ -287,7 +274,7 @@ What remains:
   - bind tenant
   - login through `hiring-agent`
 
-### 4. Main Branch Sync and Deploy Validation
+### 3. Main Branch Sync and Deploy Validation
 
 Current state:
 
@@ -301,7 +288,7 @@ What remains:
 - verify VM `.env` contains the new key
 - verify post-deploy smoke passes with `management-auth`
 
-### 5. Postgres Integration Coverage Still Opt-In
+### 4. Postgres Integration Coverage Still Opt-In
 
 Current state:
 
@@ -334,9 +321,8 @@ What remains:
 
 1. Sync branch with latest `origin/main` after local parallel deploy edits are settled.
 2. Run the real management bootstrap path on the target environment.
-3. Remove or centralize duplicate auth lookup logic between `auth.js` and `management-store.js`.
-4. Add an explicit rollout checklist for management DB initialization in production.
-5. After the above, run deploy and smoke against VM with `MANAGEMENT_DATABASE_URL`.
+3. Add an explicit rollout checklist for management DB initialization in production.
+4. After the above, run deploy and smoke against VM with `MANAGEMENT_DATABASE_URL`.
 
 ## Quick Readiness Checklist
 

@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 const SESSION_TTL_DAYS = 30;
 const SESSION_RENEWAL_WINDOW_DAYS = 7;
 
@@ -37,6 +39,24 @@ export function createManagementStore(managementSql) {
       `;
     },
 
+    async createSession(recruiterId) {
+      const sessionToken = randomSessionToken();
+      await managementSql`
+        INSERT INTO management.sessions (session_token, recruiter_id, expires_at)
+        VALUES (${sessionToken}, ${recruiterId}, now() + ${`${SESSION_TTL_DAYS} days`}::interval)
+      `;
+      return sessionToken;
+    },
+
+    async getRecruiterByEmail(email) {
+      const rows = await managementSql`
+        SELECT recruiter_id, tenant_id, email, password_hash, status, role
+        FROM management.recruiters
+        WHERE email = ${email}
+      `;
+      return rows[0] ?? null;
+    },
+
     async getPrimaryBinding({ tenantId, appEnv }) {
       const rows = await managementSql`
         SELECT binding_id, tenant_id, environment, binding_kind, db_alias, schema_name, is_primary
@@ -59,4 +79,8 @@ export function createManagementStore(managementSql) {
       return rows[0] ?? null;
     }
   };
+}
+
+function randomSessionToken() {
+  return randomBytes(32).toString("hex");
 }
