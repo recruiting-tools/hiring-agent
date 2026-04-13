@@ -27,6 +27,15 @@ test("hiring-agent runtime: non-demo mode requires MANAGEMENT_DATABASE_URL", () 
   );
 });
 
+test("hiring-agent runtime: non-demo mode requires APP_ENV", () => {
+  assert.throws(
+    () => resolveHiringAgentRuntime({
+      MANAGEMENT_DATABASE_URL: "postgres://example"
+    }),
+    /APP_ENV is required unless APP_MODE=demo/
+  );
+});
+
 test("hiring-agent runtime: management mode uses MANAGEMENT_DATABASE_URL", () => {
   const runtime = resolveHiringAgentRuntime({
     APP_ENV: "prod",
