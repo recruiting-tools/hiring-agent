@@ -45,7 +45,7 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
 
   pnpm install --frozen-lockfile
 
-  # PM2 does not auto-read .env — source it so DATABASE_URL reaches the process
+  # PM2 does not auto-read .env — source it so MANAGEMENT_DATABASE_URL reaches the process
   set -a
   [ -f .env ] && source .env
   set +a
@@ -54,13 +54,17 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
   export PORT=\$PORT
 
   pm2 restart hiring-agent --update-env \
-    || pm2 start services/hiring-agent/ecosystem.config.cjs --env production
+    || pm2 start services/hiring-agent/ecosystem.config.cjs --env production --update-env
   pm2 save
 
-  sleep 2
-  STATUS=\$(curl -sf http://localhost:\$PORT/health | jq -r '.status' 2>/dev/null || echo "failed")
-  echo "Health: \$STATUS"
-  [ "\$STATUS" = "ok" ] || { echo "HEALTH CHECK FAILED"; exit 1; }
+  echo "Waiting for service to become healthy..."
+  for i in \$(seq 1 10); do
+    STATUS=\$(curl -sf http://localhost:\$PORT/health | jq -r '.status' 2>/dev/null || echo "")
+    [ "\$STATUS" = "ok" ] && { echo "Health check passed (attempt \$i)"; break; }
+    echo "Attempt \$i/10: not ready (status=\${STATUS:-no-response}), waiting..."
+    sleep 2
+    [ "\$i" = "10" ] && { echo "HEALTH CHECK FAILED after 10 attempts"; exit 1; }
+  done
 REMOTE
 
 echo "Deploy succeeded: $SHA"

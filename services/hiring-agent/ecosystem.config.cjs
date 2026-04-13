@@ -6,7 +6,7 @@ module.exports = {
     env_production: {
       NODE_ENV: "production",
       PORT: 3101
-      // DATABASE_URL is loaded via `source .env` in deploy-hiring-agent.sh
+      // MANAGEMENT_DATABASE_URL is loaded via `source .env` in deploy-hiring-agent.sh
       // PM2 does not auto-read .env files
     }
   }]
