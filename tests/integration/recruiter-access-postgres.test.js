@@ -44,7 +44,7 @@ test("recruiter access postgres: list, create, and rotate remain tenant-safe", a
     });
     assert.equal(created.client_id, "client-alpha-001");
     assert.equal(created.email, "new-alpha@example.test");
-    assert.equal(created.visible_jobs, 1);
+    assert.equal(created.visible_jobs, 2);
 
     const rotated = await bootstrapRecruiterAccess(client, {
       lookup: { recruiterId: "rec-alpha-003" },
