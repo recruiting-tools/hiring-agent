@@ -2,6 +2,16 @@ import { neon } from "@neondatabase/serverless";
 import { randomUUID, randomBytes } from "node:crypto";
 import { getModerationAutoSendDelayMs } from "./config.js";
 
+function resolveInitialStepIdPostgres(template, collection) {
+  if (collection === "phone_interview" && template.steps.length > 1) {
+    return template.steps[1].id;
+  }
+  if (collection !== "response" && collection !== "phone_interview") {
+    console.warn(`resolveInitialStepIdPostgres: unknown HH collection '${collection}', defaulting to step[0]`);
+  }
+  return template.steps[0]?.id ?? null;
+}
+
 export class PostgresHiringStore {
   constructor({ connectionString }) {
     this.sql = neon(connectionString);
@@ -448,12 +458,14 @@ export class PostgresHiringStore {
     return rows[0];
   }
 
-  async ensureImportedHhNegotiation({ hhNegotiation, job_id, resume }) {
+  async ensureImportedHhNegotiation({ hhNegotiation, job_id, collection = "response", resume }) {
     const job = this.getJob(job_id);
     const candidate_id = `cand-hh-${hhNegotiation.id}`;
     const conversation_id = `conv-hh-${hhNegotiation.id}`;
     const pipeline_run_id = `run-hh-${hhNegotiation.id}`;
     const template = job.pipeline_template;
+    const initialStepId = resolveInitialStepIdPostgres(template, collection);
+    const initialStepIndex = template.steps.findIndex((s) => s.id === initialStepId);
     const existingRunRows = await this.sql`
       SELECT pipeline_run_id, job_id, candidate_id, template_id, template_version, active_step_id, status
       FROM chatbot.pipeline_runs
@@ -486,7 +498,7 @@ export class PostgresHiringStore {
       ON CONFLICT (conversation_id) DO UPDATE SET
         job_id = EXCLUDED.job_id,
         candidate_id = EXCLUDED.candidate_id,
-        status = 'open',
+        status = CASE WHEN chatbot.conversations.status IN ('completed', 'withdrawn') THEN chatbot.conversations.status ELSE 'open' END,
         client_id = EXCLUDED.client_id
     `;
 
@@ -499,48 +511,55 @@ export class PostgresHiringStore {
           ${candidate_id},
           ${template.template_id},
           ${template.template_version},
-          ${template.steps[0]?.id ?? null},
+          ${initialStepId},
           'active',
           ${job.client_id ?? null}
         )
       `;
     } else if (needsReset) {
-      await this.sql`
-        UPDATE chatbot.pipeline_runs
-        SET job_id = ${job_id},
-            candidate_id = ${candidate_id},
-            template_id = ${template.template_id},
-            template_version = ${template.template_version},
-            active_step_id = ${template.steps[0]?.id ?? null},
-            status = 'active',
-            client_id = ${job.client_id ?? null},
-            updated_at = now()
-        WHERE pipeline_run_id = ${pipeline_run_id}
-      `;
-      await this.sql`
-        DELETE FROM chatbot.pipeline_step_state
-        WHERE pipeline_run_id = ${pipeline_run_id}
-      `;
-      await this.sql`
-        UPDATE chatbot.planned_messages
-        SET review_status = 'blocked',
-            reason = CASE
-              WHEN reason IS NULL OR reason = '' THEN 'Заблокировано после HH re-import remap.'
-              WHEN position('HH re-import remap' in reason) > 0 THEN reason
-              ELSE reason || ' Заблокировано после HH re-import remap.'
-            END
-        WHERE conversation_id = ${conversation_id}
-          AND review_status IN ('pending', 'approved')
-      `;
+      // H2: atomic transaction prevents broken pipeline state if server crashes mid-remap
+      await this.sql.transaction([
+        this.sql`
+          UPDATE chatbot.pipeline_runs
+          SET job_id = ${job_id},
+              candidate_id = ${candidate_id},
+              template_id = ${template.template_id},
+              template_version = ${template.template_version},
+              active_step_id = ${initialStepId},
+              status = 'active',
+              client_id = ${job.client_id ?? null},
+              updated_at = now()
+          WHERE pipeline_run_id = ${pipeline_run_id}
+        `,
+        this.sql`
+          DELETE FROM chatbot.pipeline_step_state
+          WHERE pipeline_run_id = ${pipeline_run_id}
+        `,
+        this.sql`
+          UPDATE chatbot.planned_messages
+          SET review_status = 'blocked',
+              reason = CASE
+                WHEN reason IS NULL OR reason = '' THEN 'Заблокировано после HH re-import remap.'
+                WHEN position('HH re-import remap' in reason) > 0 THEN reason
+                ELSE reason || ' Заблокировано после HH re-import remap.'
+              END
+          WHERE conversation_id = ${conversation_id}
+            AND review_status IN ('pending', 'approved')
+        `
+      ]);
     }
 
     if (!existingRun || needsReset) {
+      // M4: prior steps (before initialStepIndex) marked completed; initial step = active
       for (let i = 0; i < template.steps.length; i += 1) {
         const step = template.steps[i];
+        const isPrior = i < initialStepIndex;
+        const isInitial = step.id === initialStepId;
+        const stepState = isPrior ? "completed" : (isInitial ? "active" : "pending");
         await this.sql`
           INSERT INTO chatbot.pipeline_step_state
             (pipeline_run_id, step_id, step_index, state, awaiting_reply)
-          VALUES (${pipeline_run_id}, ${step.id}, ${step.step_index}, ${i === 0 ? "active" : "pending"}, ${i === 0})
+          VALUES (${pipeline_run_id}, ${step.id}, ${step.step_index}, ${stepState}, ${isInitial})
           ON CONFLICT (pipeline_run_id, step_id) DO NOTHING
         `;
       }
@@ -821,10 +840,13 @@ export class PostgresHiringStore {
         AND (j.client_id IS NULL OR j.client_id = r.client_id)
       ORDER BY pm.auto_send_after ASC
     `;
-    return rows.map((row) => ({
-      ...row,
-      active_step_goal: this.getTemplateStep(row.job_id, row.active_step_id ?? row.step_id)?.goal ?? row.active_step_id ?? row.step_id ?? ""
-    }));
+    return rows.map((row) => {
+      let active_step_goal = row.active_step_id ?? row.step_id ?? "";
+      try {
+        active_step_goal = this.getTemplateStep(row.job_id, row.active_step_id ?? row.step_id)?.goal ?? active_step_goal;
+      } catch { /* job not in _jobs registry */ }
+      return { ...row, active_step_goal };
+    });
   }
 
   async blockMessage(plannedMessageId) {
