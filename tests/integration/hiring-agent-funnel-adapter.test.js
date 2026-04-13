@@ -22,23 +22,30 @@ if (!DB_URL) {
 
     try {
       await sql`
-        insert into chatbot.pipeline_templates (template_id, job_id, steps_json)
+        insert into chatbot.jobs (job_id, title)
+        values (${jobId}, ${'test-funnel-adapter'})
+      `;
+
+      await sql`
+        insert into chatbot.pipeline_templates (template_id, template_version, job_id, name, steps_json)
         values (
           ${templateId},
+          1,
           ${jobId},
-          ${JSON.stringify([
+          ${'test-funnel-adapter'},
+          ${sql.json([
             { id: "screening", goal: "Screening" },
             { id: "qualification", goal: "Qualification" }
-          ])}::jsonb
+          ])}
         )
       `;
 
       await sql`
-        insert into chatbot.pipeline_runs (pipeline_run_id, job_id, status)
+        insert into chatbot.pipeline_runs (pipeline_run_id, job_id, template_version, status)
         values
-          (${runIds[0]}, ${jobId}, 'active'),
-          (${runIds[1]}, ${jobId}, 'active'),
-          (${runIds[2]}, ${jobId}, 'rejected')
+          (${runIds[0]}, ${jobId}, 1, 'active'),
+          (${runIds[1]}, ${jobId}, 1, 'active'),
+          (${runIds[2]}, ${jobId}, 1, 'rejected')
       `;
 
       await sql`
@@ -108,6 +115,10 @@ if (!DB_URL) {
       await sql`
         delete from chatbot.pipeline_templates
         where template_id = ${templateId}
+      `;
+      await sql`
+        delete from chatbot.jobs
+        where job_id = ${jobId}
       `;
       await sql.end();
     }

@@ -1,12 +1,11 @@
 import { getDemoRuntimeData } from "./demo-runtime-data.js";
-import postgres from "postgres";
 import { executeWithDb, runCandidateFunnelPlaybook } from "./playbooks/candidate-funnel.js";
 import { findPlaybook, getPlaybookRegistry } from "./playbooks/registry.js";
 import { routePlaybook } from "./playbooks/router.js";
 
-export function createHiringAgentApp() {
-  const databaseUrl = process.env.DATABASE_URL ?? null;
-  const sql = databaseUrl ? postgres(databaseUrl) : null;
+// sql is an optional postgres client — if null the app falls back to demo data.
+// Callers (index.js, tests) create and own the client; they must call sql.end() on shutdown.
+export function createHiringAgentApp(sql = null) {
 
   return {
     getHealth() {
