@@ -16,6 +16,7 @@
     "test:moderation": "node --test tests/integration/moderation-ui.test.js",
     "test:tenant": "node --test tests/integration/multi-tenant.test.js",
     "test:telegram": "node --test tests/integration/telegram-notifications.test.js",
+    "migrate:management": "node scripts/migrate-management.js",
     "seed:dev": "node scripts/seed-dev-db.js",
     "seed:sandbox": "node scripts/seed-sandbox-db.js",
     "bootstrap:demo-user": "node scripts/bootstrap-demo-user.js",

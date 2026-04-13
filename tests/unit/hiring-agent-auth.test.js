@@ -26,24 +26,29 @@ test("auth: parseCookies parses cookie header into key/value map", () => {
 
 test("auth: resolveSession returns recruiter from sql row", async () => {
   const sql = createMockSql(({ text, values }) => {
-    assert.match(text, /FROM chatbot\.sessions s/);
-    assert.match(text, /JOIN chatbot\.recruiters r/);
+    assert.match(text, /FROM management\.sessions s/);
+    assert.match(text, /JOIN management\.recruiters r/);
+    assert.match(text, /JOIN management\.tenants t/);
     assert.deepEqual(values, ["sess-001"]);
 
     return [{
       recruiter_id: "rec-1",
-      client_id: "client-1",
-      recruiter_token: "rec-tok-1",
-      email: "rec@example.com"
+      tenant_id: "tenant-1",
+      email: "rec@example.com",
+      role: "recruiter",
+      recruiter_status: "active",
+      tenant_status: "active"
     }];
   });
 
   const recruiter = await resolveSession(sql, "sess-001");
   assert.deepEqual(recruiter, {
     recruiter_id: "rec-1",
-    client_id: "client-1",
-    recruiter_token: "rec-tok-1",
-    email: "rec@example.com"
+    tenant_id: "tenant-1",
+    email: "rec@example.com",
+    role: "recruiter",
+    recruiter_status: "active",
+    tenant_status: "active"
   });
 });
 
@@ -55,14 +60,16 @@ test("auth: resolveSession renews near-expiry session in background", async () =
     if (calls.length === 1) {
       return [{
         recruiter_id: "rec-1",
-        client_id: "client-1",
-        recruiter_token: "rec-tok-1",
+        tenant_id: "tenant-1",
         email: "rec@example.com",
+        role: "recruiter",
+        recruiter_status: "active",
+        tenant_status: "active",
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000)
       }];
     }
 
-    assert.match(text, /UPDATE chatbot\.sessions/);
+    assert.match(text, /UPDATE management\.sessions/);
     assert.match(text, /SET expires_at = now\(\) \+ \$1::interval/);
     assert.deepEqual(values, ["30 days", "sess-001"]);
     return [];
@@ -71,9 +78,11 @@ test("auth: resolveSession renews near-expiry session in background", async () =
   const recruiter = await resolveSession(sql, "sess-001");
   assert.deepEqual(recruiter, {
     recruiter_id: "rec-1",
-    client_id: "client-1",
-    recruiter_token: "rec-tok-1",
-    email: "rec@example.com"
+    tenant_id: "tenant-1",
+    email: "rec@example.com",
+    role: "recruiter",
+    recruiter_status: "active",
+    tenant_status: "active"
   });
 
   await new Promise((resolve) => setImmediate(resolve));
@@ -82,7 +91,7 @@ test("auth: resolveSession renews near-expiry session in background", async () =
 
 test("auth: createSession stores 30 day ttl", async () => {
   const sql = createMockSql(({ text, values }) => {
-    assert.match(text, /INSERT INTO chatbot\.sessions/);
+    assert.match(text, /INSERT INTO management\.sessions/);
     assert.match(text, /VALUES \(\$1, \$2, now\(\) \+ \$3::interval\)/);
     assert.equal(values[1], "rec-1");
     assert.equal(values[2], "30 days");

@@ -1,4 +1,4 @@
-export async function getFunnelData(sql, jobId = null) {
+export async function getFunnelData(sql, { tenantId, jobId = null }) {
   const jobFilter = jobId
     ? sql`and pipeline_runs.job_id = ${jobId}`
     : sql``;
@@ -8,9 +8,11 @@ export async function getFunnelData(sql, jobId = null) {
   // on unrelated legacy rows in shared dev DBs).
   const rows = await sql`
     with scoped_runs as (
-      select pipeline_run_id, job_id
+      select pipeline_runs.pipeline_run_id, pipeline_runs.job_id
       from chatbot.pipeline_runs
+      join chatbot.jobs on chatbot.jobs.job_id = pipeline_runs.job_id
       where true ${jobFilter}
+        and chatbot.jobs.client_id = ${tenantId}
     )
     select
       pss.step_id,
