@@ -104,6 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [gate, migration-check]
     if: always() && github.event_name == 'pull_request'
+    continue-on-error: true
     steps:
       - name: Extract callback URL from PR body
         id: callback
