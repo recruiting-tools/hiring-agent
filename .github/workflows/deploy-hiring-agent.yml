@@ -64,6 +64,14 @@ jobs:
             pm2 list 2>/dev/null || echo "(pm2 not running)"
           EOF
 
+      - name: Write .env on VM
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          ENV_B64=$(printf 'NODE_ENV=production\nDATABASE_URL=%s\n' "$PROD_DATABASE_URL" | base64 -w0)
+          ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST \
+            "echo '$ENV_B64' | base64 -d > /opt/hiring-agent/.env && echo '.env written'"
+
       - name: Deploy
         run: bash ./scripts/deploy-hiring-agent.sh
 
