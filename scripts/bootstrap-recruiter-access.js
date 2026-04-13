@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Legacy tenant-local recruiter bootstrap for candidate-chatbot only.
+// Do not use this script for hiring-agent login on hiring-chat.recruiter-assistant.com.
+// hiring-agent auth reads from management.recruiters and should be bootstrapped via bootstrap-demo-user.js
 
 import pg from "pg";
 import {
@@ -22,6 +25,9 @@ if (!connectionString) {
   console.error("ERROR: DATABASE_URL or SANDBOX_DATABASE_URL is required");
   process.exit(1);
 }
+
+console.warn("WARNING: bootstrap-recruiter-access.js updates chatbot.recruiters only.");
+console.warn("WARNING: It does NOT create or update management.recruiters for hiring-agent login.");
 
 const client = new pg.Client({ connectionString });
 await client.connect();
