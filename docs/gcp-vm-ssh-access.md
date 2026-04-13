@@ -4,17 +4,19 @@ VM для `hiring-agent`: **hostname `claude-code-vm`**, IP `34.31.217.176`, reg
 
 ## TL;DR — быстрый доступ
 
-Самый простой способ — прямой SSH с ключом `google_compute_engine` (создаётся gcloud автоматически):
+SSH alias уже настроен в `~/.ssh/config` (алиасы `claude-code-vm` и `hiring-agent-vm`):
 
 ```bash
 # Интерактивный вход
-ssh -i ~/.ssh/google_compute_engine vova@34.31.217.176
+ssh hiring-agent-vm
 
 # Выполнить команду
-ssh -i ~/.ssh/google_compute_engine vova@34.31.217.176 "pm2 list"
+ssh hiring-agent-vm "pm2 list"
 ```
 
-**Не надо искать VM в gcloud** — достаточно знать IP и ключ.
+**Не надо искать VM в gcloud** — достаточно алиаса. Ключ `~/.ssh/google_compute_engine` подхватывается автоматически.
+
+> Если алиас не работает — проверь `~/.ssh/config`: запись `claude-code-vm / hiring-agent-vm` должна указывать на `34.31.217.176`.
 
 ---
 
