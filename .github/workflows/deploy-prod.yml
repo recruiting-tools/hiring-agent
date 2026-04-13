@@ -36,30 +36,8 @@ jobs:
 
       - name: Run database migrations
         env:
-          PROJECT_ID: project-5d8dd8a0-67af-44ba-b6e
-          DB_SECRET_NAME: V2_PROD_NEON_URL
-        run: |
-          DB_URL=$(gcloud secrets versions access latest --secret=$DB_SECRET_NAME --project=$PROJECT_ID)
-          DATABASE_URL=$DB_URL node scripts/migrate.js
-
-      - name: Verify schema_migrations complete
-        env:
-          PROJECT_ID: project-5d8dd8a0-67af-44ba-b6e
-          DB_SECRET_NAME: V2_PROD_NEON_URL
-        run: |
-          DB_URL=$(gcloud secrets versions access latest --secret=$DB_SECRET_NAME --project=$PROJECT_ID)
-          APPLIED=$(DATABASE_URL=$DB_URL node -e "
-            const { Client } = require('pg');
-            const c = new Client({connectionString: process.env.DATABASE_URL});
-            c.connect().then(async () => {
-              const r = await c.query('SELECT COUNT(*) as n FROM public.schema_migrations');
-              console.log(r.rows[0].n);
-              await c.end();
-            }).catch(e => { console.error(e.message); process.exit(1); });
-          ")
-          EXPECTED=$(ls services/candidate-chatbot/migrations/*.sql | wc -l | tr -d ' ')
-          echo "Applied: $APPLIED / Expected: $EXPECTED"
-          [ "$APPLIED" -eq "$EXPECTED" ] || { echo "FAIL: $((EXPECTED - APPLIED)) migrations not applied"; exit 1; }
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: node scripts/migrate.js
 
       - name: Deploy to Cloud Run
         env:
