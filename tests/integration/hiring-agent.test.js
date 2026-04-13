@@ -102,6 +102,8 @@ test("hiring-agent: GET / serves HTML shell after auth", async () => {
 });
 
 test("hiring-agent: POST /auth/login sets 30 day cookie without secure outside production", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "test";
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {
     const response = await loginResponse(server);
@@ -111,6 +113,7 @@ test("hiring-agent: POST /auth/login sets 30 day cookie without secure outside p
     assert.doesNotMatch(setCookie, /;\s*Secure/i);
   } finally {
     server.close();
+    process.env.NODE_ENV = previousNodeEnv;
   }
 });
 
