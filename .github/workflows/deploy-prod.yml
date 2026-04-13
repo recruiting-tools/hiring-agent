@@ -30,6 +30,17 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run database migrations
+        env:
+          PROJECT_ID: project-5d8dd8a0-67af-44ba-b6e
+          DB_SECRET_NAME: V2_PROD_NEON_URL
+        run: |
+          DB_URL=$(gcloud secrets versions access latest --secret=$DB_SECRET_NAME --project=$PROJECT_ID)
+          DATABASE_URL=$DB_URL node scripts/migrate.js
+
       - name: Deploy to Cloud Run
         env:
           SERVICE: candidate-chatbot-v2
