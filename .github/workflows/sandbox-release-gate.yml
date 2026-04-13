@@ -18,12 +18,9 @@ jobs:
   impact-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
       - name: Impact check
         run: node scripts/impact-check.js
 
@@ -36,11 +33,11 @@ jobs:
       DATABASE_URL: ${{ secrets.SANDBOX_DATABASE_URL }}
       SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - run: corepack enable pnpm
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
-      - run: npm install -g pnpm
       - run: pnpm install --frozen-lockfile
       # In CI: run tests only (no smoke — smoke requires a running server)
       - run: pnpm test:sandbox
@@ -48,7 +45,7 @@ jobs:
   migration-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
       - uses: actions/setup-node@v4
