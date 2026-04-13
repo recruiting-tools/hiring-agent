@@ -17,6 +17,7 @@
     "seed:dev": "node scripts/seed-dev-db.js",
     "seed:sandbox": "node scripts/seed-sandbox-db.js",
     "bootstrap:demo-user": "node scripts/bootstrap-demo-user.js",
+    "bootstrap:recruiter-access": "node scripts/bootstrap-recruiter-access.js",
     "test:all": "node --test tests/**/*.test.js",
     "test:sandbox": "APP_ENV=sandbox HH_USE_MOCK=true pnpm test:all",
     "gate:sandbox": "pnpm test:sandbox && pnpm smoke:sandbox",
