@@ -1,5 +1,10 @@
 # Plan: hiring-agent Frontend + Prod Deploy
 
+> Historical plan only.
+> Auth sections in this document are stale after the management-auth migration.
+> `hiring-chat.recruiter-assistant.com/login` now uses `management.recruiters` and `management.sessions`,
+> not `chatbot.recruiters` / `chatbot.sessions`.
+
 **Ревью пройдено** — исправлены 3 критических + 4 медиум замечания от Claude-ревьюера (2026-04-13).
 
 ## Контекст

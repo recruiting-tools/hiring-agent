@@ -11,11 +11,15 @@ export function resolveHiringAgentRuntime(env = process.env) {
   const appEnv = env.APP_ENV ?? "local";
   const port = Number(env.PORT ?? 3100);
   const managementDatabaseUrl = env.MANAGEMENT_DATABASE_URL ?? null;
+  const deploySha = env.DEPLOY_SHA ?? env.GITHUB_SHA ?? "unknown";
+  const startedAt = new Date().toISOString();
 
   if (appMode === "demo") {
     return {
       port,
       appEnv,
+      deploySha,
+      startedAt,
       demoMode: true,
       managementSql: null,
       managementStore: null,
@@ -32,6 +36,8 @@ export function resolveHiringAgentRuntime(env = process.env) {
   return {
     port,
     appEnv,
+    deploySha,
+    startedAt,
     demoMode: false,
     managementSql,
     managementStore: createManagementStore(managementSql),
@@ -42,7 +48,13 @@ export function resolveHiringAgentRuntime(env = process.env) {
 
 export function startHiringAgent(env = process.env) {
   const runtime = resolveHiringAgentRuntime(env);
-  const app = createHiringAgentApp({ demoMode: runtime.demoMode });
+  const app = createHiringAgentApp({
+    demoMode: runtime.demoMode,
+    appEnv: runtime.appEnv,
+    deploySha: runtime.deploySha,
+    startedAt: runtime.startedAt,
+    port: runtime.port
+  });
   const server = createHiringAgentServer(app, {
     managementSql: runtime.managementSql,
     managementStore: runtime.managementStore,
