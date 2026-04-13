@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev:candidate-chatbot": "node services/candidate-chatbot/src/index.js",
-    "dev:hiring-agent": "APP_MODE=${APP_MODE:-demo} node services/hiring-agent/src/index.js",
+    "dev:hiring-agent": "APP_MODE=${APP_MODE:-demo} node services/hiring-agent/src/cli.js",
     "deploy:sandbox": "APP_ENV=sandbox SECRET_PROFILE=sandbox EXTRA_ENV_VARS=HH_USE_MOCK=true SERVICE=candidate-chatbot-sandbox DB_SECRET_ENV=DATABASE_URL DB_SECRET_NAME=SANDBOX_DATABASE_URL DEPLOY_PUBLIC_URL=${SANDBOX_URL:?SANDBOX_URL is required for deploy:sandbox} bash ./scripts/deploy.sh",
     "test": "node --test tests/integration/candidate-chatbot.test.js",
     "test:postgres": "node --test tests/integration/candidate-chatbot-postgres.test.js",

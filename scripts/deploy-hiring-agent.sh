@@ -84,8 +84,8 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
   # Override port from env if passed
   export PORT=\$PORT
 
-  pm2 restart hiring-agent --update-env \
-    || pm2 start services/hiring-agent/ecosystem.config.cjs --env production --update-env
+  pm2 delete hiring-agent >/dev/null 2>&1 || true
+  pm2 start services/hiring-agent/ecosystem.config.cjs --env production --update-env
   pm2 save
 
   echo "Waiting for service to become healthy..."
@@ -94,7 +94,30 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
     [ "\$STATUS" = "ok" ] && { echo "Health check passed (attempt \$i)"; break; }
     echo "Attempt \$i/10: not ready (status=\${STATUS:-no-response}), waiting..."
     sleep 2
-    [ "\$i" = "10" ] && { echo "HEALTH CHECK FAILED after 10 attempts"; exit 1; }
+    [ "\$i" = "10" ] && {
+      echo "HEALTH CHECK FAILED after 10 attempts"
+      echo "--- deploy sha ---"
+      git rev-parse HEAD
+      echo "--- effective env ---"
+      env | egrep '^(PORT|NODE_ENV|APP_MODE|APP_ENV|MANAGEMENT_DATABASE_URL)=' \
+        | sed 's/^MANAGEMENT_DATABASE_URL=.*/MANAGEMENT_DATABASE_URL=[set]/'
+      echo "--- pm2 jlist ---"
+      pm2 jlist | jq -r '.[] | select(.name=="hiring-agent") | {
+        name,
+        pid,
+        pm_exec_path: .pm2_env.pm_exec_path,
+        pm_cwd: .pm2_env.pm_cwd,
+        port: (.pm2_env.PORT // .pm2_env.env.PORT // ""),
+        node_env: (.pm2_env.NODE_ENV // .pm2_env.env.NODE_ENV // ""),
+        app_mode: (.pm2_env.APP_MODE // .pm2_env.env.APP_MODE // ""),
+        management_database_url: (if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end)
+      }'
+      echo "--- sockets ---"
+      ss -tlnp | awk 'NR==1 || /LISTEN/'
+      echo "--- pm2 logs ---"
+      pm2 logs hiring-agent --lines 80 --nostream || true
+      exit 1
+    }
   done
 REMOTE
 

@@ -1,7 +1,7 @@
 module.exports = {
   apps: [{
     name: "hiring-agent",
-    script: "./src/index.js",
+    script: "./src/cli.js",
     cwd: "/opt/hiring-agent/services/hiring-agent",
     listen_timeout: 15000,
     kill_timeout: 5000,
