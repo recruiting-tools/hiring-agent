@@ -228,3 +228,146 @@ test("hiring-agent: management-backed access denies suspended recruiter", async 
     server.close();
   }
 });
+
+test("hiring-agent: management-backed chat rejects foreign job_id before funnel query", async () => {
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+    assert.match(text, /WHERE job_id = \$1/);
+    assert.deepEqual(values, ["job-foreign", "tenant-alpha-001"]);
+    return [];
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "Визуализируй воронку по кандидатам",
+      job_id: "job-foreign"
+    }, "session=sess-alpha");
+    assert.equal(status, 404);
+    assert.equal(body.error, "job_not_found");
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed chat accepts owned job_id and returns funnel", async () => {
+  let callIndex = 0;
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+    callIndex += 1;
+
+    if (callIndex === 1) {
+      assert.match(text, /WHERE job_id = \$1/);
+      assert.deepEqual(values, ["job-owned", "tenant-alpha-001"]);
+      return [{ job_id: "job-owned", title: "Owned role" }];
+    }
+
+    if (text === "and pipeline_runs.job_id = $1") {
+      assert.deepEqual(values, ["job-owned"]);
+      return { fragment: true };
+    }
+
+    assert.match(text, /with scoped_runs as/);
+    return [{
+      step_name: "Screening",
+      step_id: "screening",
+      step_index: 0,
+      total: 3,
+      in_progress: 1,
+      completed: 1,
+      stuck: 0,
+      rejected: 1
+    }];
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "Визуализируй воронку по кандидатам",
+      job_id: "job-owned"
+    }, "session=sess-alpha");
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "render_funnel");
+    assert.equal(body.reply.summary.total, 3);
+  } finally {
+    server.close();
+  }
+});

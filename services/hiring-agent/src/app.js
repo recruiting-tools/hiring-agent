@@ -62,6 +62,18 @@ export function createHiringAgentApp(options = {}) {
       }
 
       if (playbook.playbook_key === "candidate_funnel") {
+        if (tenantSql && tenantId && jobId) {
+          const tenantJob = await getTenantJobById(tenantSql, tenantId, jobId);
+          if (!tenantJob) {
+            return {
+              status: 404,
+              body: {
+                error: "job_not_found"
+              }
+            };
+          }
+        }
+
         return {
           status: 200,
           body: {
@@ -105,4 +117,16 @@ export function createHiringAgentApp(options = {}) {
       };
     }
   };
+}
+
+async function getTenantJobById(tenantSql, tenantId, jobId) {
+  const rows = await tenantSql`
+    SELECT job_id, title
+    FROM chatbot.jobs
+    WHERE job_id = ${jobId}
+      AND client_id = ${tenantId}
+    LIMIT 1
+  `;
+
+  return rows[0] ?? null;
 }
