@@ -213,6 +213,7 @@ Covered now:
 - demo unauthorized path
 - tenant job ownership pre-validation
 - management-backed HTTP request path
+- management-backed isolation between two recruiter sessions with different tenants
 - opt-in Postgres management fixture path
 
 ## Explicitly Deferred
@@ -315,15 +316,13 @@ What remains:
 
 ### Not Ready
 
-- full main sync after parallel deploy edits
 - verified end-to-end real-environment bootstrap
 - execution of the rollout checklist on a real environment
 
 ## Recommended Next Steps
 
-1. Sync branch with latest `origin/main` after local parallel deploy edits are settled.
-2. Run the real management bootstrap path on the target environment.
-3. After the above, run deploy and smoke against VM with `MANAGEMENT_DATABASE_URL`.
+1. Run the real management bootstrap path on the target environment.
+2. After the above, run deploy and smoke against VM with `MANAGEMENT_DATABASE_URL`.
 
 ## Quick Readiness Checklist
 
@@ -337,5 +336,5 @@ What remains:
 - [x] smoke expects `management-auth`
 - [x] legacy seed scripts explicitly remain tenant-operational in this PR
 - [x] production rollout checklist for management DB initialization is written
-- [ ] branch is reconciled with latest `main`
+- [x] branch is reconciled with latest `main`
 - [ ] production bootstrap path verified end-to-end
