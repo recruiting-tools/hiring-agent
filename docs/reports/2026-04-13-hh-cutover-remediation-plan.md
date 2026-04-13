@@ -98,13 +98,25 @@ Exit criteria:
 6. Execute idempotent production import.
 7. Run business-data smoke and manual recruiter verification.
 
+## Prerequisites (must resolve before any workstream executes)
+
+OQ1/OQ2 are operational prerequisites, not optional discovery. Before beginning WS1 execution, a human or agent must:
+
+1. Query dev Neon project `round-leaf-16031956` (main branch and all `pr-*` branches) for the same tables queried on production: `management.clients`, `chatbot.jobs`, `chatbot.recruiters`, HH negotiations, conversations, pipeline state.
+2. Record the result as a decision: either "importable data exists at \<project/branch\>" or "no durable data — import must be run fresh against production."
+
+This determines whether WS3 is a promotion (move existing data) or a fresh execution (run import from scratch).
+
 ## Open Questions
 
 1. Was the HH import ever run against any persistent Neon branch, or only planned in PR scope?
 2. If it was run, which exact project/branch contains the imported records now?
-3. Should production migrations happen inside GitHub Actions, or as an explicit gated operator step with logging?
 
 ## Decisions
+
+**Q3 — Production migrations: explicit gated operator step with logging.**
+
+Migrations must not run silently inside GitHub Actions without an operator audit trail. The supported path: a dedicated `migrate-prod.yml` workflow that requires manual approval (`environment: production` gate), runs `node scripts/migrate.js` against `V2_PROD_NEON_URL`, and emits a structured log of applied migrations. This makes migration execution deliberate, auditable, and separate from application deploy. WS2 step 1 is answered: explicit gated operator step.
 
 **Q4 — Business-data verification for cutover-class deploys: YES, automated gate.**
 
