@@ -73,6 +73,10 @@ ${NEWKEY}"
 
 ## CI/CD — SSH ключ для деплоя
 
+> Historical note:
+> current `hiring-agent` deploy workflow authenticates to the VM as user `vova`.
+> The `github-ci-hiring-agent` key material below is retained only as older operational reference.
+
 Для GitHub Actions ключ хранится как **GitHub Secret** `VM_SSH_KEY`.
 
 **Текущий CI ключ** (username: `github-ci-hiring-agent`):

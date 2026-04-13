@@ -130,6 +130,10 @@ ${NEWKEY}"
 
 ### CI/CD SSH ключ для GitHub Actions
 
+> Historical note:
+> the live `hiring-agent` deploy workflow currently connects as VM user `vova`.
+> The `github-ci-hiring-agent` username below is older reference material, not the current runtime contract.
+
 **Публичный ключ** (должен быть в метадате VM, username: `github-ci-hiring-agent`):
 
 ```
