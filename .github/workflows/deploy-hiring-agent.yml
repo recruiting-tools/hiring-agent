@@ -43,13 +43,10 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v3
 
-      - name: Load SSH key from GCP Secret Manager
+      - name: Load SSH key
         run: |
           mkdir -p ~/.ssh
-          gcloud secrets versions access latest \
-            --secret=VM_SSH_KEY \
-            --project=project-5d8dd8a0-67af-44ba-b6e \
-            > ~/.ssh/vm_key
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/vm_key
           chmod 600 ~/.ssh/vm_key
           eval "$(ssh-agent -s)"
           ssh-add ~/.ssh/vm_key
