@@ -21,6 +21,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 2
+      - run: corepack enable pnpm
       - uses: actions/setup-node@v5
         with:
           node-version: 20
@@ -37,10 +38,10 @@ jobs:
       SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
     steps:
       - uses: actions/checkout@v5
+      - run: corepack enable pnpm
       - uses: actions/setup-node@v5
         with:
           node-version: 20
-      - run: npm install -g pnpm
       - run: pnpm install --frozen-lockfile
       # In CI: run tests only (no smoke — smoke requires a running server)
       - run: pnpm test:sandbox
