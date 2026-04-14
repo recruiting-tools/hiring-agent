@@ -38,17 +38,17 @@ export async function dispatch({
     throw new Error("managementStore or managementSql is required");
   }
 
-  const steps = await managementStore.getPlaybookSteps(playbookKey);
+  const steps = (await managementStore.getPlaybookSteps(playbookKey)).map((step) => normalizeStep(step));
   if (!steps.length) {
     throw new Error(`Playbook steps not found for ${playbookKey}`);
   }
 
-  let session = await managementStore.getActiveSession({
+  let session = normalizeSession(await managementStore.getActiveSession({
     tenantId,
     recruiterId,
     vacancyId,
     playbookKey
-  });
+  }));
 
   if (!session) {
     await managementStore.abortActiveSessions?.({
@@ -59,6 +59,9 @@ export async function dispatch({
     });
 
     const initialStep = steps[0];
+    if (initialStep.step_order == null) {
+      throw new Error(`Playbook initial step_order is missing for ${playbookKey}`);
+    }
     session = await managementStore.createPlaybookSession({
       tenantId,
       recruiterId,
@@ -69,6 +72,11 @@ export async function dispatch({
       context: vacancyId ? { vacancy_id: vacancyId } : {},
       callStack: []
     });
+    session = normalizeSession(session);
+  }
+
+  if (!session?.session_id) {
+    throw new Error("Playbook session id is missing");
   }
 
   const stepMap = new Map(steps.map((step) => [step.step_order, step]));
@@ -174,6 +182,46 @@ export async function dispatch({
       throw error;
     }
   }
+}
+
+function normalizeStep(step) {
+  if (!step || typeof step !== "object") return {};
+
+  return {
+    ...step,
+    step_key: step.step_key ?? step.stepKey ?? null,
+    playbook_key: step.playbook_key ?? step.playbookKey ?? null,
+    step_order: step.step_order ?? step.stepOrder ?? null,
+    name: step.name ?? null,
+    step_type: step.step_type ?? step.stepType ?? null,
+    user_message: step.user_message ?? step.userMessage ?? null,
+    prompt_template: step.prompt_template ?? step.promptTemplate ?? null,
+    context_key: step.context_key ?? step.contextKey ?? null,
+    db_save_column: step.db_save_column ?? step.dbSaveColumn ?? null,
+    next_step_order: step.next_step_order ?? step.nextStepOrder ?? null,
+    options: step.options ?? null,
+    routing: step.routing ?? null,
+    notes: step.notes ?? null,
+    created_at: step.created_at ?? step.createdAt ?? null
+  };
+}
+
+function normalizeSession(session) {
+  if (!session || typeof session !== "object") return null;
+
+  return {
+    ...session,
+    session_id: session.session_id ?? session.sessionId ?? null,
+    tenant_id: session.tenant_id ?? session.tenantId ?? null,
+    recruiter_id: session.recruiter_id ?? session.recruiterId ?? null,
+    conversation_id: session.conversation_id ?? session.conversationId ?? null,
+    playbook_key: session.playbook_key ?? session.playbookKey ?? null,
+    current_step_order: session.current_step_order ?? session.currentStepOrder ?? null,
+    vacancy_id: session.vacancy_id ?? session.vacancyId ?? null,
+    context: session.context ?? null,
+    call_stack: session.call_stack ?? session.callStack ?? [],
+    status: session.status ?? null
+  };
 }
 
 function normalizeSessionContext(value) {
