@@ -677,7 +677,7 @@ test("hiring-agent: WebSocket returns funnel chunks for authenticated session", 
     const sessionCookie = await login(server);
 
     const messages = await new Promise((resolve, reject) => {
-      const ws = new WsClient(`ws://localhost:${port}/`, { headers: { cookie: sessionCookie } });
+      const ws = new WsClient(`ws://localhost:${port}/ws`, { headers: { cookie: sessionCookie } });
       const received = [];
       let settled = false;
 
@@ -720,7 +720,7 @@ test("hiring-agent: WebSocket closes with 4001 when session cookie is missing", 
   const port = server.address().port;
   try {
     const closeCode = await new Promise((resolve, reject) => {
-      const ws = new WsClient(`ws://localhost:${port}/`);
+      const ws = new WsClient(`ws://localhost:${port}/ws`);
       ws.on("close", (code) => resolve(code));
       ws.on("error", reject);
       setTimeout(() => reject(new Error("timeout")), 5000);
