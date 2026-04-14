@@ -53,7 +53,7 @@ hiring-chat.recruiter-assistant.com  (DNS A → 34.31.217.176)
 | `GET /logout` | — | Удаляет cookie, редирект на `/login` |
 | `GET /` | — | Требует auth. Без cookie → 302 `/login` |
 | `POST /api/chat` | — | Требует auth. Без cookie → 401 |
-| `GET /api/jobs` | — | Требует auth. Список вакансий рекрутера |
+| `GET /api/vacancies` | — | Требует auth. Список вакансий рекрутера (`/api/jobs` оставлен как alias) |
 
 ### Auth flow
 1. Рекрутер вводит **email + пароль** (не токен — токен это внутренний идентификатор)
@@ -125,7 +125,7 @@ export async function getRecruiterByEmail(sql, email) {
 Расширить текущий `HTML`:
 - **Удалить** строки с `searchParams.get("token")` и `searchParams.get("job_id")` — больше не из URL
 - **Шапка**: email рекрутера (из `GET /api/me` или передаётся в HTML через server-side template) + кнопка "Выйти" → `GET /logout`
-- **Job selector**: `<select>` заполняется из `GET /api/jobs` при загрузке страницы
+- **Vacancy selector**: `<select>` заполняется из `GET /api/vacancies` при загрузке страницы
 - **Chat history**: сохраняется в `sessionStorage` (не теряется при F5, сбрасывается при закрытии вкладки)
 - **Error states**: ошибка сети → toast-сообщение; 401 → `window.location = '/login'`
 - `fetch('/api/chat')` — браузер автоматически шлёт cookie (same-origin), `credentials: 'include'` не нужен
@@ -143,7 +143,7 @@ response.end(html);
 
 ---
 
-## Task 3 — GET /api/jobs
+## Task 3 — GET /api/vacancies
 
 **Изменение:** `services/hiring-agent/src/app.js` — добавить метод `getJobs(clientId)`
 
@@ -162,7 +162,7 @@ async getJobs(clientId) {
 
 > **Таблица `chatbot.jobs`** — существует в схеме (используется в `scripts/lib/recruiter-access.js:listRecruiters` — `JOIN chatbot.jobs j ON j.client_id = r.client_id`). Дополнительных миграций не нужно.
 
-`http-server.js`: `GET /api/jobs` вызывает `app.getJobs(recruiter.client_id)` где `recruiter` из `resolveSession()`.
+`http-server.js`: `GET /api/vacancies` вызывает `app.getVacancies(...)`; `GET /api/jobs` оставлен как backward-compatible alias.
 
 ---
 
@@ -371,7 +371,7 @@ jobs:
 |---|--------|-----|------------|
 | 1 | `auth.js` + login/logout endpoints + recruiter_token wiring | Codex | — |
 | 2 | Frontend: login page + улучшенный chat UI (без URL params) | Codex | 1 |
-| 3 | `GET /api/jobs` endpoint | Codex | 1 |
+| 3 | `GET /api/vacancies` endpoint | Codex | 1 |
 | 4 | Tests + обновить `test:hiring-agent` в package.json | Codex | 1, 2, 3 |
 | 5 | PM2 ecosystem file | Codex | — |
 | 6 | Nginx config | Codex | — |

@@ -1005,6 +1005,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     let ws = null;
     let streaming = false;
     let selectedVacancyId = null;
+    let selectedVacancyJobId = null;
+    let availableVacancies = [];
     let selectedVacancyTitle = '';
     let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
 
@@ -1201,7 +1203,8 @@ const CHAT_HTML = `<!DOCTYPE html>
         const res = await fetch(withBasePath('/api/jobs'));
         if (res.status === 401) { window.location = LOGIN_PATH; return; }
         const data = await res.json();
-        const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+        const jobs = Array.isArray(data.vacancies) ? data.vacancies : (Array.isArray(data.jobs) ? data.jobs : []);
+        availableVacancies = jobs;
         const savedVacancyId = localStorage.getItem(LAST_VACANCY_KEY);
 
         if (jobs.length === 0) {
@@ -1224,7 +1227,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
         jobs.forEach(job => {
           const opt = document.createElement('option');
-          opt.value = job.job_id;
+          opt.value = job.vacancy_id;
           opt.textContent = job.title;
           vacancySelect.appendChild(opt);
         });
@@ -1235,17 +1238,17 @@ const CHAT_HTML = `<!DOCTYPE html>
         createOpt.textContent = '+ Создать вакансию';
         vacancySelect.appendChild(createOpt);
 
-        const savedMatch = jobs.find((job) => String(job.job_id) === savedVacancyId);
+        const savedMatch = jobs.find((job) => String(job.vacancy_id) === savedVacancyId);
         if (savedMatch) {
-          vacancySelect.value = savedMatch.job_id;
-          onVacancySelected(savedMatch.job_id, savedMatch.title);
+          vacancySelect.value = savedMatch.vacancy_id;
+          onVacancySelected(savedMatch.vacancy_id, savedMatch.title, savedMatch.job_id);
           return;
         }
 
         // Auto-select if only one
         if (jobs.length === 1) {
-          vacancySelect.value = jobs[0].job_id;
-          onVacancySelected(jobs[0].job_id, jobs[0].title);
+          vacancySelect.value = jobs[0].vacancy_id;
+          onVacancySelected(jobs[0].vacancy_id, jobs[0].title, jobs[0].job_id);
         }
       } catch {
         vacancySelect.innerHTML = '<option value="">Ошибка загрузки</option>';
@@ -1254,12 +1257,18 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     vacancySelect.addEventListener('change', () => {
       const val = vacancySelect.value;
+      if (val === '__create__') {
+        triggerCreateVacancy();
+        return;
+      }
       const title = vacancySelect.options[vacancySelect.selectedIndex]?.text ?? '';
-      onVacancySelected(val || null, title);
+      const selected = availableVacancies.find((job) => String(job.vacancy_id) === String(val));
+      onVacancySelected(val || null, title, selected?.job_id ?? null);
     });
 
-    function onVacancySelected(vacancyId, title) {
+    function onVacancySelected(vacancyId, title, jobId) {
       selectedVacancyId = vacancyId;
+      selectedVacancyJobId = jobId || null;
       selectedVacancyTitle = title || '';
       if (vacancyId) localStorage.setItem(LAST_VACANCY_KEY, String(vacancyId));
       else localStorage.removeItem(LAST_VACANCY_KEY);
@@ -1304,6 +1313,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     function triggerCreateVacancy() {
       selectedVacancyId = null;
+      selectedVacancyJobId = null;
       selectedVacancyTitle = '';
       vacancySelect.value = '';
       syncContext();
@@ -1339,9 +1349,9 @@ const CHAT_HTML = `<!DOCTYPE html>
         ? 'Enter отправляет сообщение, Shift+Enter переносит строку.'
         : 'Можно писать свободно или сначала выбрать вакансию слева.';
 
-      if (CHATBOT_MODERATION_BASE && hasVacancy) {
+      if (CHATBOT_MODERATION_BASE && hasVacancy && selectedVacancyJobId) {
         const titleParam = encodeURIComponent(selectedVacancyTitle || '');
-        moderationLink.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(selectedVacancyId) + (titleParam ? '&title=' + titleParam : '');
+        moderationLink.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(selectedVacancyJobId) + (titleParam ? '&title=' + titleParam : '');
         moderationLink.hidden = false;
       } else {
         moderationLink.hidden = true;
@@ -1487,7 +1497,6 @@ async function handleChatWs(ws, msg, wsContext, app) {
       tenantSql: wsContext.tenantSql,
       tenantId: wsContext.tenantId,
       recruiterId: wsContext.recruiterId,
-      job_id: vacancyId,
       vacancy_id: vacancyId,
     });
 
@@ -1614,7 +1623,7 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
 
-      if (request.method === "GET" && normalizedPath === "/api/jobs") {
+      if (request.method === "GET" && (normalizedPath === "/api/jobs" || normalizedPath === "/api/vacancies")) {
         const accessContext = await requireAccessContext(request, response, {
           managementStore,
           poolRegistry,
@@ -1623,7 +1632,7 @@ export function createHiringAgentServer(app, options = {}) {
         });
         if (!accessContext) return;
 
-        const result = await app.getJobs({
+        const result = await app.getVacancies({
           tenantSql: accessContext.tenantSql,
           tenantId: accessContext.tenantId
         });

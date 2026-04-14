@@ -51,6 +51,7 @@ export function createHiringAgentApp(options = {}) {
       vacancy_id: vacancyId = null,
       managementSql: requestManagementSql = managementSql
     }) {
+      const effectiveVacancyId = vacancyId ?? jobId ?? null;
       const playbookKey = action === "start_playbook" && requestedPlaybookKey
         ? requestedPlaybookKey
         : await routePlaybook(message, requestManagementSql);
@@ -60,7 +61,7 @@ export function createHiringAgentApp(options = {}) {
           body: {
             reply: {
               kind: "fallback_text",
-              text: "Я пока поддерживаю только визуализацию воронки, план коммуникации и выборочную рассылку."
+              text: "Не понял запрос. Сейчас доступны сценарии по вакансии, воронке, настройке общения и массовой рассылке."
             }
           }
         };
@@ -90,8 +91,8 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      if (playbook.playbook_key === "candidate_funnel") {
-        if (tenantSql && !jobId) {
+      if (!requestManagementSql && playbook.playbook_key === "candidate_funnel") {
+        if (tenantSql && !effectiveVacancyId) {
           return {
             status: 200,
             body: {
@@ -103,9 +104,9 @@ export function createHiringAgentApp(options = {}) {
           };
         }
 
-        if (tenantSql && tenantId && jobId) {
+        if (tenantSql && tenantId && effectiveVacancyId) {
           const tenantJob = await withTenantDbTimeout(
-            () => getTenantJobById(tenantSql, tenantId, jobId),
+            () => getTenantJobById(tenantSql, tenantId, effectiveVacancyId),
             { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
           );
           if (!tenantJob) {
@@ -123,7 +124,7 @@ export function createHiringAgentApp(options = {}) {
           body: {
             reply: tenantSql
               ? await withTenantDbTimeout(
-                () => executeWithDb({ sql: tenantSql, tenantId, jobId }),
+                () => executeWithDb({ sql: tenantSql, tenantId, jobId: effectiveVacancyId }),
                 { operation: "executeWithDb", timeoutMs: tenantDbTimeoutMs }
               )
               : runCandidateFunnelPlaybook({ runtimeData: getDemoRuntimeData() })
@@ -131,10 +132,10 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      if (playbook.playbook_key === "setup_communication") {
-        if (tenantSql && tenantId && vacancyId) {
+      if (!requestManagementSql && playbook.playbook_key === "setup_communication") {
+        if (tenantSql && tenantId && effectiveVacancyId) {
           const tenantJob = await withTenantDbTimeout(
-            () => getTenantJobById(tenantSql, tenantId, vacancyId),
+            () => getTenantJobById(tenantSql, tenantId, effectiveVacancyId),
             { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
           );
           if (!tenantJob) {
@@ -149,7 +150,7 @@ export function createHiringAgentApp(options = {}) {
 
         const result = await runCommunicationPlanPlaybook({
           tenantSql,
-          vacancyId,
+          vacancyId: effectiveVacancyId,
           llmAdapter,
           recruiterInput: message,
           llmConfig: communicationPlanLlmConfig
@@ -160,7 +161,7 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      if (playbook.playbook_key !== "create_vacancy" && !vacancyId) {
+      if (playbook.playbook_key !== "create_vacancy" && !effectiveVacancyId) {
         return {
           status: 200,
           body: {
@@ -181,12 +182,27 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
+      if (playbook.playbook_key !== "create_vacancy" && tenantSql && effectiveVacancyId) {
+        const tenantVacancy = await withTenantDbTimeout(
+          () => getTenantVacancyById(tenantSql, effectiveVacancyId),
+          { operation: "getTenantVacancyById", timeoutMs: tenantDbTimeoutMs }
+        );
+        if (!tenantVacancy) {
+          return {
+            status: 404,
+            body: {
+              error: "vacancy_not_found"
+            }
+          };
+        }
+      }
+
       const runtimeResult = await dispatch({
         managementSql: requestManagementSql,
         tenantSql,
         tenantId,
         recruiterId,
-        vacancyId,
+        vacancyId: effectiveVacancyId,
         playbookKey,
         recruiterInput: message ?? null,
         llmAdapter,
@@ -200,37 +216,43 @@ export function createHiringAgentApp(options = {}) {
         body: {
           reply: runtimeResult.reply,
           session_id: runtimeResult.sessionId,
-          vacancy_id: runtimeResult.vacancyId ?? vacancyId ?? null
+          vacancy_id: runtimeResult.vacancyId ?? effectiveVacancyId ?? null
         }
       };
     },
 
-    async getJobs({ tenantSql = null, tenantId = null }) {
-      if (!tenantSql || !tenantId) {
+    async getVacancies({ tenantSql = null }) {
+      if (!tenantSql) {
         return {
           status: 200,
           body: {
-            jobs: []
+            jobs: [],
+            vacancies: []
           }
         };
       }
 
       const rows = await withTenantDbTimeout(
         () => tenantSql`
-          SELECT job_id, title
-          FROM chatbot.jobs
-          WHERE client_id = ${tenantId}
-          ORDER BY created_at DESC
+          SELECT vacancy_id, job_id, title, status, extraction_status
+          FROM chatbot.vacancies
+          WHERE status != 'archived'
+          ORDER BY updated_at DESC NULLS LAST, created_at DESC
         `,
-        { operation: "getJobs", timeoutMs: tenantDbTimeoutMs }
+        { operation: "getVacancies", timeoutMs: tenantDbTimeoutMs }
       );
 
       return {
         status: 200,
         body: {
-          jobs: rows
+          jobs: rows,
+          vacancies: rows
         }
       };
+    },
+
+    async getJobs({ tenantSql = null, tenantId = null }) {
+      return this.getVacancies({ tenantSql, tenantId });
     }
   };
 }
@@ -260,6 +282,17 @@ async function withTenantDbTimeout(run, { operation, timeoutMs }) {
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
   }
+}
+
+async function getTenantVacancyById(tenantSql, vacancyId) {
+  const rows = await tenantSql`
+    SELECT vacancy_id, job_id, title, status, extraction_status
+    FROM chatbot.vacancies
+    WHERE vacancy_id = ${vacancyId}
+    LIMIT 1
+  `;
+
+  return rows[0] ?? null;
 }
 
 async function getTenantJobById(tenantSql, tenantId, jobId) {
