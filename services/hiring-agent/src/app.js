@@ -300,17 +300,7 @@ export function createHiringAgentApp(options = {}) {
         { operation: "getVacancies", timeoutMs: tenantDbTimeoutMs }
       );
 
-      if (rows.length > 0) {
-        return {
-          status: 200,
-          body: {
-            jobs: rows,
-            vacancies: rows
-          }
-        };
-      }
-
-      const jobsFallback = await withTenantDbTimeout(
+      const jobsRows = await withTenantDbTimeout(
         () => {
           if (tenantId) {
             return tenantSql`
@@ -330,7 +320,7 @@ export function createHiringAgentApp(options = {}) {
         { operation: "getVacancies", timeoutMs: tenantDbTimeoutMs }
       );
 
-      const synthesizedRows = jobsFallback.map((job) => ({
+      const synthesizedRows = jobsRows.map((job) => ({
         vacancy_id: job.job_id,
         job_id: job.job_id,
         title: job.title,
@@ -338,11 +328,19 @@ export function createHiringAgentApp(options = {}) {
         extraction_status: "pending"
       }));
 
+      const seenKeys = new Set(
+        rows.map((row) => String(row.job_id ?? row.vacancy_id ?? ""))
+      );
+      const mergedRows = [
+        ...rows,
+        ...synthesizedRows.filter((row) => !seenKeys.has(String(row.job_id ?? row.vacancy_id ?? "")))
+      ];
+
       return {
         status: 200,
         body: {
-          jobs: synthesizedRows,
-          vacancies: synthesizedRows
+          jobs: mergedRows,
+          vacancies: mergedRows
         }
       };
     },
