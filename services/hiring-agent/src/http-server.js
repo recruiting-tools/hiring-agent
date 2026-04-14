@@ -1125,8 +1125,20 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     function renderMarkdown(el, text) {
-      const html = DOMPurify.sanitize(marked.parse(text));
-      el.innerHTML = html;
+      const source = String(text ?? '');
+      if (typeof marked?.parse === 'function') {
+        el.innerHTML = DOMPurify.sanitize(marked.parse(source));
+        return;
+      }
+
+      const escaped = source
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/\n/g, '<br>');
+      el.innerHTML = DOMPurify.sanitize(escaped);
     }
 
     // ── Messages ──────────────────────────────────────────────────────────────
@@ -1411,8 +1423,10 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     // ── Init ──────────────────────────────────────────────────────────────────
-    // Configure marked
-    marked.use({ breaks: true, gfm: true });
+    // Configure marked only when CDN asset is available.
+    if (typeof marked?.use === 'function') {
+      marked.use({ breaks: true, gfm: true });
+    }
 
     // Start WS
     connect();
