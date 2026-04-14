@@ -13,8 +13,10 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- ── Playbook sessions (runtime state) ───────────────────────────────────────
 
 -- One session per recruiter per playbook invocation.
--- context JSONB accumulates everything: vacancy_id (injected from UI),
--- extracted fields, user choices, generated content.
+-- vacancy_id is a first-class field (not buried in context JSONB) so the
+-- UI and backend can filter/resume/block sessions by vacancy without
+-- JSON-heuristics. context JSONB still accumulates extracted fields,
+-- user choices, and generated content.
 -- call_stack supports subroutine: [{playbook_key, return_step_order}]
 
 CREATE TABLE IF NOT EXISTS management.playbook_sessions (
@@ -25,6 +27,10 @@ CREATE TABLE IF NOT EXISTS management.playbook_sessions (
 
   playbook_key       TEXT NOT NULL REFERENCES management.playbook_definitions(playbook_key),
   current_step_order INTEGER,
+
+  -- vacancy_id references chatbot.vacancies (per-tenant DB) — no FK possible
+  -- across DB boundaries, so it's a plain TEXT reference enforced at app level
+  vacancy_id         TEXT,
 
   context            JSONB NOT NULL DEFAULT '{}',
   call_stack         JSONB NOT NULL DEFAULT '[]',
@@ -43,4 +49,14 @@ CREATE INDEX IF NOT EXISTS idx_playbook_sessions_conversation
 
 CREATE INDEX IF NOT EXISTS idx_playbook_sessions_tenant_active
   ON management.playbook_sessions (tenant_id, status)
+  WHERE status = 'active';
+
+-- vacancy-centric lookup: find/resume active sessions for a given vacancy
+CREATE INDEX IF NOT EXISTS idx_playbook_sessions_vacancy
+  ON management.playbook_sessions (tenant_id, vacancy_id, status)
+  WHERE status = 'active';
+
+-- prevent duplicate active sessions: one active session per recruiter+vacancy+playbook
+CREATE UNIQUE INDEX IF NOT EXISTS idx_playbook_sessions_active_unique
+  ON management.playbook_sessions (tenant_id, recruiter_id, vacancy_id, playbook_key)
   WHERE status = 'active';
