@@ -143,18 +143,41 @@ export function createHiringAgentApp(options = {}) {
       }
 
       if (playbook.playbook_key === "setup_communication") {
-        if (tenantSql && tenantId && effectiveVacancyId) {
-          const tenantJob = await withTenantDbTimeout(
-            () => getTenantJobById(tenantSql, tenantId, effectiveVacancyId),
-            { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
-          );
-          if (!tenantJob) {
-            return {
-              status: 404,
-              body: {
-                error: "job_not_found"
+        if (tenantSql && tenantId) {
+          if (jobId) {
+            const tenantJob = await withTenantDbTimeout(
+              () => getTenantJobById(tenantSql, tenantId, jobId),
+              { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
+            );
+            if (!tenantJob) {
+              return {
+                status: 404,
+                body: {
+                  error: "job_not_found"
+                }
+              };
+            }
+          }
+
+          if (vacancyId && vacancyId !== jobId) {
+            const tenantVacancy = await withTenantDbTimeout(
+              () => getTenantVacancyById(tenantSql, vacancyId),
+              { operation: "getTenantVacancyById", timeoutMs: tenantDbTimeoutMs }
+            );
+            if (tenantVacancy?.job_id) {
+              const tenantVacancyJob = await withTenantDbTimeout(
+                () => getTenantJobById(tenantSql, tenantId, tenantVacancy.job_id),
+                { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
+              );
+              if (!tenantVacancyJob) {
+                return {
+                  status: 404,
+                  body: {
+                    error: "vacancy_not_found"
+                  }
+                };
               }
-            };
+            }
           }
         }
 
