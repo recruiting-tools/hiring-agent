@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { WebSocketServer } from "ws";
 import { createSession, getRecruiterByEmail, parseCookies, resolveSession } from "./auth.js";
@@ -234,16 +235,18 @@ const CHAT_HTML = `<!DOCTYPE html>
       height: 100dvh;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: hidden;
     }
 
     /* ── HEADER ────────────────────────────────────────────────── */
     #header {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 10px;
-      padding: 0 16px;
-      height: 52px;
+      padding: 10px 16px;
+      min-height: 52px;
       border-bottom: 1px solid var(--edge);
       flex-shrink: 0;
     }
@@ -262,8 +265,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       letter-spacing: -0.01em;
     }
     #vacancy-select {
-      flex: 1;
-      max-width: 320px;
+      flex: 1 1 280px;
+      min-width: 0;
+      max-width: 420px;
       margin-left: auto;
       padding: 6px 10px;
       background: var(--bg3);
@@ -291,11 +295,23 @@ const CHAT_HTML = `<!DOCTYPE html>
       white-space: nowrap;
     }
     #logout-btn:hover { border-color: var(--t2); color: var(--t1); }
+    #recruiter-email {
+      font-size: 12px;
+      color: var(--t3);
+      margin-left: 4px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
     /* ── CHAT LOG ──────────────────────────────────────────────── */
     #chat-log {
       flex: 1;
       overflow-y: auto;
+      overflow-x: hidden;
+      width: min(100%, 980px);
+      margin: 0 auto;
       padding: 20px 16px;
       display: flex;
       flex-direction: column;
@@ -335,17 +351,22 @@ const CHAT_HTML = `<!DOCTYPE html>
     .btn-primary:hover { opacity: 0.88; }
 
     /* ── MESSAGE ROWS ──────────────────────────────────────────── */
-    .msg-row { display: flex; }
+    .msg-row {
+      display: flex;
+      width: 100%;
+      min-width: 0;
+    }
     .msg-row.user { justify-content: flex-end; }
     .msg-row.assistant { justify-content: flex-start; }
 
     .bubble {
-      max-width: min(75%, 680px);
+      max-width: min(100%, 680px);
       padding: 10px 14px;
       font-size: 14px;
       line-height: 1.55;
       border-radius: 12px;
       word-break: break-word;
+      overflow-wrap: anywhere;
     }
     .user-bubble {
       background: var(--acc);
@@ -460,6 +481,133 @@ const CHAT_HTML = `<!DOCTYPE html>
     .bubble-content strong { color: var(--t1); font-weight: 600; }
     .bubble-content a { color: var(--acc); text-decoration: none; }
     .bubble-content a:hover { text-decoration: underline; }
+    .comm-plan {
+      display: grid;
+      gap: 12px;
+      margin-top: 4px;
+    }
+    .comm-plan-card {
+      border: 1px solid var(--edge);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .comm-plan-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--t1);
+      margin: 0;
+      line-height: 1.35;
+    }
+    .comm-plan-note {
+      margin: 0;
+      padding: 8px 10px;
+      border: 1px solid rgba(79, 143, 247, 0.35);
+      background: rgba(79, 143, 247, 0.10);
+      border-radius: 8px;
+      color: #dbe8ff;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .comm-plan-subtitle {
+      margin: 0;
+      font-size: 12px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--t3);
+      font-weight: 600;
+    }
+    .comm-plan-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--edge);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.12);
+    }
+    .comm-plan-table {
+      width: 100%;
+      min-width: 560px;
+      border-collapse: collapse;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .comm-plan-table th,
+    .comm-plan-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--edge);
+      text-align: left;
+      vertical-align: top;
+    }
+    .comm-plan-table tr:last-child td {
+      border-bottom: none;
+    }
+    .comm-plan-table th {
+      background: rgba(255,255,255,0.03);
+      color: var(--t2);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .comm-plan-reminders {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 26px;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(79, 143, 247, 0.45);
+      background: rgba(79, 143, 247, 0.14);
+      color: #dbe8ff;
+      font-weight: 600;
+      font-size: 12px;
+      line-height: 1;
+    }
+    .comm-plan-goal {
+      margin: 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(126, 208, 162, 0.28);
+      background: rgba(126, 208, 162, 0.09);
+      color: #dff7eb;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .comm-plan-examples {
+      display: grid;
+      gap: 8px;
+    }
+    .comm-plan-example {
+      border: 1px solid var(--edge);
+      border-radius: 10px;
+      padding: 10px;
+      background: rgba(255,255,255,0.02);
+      display: grid;
+      gap: 6px;
+    }
+    .comm-plan-example-title {
+      margin: 0;
+      font-weight: 600;
+      color: var(--t1);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .comm-plan-example-text {
+      margin: 0;
+      color: var(--t2);
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .comm-plan-hint {
+      margin: 0;
+      color: var(--t3);
+      font-size: 12px;
+      line-height: 1.45;
+    }
 
     /* ── ACTION BUTTONS ────────────────────────────────────────── */
     .actions {
@@ -471,6 +619,49 @@ const CHAT_HTML = `<!DOCTYPE html>
       border-top: 1px solid var(--edge);
     }
     .actions:empty { display: none; }
+    .artifact-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--edge);
+      font-size: 12px;
+      color: var(--t2);
+      flex-wrap: wrap;
+    }
+    .artifact-bar:empty { display: none; }
+    .artifact-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      border: 1px solid var(--edge);
+      background: var(--bg3);
+      color: var(--t2);
+      border-radius: 7px;
+      padding: 5px 10px;
+      transition: all 0.12s;
+      max-width: 100%;
+    }
+    .artifact-link:hover {
+      border-color: var(--acc);
+      color: var(--t1);
+      background: var(--acc-d);
+    }
+    .artifact-copy {
+      border: 1px solid var(--edge);
+      background: transparent;
+      color: var(--t2);
+      border-radius: 7px;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .artifact-copy:hover {
+      border-color: var(--acc);
+      color: var(--t1);
+    }
     .action-btn {
       padding: 5px 12px;
       font-size: 12px;
@@ -482,7 +673,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       color: var(--t2);
       cursor: pointer;
       transition: all 0.12s;
-      white-space: nowrap;
+      white-space: normal;
+      text-align: left;
+      line-height: 1.25;
     }
     .action-btn:hover {
       background: var(--acc-d);
@@ -514,15 +707,19 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     /* ── INPUT AREA ────────────────────────────────────────────── */
     #input-area {
+      width: min(100%, 980px);
+      margin: 0 auto;
       display: flex;
       align-items: flex-end;
       gap: 8px;
       padding: 10px 16px 14px;
       border-top: 1px solid var(--edge);
       flex-shrink: 0;
+      min-width: 0;
     }
     #msg-input {
       flex: 1;
+      min-width: 0;
       resize: none;
       background: var(--bg3);
       border: 1px solid var(--edge);
@@ -555,6 +752,20 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
     #send-btn:disabled { opacity: 0.35; cursor: default; }
     #send-btn svg { width: 16px; height: 16px; }
+    @media (max-width: 900px) {
+      #header {
+        align-items: stretch;
+      }
+      #vacancy-select {
+        order: 10;
+        flex-basis: 100%;
+        max-width: none;
+        margin-left: 0;
+      }
+      #recruiter-email {
+        flex: 1 1 auto;
+      }
+    }
   </style>
 </head>
 <body>
@@ -565,7 +776,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     <select id="vacancy-select">
       <option value="">Загрузка вакансий…</option>
     </select>
-    <span id="recruiter-email" style="font-size:12px;color:var(--t3);margin-left:4px;">__RECRUITER_EMAIL__</span>
+    <span id="recruiter-email">__RECRUITER_EMAIL__</span>
     <a href="/logout" id="logout-btn">Выйти</a>
   </header>
 
@@ -604,12 +815,15 @@ const CHAT_HTML = `<!DOCTYPE html>
       decision:      'Проверяю условия',
       render:        'Генерирую ответ',
     };
+    const INITIAL_URL_STATE = readUrlState();
 
     // ── State ─────────────────────────────────────────────────────────────────
     let ws = null;
     let streaming = false;
     let selectedVacancyId = null;
-    let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
+    let currentArtifactId = INITIAL_URL_STATE.artifactId;
+    let currentSessionId = INITIAL_URL_STATE.sessionId;
+    let currentAssistant = null; // { stepsEl, contentEl, artifactEl, actionsEl, text }
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
     const chatLog        = document.getElementById('chat-log');
@@ -672,6 +886,18 @@ const CHAT_HTML = `<!DOCTYPE html>
           currentAssistant.bubbleEl.classList.remove('streaming');
 
           // Render action buttons
+          if (data.artifact) {
+            renderArtifactFooter(currentAssistant.artifactEl, data.artifact);
+            currentArtifactId = data.artifact.id || currentArtifactId;
+            currentSessionId = data.artifact.session_id || currentSessionId;
+            writeUrlState({
+              vacancyId: selectedVacancyId,
+              artifactId: currentArtifactId,
+              sessionId: currentSessionId,
+              push: true
+            });
+          }
+
           if (data.actions && data.actions.length > 0) {
             data.actions.forEach(({ label, message }) => {
               const btn = document.createElement('button');
@@ -738,14 +964,18 @@ const CHAT_HTML = `<!DOCTYPE html>
       const actionsEl = document.createElement('div');
       actionsEl.className = 'actions';
 
+      const artifactEl = document.createElement('div');
+      artifactEl.className = 'artifact-bar';
+
       bubble.appendChild(stepsEl);
       bubble.appendChild(contentEl);
+      bubble.appendChild(artifactEl);
       bubble.appendChild(actionsEl);
       row.appendChild(bubble);
       chatLog.appendChild(row);
       scrollBottom();
 
-      return { bubbleEl: bubble, stepsEl, contentEl, actionsEl, text: '' };
+      return { bubbleEl: bubble, stepsEl, contentEl, artifactEl, actionsEl, text: '' };
     }
 
     function addSystemMessage(markdown) {
@@ -761,6 +991,37 @@ const CHAT_HTML = `<!DOCTYPE html>
       chatLog.appendChild(row);
       scrollBottom();
       return bubble;
+    }
+
+    function renderArtifactFooter(container, artifact) {
+      if (!container || !artifact || !artifact.url) return;
+      container.innerHTML = '';
+
+      const link = document.createElement('a');
+      link.className = 'artifact-link';
+      link.href = artifact.url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      const shortId = String(artifact.id || '').slice(0, 8);
+      link.textContent = shortId ? ('Артефакт #' + shortId) : 'Открыть артефакт';
+      container.appendChild(link);
+
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'artifact-copy';
+      copyBtn.textContent = 'Копировать ссылку';
+      copyBtn.addEventListener('click', async () => {
+        try {
+          const absoluteUrl = new URL(artifact.url, location.origin).toString();
+          await navigator.clipboard.writeText(absoluteUrl);
+          copyBtn.textContent = 'Скопировано';
+          setTimeout(() => { copyBtn.textContent = 'Копировать ссылку'; }, 1400);
+        } catch {
+          copyBtn.textContent = 'Не скопировано';
+          setTimeout(() => { copyBtn.textContent = 'Копировать ссылку'; }, 1400);
+        }
+      });
+      container.appendChild(copyBtn);
     }
 
     function sendMessage(text) {
@@ -787,6 +1048,20 @@ const CHAT_HTML = `<!DOCTYPE html>
         if (res.status === 401) { window.location = '/login'; return; }
         const data = await res.json();
         const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+        let artifactPayload = null;
+        let requestedVacancyId = INITIAL_URL_STATE.vacancyId;
+
+        if (INITIAL_URL_STATE.artifactId) {
+          artifactPayload = await fetchArtifactPayload(INITIAL_URL_STATE.artifactId);
+          const artifactVacancyId = artifactPayload?.artifact?.vacancy_id || null;
+          if (!requestedVacancyId && artifactVacancyId) {
+            requestedVacancyId = artifactVacancyId;
+          }
+          if (!currentSessionId && artifactPayload?.artifact?.session_id) {
+            currentSessionId = artifactPayload.artifact.session_id;
+          }
+          currentArtifactId = INITIAL_URL_STATE.artifactId;
+        }
 
         if (jobs.length === 0) {
           // No vacancies: hide dropdown, update empty state to "create first"
@@ -812,6 +1087,21 @@ const CHAT_HTML = `<!DOCTYPE html>
           vacancySelect.appendChild(opt);
         });
 
+        if (requestedVacancyId) {
+          const requested = jobs.find((job) => job.job_id === requestedVacancyId);
+          if (requested) {
+            vacancySelect.value = requested.job_id;
+            onVacancySelected(requested.job_id, requested.title, {
+              preserveArtifact: true,
+              skipWelcome: Boolean(artifactPayload)
+            });
+            if (artifactPayload) {
+              hydrateChatFromArtifactPayload(artifactPayload);
+            }
+            return;
+          }
+        }
+
         // Auto-select if only one
         if (jobs.length === 1) {
           vacancySelect.value = jobs[0].job_id;
@@ -828,8 +1118,20 @@ const CHAT_HTML = `<!DOCTYPE html>
       onVacancySelected(val || null, title);
     });
 
-    function onVacancySelected(vacancyId, title) {
+    function onVacancySelected(vacancyId, title, options = {}) {
+      const preserveArtifact = Boolean(options.preserveArtifact);
+      const skipWelcome = Boolean(options.skipWelcome);
       selectedVacancyId = vacancyId;
+      if (!preserveArtifact) {
+        currentArtifactId = null;
+        currentSessionId = null;
+      }
+      writeUrlState({
+        vacancyId: selectedVacancyId,
+        artifactId: currentArtifactId,
+        sessionId: currentSessionId,
+        push: false
+      });
 
       // Clear chat
       chatLog.innerHTML = '';
@@ -841,7 +1143,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
 
       // Welcome message with playbook chips
-      showWelcome(vacancyId, title);
+      if (!skipWelcome) {
+        showWelcome(vacancyId, title);
+      }
       updateSendEnabled();
     }
 
@@ -905,9 +1209,126 @@ const CHAT_HTML = `<!DOCTYPE html>
       sendBtn.disabled = !ready;
     }
 
+    async function fetchArtifactPayload(artifactId) {
+      if (!artifactId) return null;
+      try {
+        const response = await fetch('/api/artifacts/' + encodeURIComponent(artifactId));
+        if (response.status === 401) {
+          window.location = '/login';
+          return null;
+        }
+        if (!response.ok) return null;
+        return await response.json();
+      } catch {
+        return null;
+      }
+    }
+
+    function hydrateChatFromArtifactPayload(payload) {
+      if (!payload || !payload.artifact) return;
+      const historyItems = Array.isArray(payload.history) && payload.history.length > 0
+        ? payload.history
+        : [payload.artifact];
+
+      chatLog.innerHTML = '';
+
+      historyItems.forEach((item) => {
+        if (item.request_message) {
+          addUserBubble(String(item.request_message));
+        }
+        const markdown = mapReplyToMarkdown(item.reply);
+        addAssistantHistoryBubble(markdown, {
+          id: item.artifact_id,
+          url: '/artifact/' + encodeURIComponent(item.artifact_id || '')
+        });
+      });
+
+      if (historyItems.length === 0) {
+        addSystemMessage('История артефакта пока пустая.');
+      }
+      scrollBottom();
+    }
+
+    function addAssistantHistoryBubble(markdown, artifact) {
+      const row = document.createElement('div');
+      row.className = 'msg-row assistant';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble assistant-bubble';
+
+      const contentEl = document.createElement('div');
+      contentEl.className = 'bubble-content';
+      renderMarkdown(contentEl, markdown || '...');
+
+      const artifactEl = document.createElement('div');
+      artifactEl.className = 'artifact-bar';
+      renderArtifactFooter(artifactEl, artifact);
+
+      bubble.appendChild(contentEl);
+      bubble.appendChild(artifactEl);
+      row.appendChild(bubble);
+      chatLog.appendChild(row);
+    }
+
+    function mapReplyToMarkdown(reply) {
+      if (!reply || typeof reply !== 'object') {
+        return String(reply ?? '...');
+      }
+      if (reply.kind === 'fallback_text') return reply.text || '...';
+      if (reply.kind === 'llm_output') return reply.content || '...';
+      if (reply.kind === 'display') return reply.content || '...';
+      if (reply.kind === 'user_input') return reply.message || '...';
+      if (reply.kind === 'playbook_locked') {
+        return '> ⚠️ **' + escapeText(reply.title || 'Плейбук недоступен') + '**\n\n' + String(reply.message || '');
+      }
+      if (reply.kind === 'render_funnel') {
+        const rows = (reply.rows || []).map((r) =>
+          '| ' + (r.step_name || '-') + ' | ' + (r.total || 0) + ' | ' + (r.completed || 0) + ' | ' + (r.in_progress || 0) + ' | ' + (r.stuck || 0) + ' | ' + (r.rejected || 0) + ' |'
+        ).join('\\n');
+        return [
+          '## ' + String(reply.title || 'Воронка кандидатов'),
+          '',
+          '| Этап | Всего | Завершили | В работе | Зависли | Отсечены |',
+          '|------|-------|-----------|----------|---------|----------|',
+          rows || '| — | 0 | 0 | 0 | 0 | 0 |'
+        ].join('\\n');
+      }
+      return '~~~json\\n' + JSON.stringify(reply, null, 2) + '\\n~~~';
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
     function scrollBottom() {
       chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function readUrlState() {
+      const params = new URLSearchParams(location.search);
+      const pathParts = location.pathname.split('/').filter(Boolean);
+      const pathArtifactId = pathParts[0] === 'chat' && pathParts[1] ? decodeURIComponent(pathParts[1]) : null;
+      return {
+        vacancyId: params.get('vacancy_id') || null,
+        artifactId: params.get('artifact_id') || pathArtifactId,
+        sessionId: params.get('session_id') || null
+      };
+    }
+
+    function writeUrlState({ vacancyId, artifactId, sessionId, push = false }) {
+      const params = new URLSearchParams(location.search);
+      if (vacancyId) params.set('vacancy_id', vacancyId); else params.delete('vacancy_id');
+      params.delete('artifact_id');
+      if (sessionId) params.set('session_id', sessionId); else params.delete('session_id');
+
+      const query = params.toString();
+      const path = artifactId
+        ? ('/chat/' + encodeURIComponent(artifactId))
+        : '/chat';
+      const nextUrl = query ? (path + '?' + query) : path;
+      const state = { vacancyId, artifactId, sessionId };
+      if (push) {
+        history.pushState(state, '', nextUrl);
+      } else {
+        history.replaceState(state, '', nextUrl);
+      }
     }
 
     function escapeHtml(s) {
@@ -934,6 +1355,454 @@ const CHAT_HTML = `<!DOCTYPE html>
     // Show empty state initially
     chatLog.innerHTML = '';
     chatLog.appendChild(emptyState);
+  </script>
+</body>
+</html>`;
+
+const ARTIFACT_HTML = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Artifact</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+  <style>
+    :root {
+      --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --bg: #080a0f;
+      --bg2: #0e1118;
+      --edge: #1e2535;
+      --t1: #e4e8f0;
+      --t2: #8892a4;
+      --acc: #4f8ff7;
+      --acc-d: rgba(79,143,247,0.12);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--t1);
+      padding: 24px 16px 40px;
+    }
+    .wrap {
+      width: min(100%, 980px);
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+    }
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--edge);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 8px 12px;
+      font-size: 13px;
+      color: var(--t2);
+    }
+    .meta-grid b { color: var(--t1); font-weight: 600; }
+    .history {
+      display: grid;
+      gap: 10px;
+    }
+    .history-item {
+      border: 1px solid var(--edge);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .history-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid var(--edge);
+      font-size: 12px;
+      color: var(--t2);
+    }
+    .history-body {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+    }
+    .input, .reply {
+      border: 1px solid var(--edge);
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 13px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+    .input {
+      background: rgba(79,143,247,0.08);
+      color: #d8e5ff;
+    }
+    .reply {
+      background: rgba(255,255,255,0.02);
+      color: var(--t1);
+    }
+    .muted {
+      color: var(--t2);
+      font-size: 13px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--edge);
+      color: var(--t2);
+      background: transparent;
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 13px;
+    }
+    .btn:hover {
+      color: var(--t1);
+      border-color: var(--acc);
+      background: var(--acc-d);
+    }
+    .comm-plan {
+      display: grid;
+      gap: 12px;
+    }
+    .comm-plan-card {
+      border: 1px solid var(--edge);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .comm-plan-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--t1);
+      margin: 0;
+      line-height: 1.35;
+    }
+    .comm-plan-note {
+      margin: 0;
+      padding: 8px 10px;
+      border: 1px solid rgba(79, 143, 247, 0.35);
+      background: rgba(79, 143, 247, 0.10);
+      border-radius: 8px;
+      color: #dbe8ff;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .comm-plan-subtitle {
+      margin: 0;
+      font-size: 12px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--t2);
+      font-weight: 600;
+    }
+    .comm-plan-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--edge);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.12);
+    }
+    .comm-plan-table {
+      width: 100%;
+      min-width: 560px;
+      border-collapse: collapse;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .comm-plan-table th,
+    .comm-plan-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--edge);
+      text-align: left;
+      vertical-align: top;
+    }
+    .comm-plan-table tr:last-child td {
+      border-bottom: none;
+    }
+    .comm-plan-table th {
+      background: rgba(255,255,255,0.03);
+      color: var(--t2);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .comm-plan-reminders {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 26px;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(79, 143, 247, 0.45);
+      background: rgba(79, 143, 247, 0.14);
+      color: #dbe8ff;
+      font-weight: 600;
+      font-size: 12px;
+      line-height: 1;
+    }
+    .comm-plan-goal {
+      margin: 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(126, 208, 162, 0.28);
+      background: rgba(126, 208, 162, 0.09);
+      color: #dff7eb;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .comm-plan-examples {
+      display: grid;
+      gap: 8px;
+    }
+    .comm-plan-example {
+      border: 1px solid var(--edge);
+      border-radius: 10px;
+      padding: 10px;
+      background: rgba(255,255,255,0.02);
+      display: grid;
+      gap: 6px;
+    }
+    .comm-plan-example-title {
+      margin: 0;
+      font-weight: 600;
+      color: var(--t1);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .comm-plan-example-text {
+      margin: 0;
+      color: var(--t2);
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .comm-plan-hint {
+      margin: 0;
+      color: var(--t2);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1 style="font-size:20px; margin-bottom: 10px;">Артефакт чата</h1>
+      <div class="muted" id="artifactStatus">Загрузка…</div>
+      <div style="display:flex; gap:8px; margin-top: 10px;">
+        <a class="btn" href="/chat" target="_self">Назад в чат</a>
+        <button class="btn" id="copyLinkBtn" type="button">Копировать ссылку</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="meta-grid" id="metaGrid"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:16px; margin-bottom: 10px;">История</h2>
+      <div id="history" class="history"></div>
+    </div>
+  </div>
+
+  <script>
+    const ARTIFACT_ID = '__ARTIFACT_ID__';
+    const statusEl = document.getElementById('artifactStatus');
+    const metaGrid = document.getElementById('metaGrid');
+    const historyEl = document.getElementById('history');
+    const copyLinkBtn = document.getElementById('copyLinkBtn');
+
+    copyLinkBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(location.href);
+        copyLinkBtn.textContent = 'Скопировано';
+      } catch {
+        copyLinkBtn.textContent = 'Не скопировано';
+      }
+      setTimeout(() => { copyLinkBtn.textContent = 'Копировать ссылку'; }, 1400);
+    });
+
+    function addMeta(label, value) {
+      const key = document.createElement('b');
+      key.textContent = label;
+      const val = document.createElement('span');
+      val.textContent = value == null ? '—' : String(value);
+      metaGrid.appendChild(key);
+      metaGrid.appendChild(val);
+    }
+
+    function replyToMarkdown(reply) {
+      if (!reply || typeof reply !== 'object') return String(reply ?? '');
+      if (reply.kind === 'fallback_text') return reply.text ?? '';
+      if (reply.kind === 'llm_output') return reply.content ?? '';
+      if (reply.kind === 'communication_plan') return communicationPlanToMarkdown(reply);
+      if (reply.kind === 'display') return reply.content ?? '';
+      if (reply.kind === 'user_input') return reply.message ?? '';
+      if (reply.kind === 'playbook_locked') return '> ⚠️ ' + (reply.message ?? '');
+      if (reply.kind === 'completed') return reply.message ?? 'Playbook completed.';
+      return '~~~json\\n' + JSON.stringify(reply, null, 2) + '\\n~~~';
+    }
+
+    function communicationPlanToMarkdown(reply) {
+      const rows = Array.isArray(reply.steps) ? reply.steps : [];
+      const examples = Array.isArray(reply.examples) ? reply.examples : [];
+
+      const escape = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+      const tableRows = rows.length > 0
+        ? rows.map((row) => {
+          const step = escape(String(row.step ?? '').trim() || '—');
+          const reminders = Number.isFinite(Number(row.reminders_count)) ? Number(row.reminders_count) : 0;
+          const comment = escape(String(row.comment ?? '').trim() || '—');
+          return (
+            '<tr>' +
+              '<td>' + step + '</td>' +
+              '<td><span class="comm-plan-reminders">' + reminders + '</span></td>' +
+              '<td>' + comment + '</td>' +
+            '</tr>'
+          );
+        }).join('')
+        : (
+          '<tr><td>—</td><td><span class="comm-plan-reminders">0</span></td><td>—</td></tr>'
+        );
+
+      const examplesHtml = examples.length > 0
+        ? (
+          '<div class="comm-plan-examples">' +
+          examples.map((item, index) => (
+            '<article class="comm-plan-example">' +
+              '<h4 class="comm-plan-example-title">' + escape(item.title || ('Вариант ' + (index + 1))) + '</h4>' +
+              '<p class="comm-plan-example-text">' + escape(item.message || '') + '</p>' +
+            '</article>'
+          )).join('') +
+          '</div>'
+        )
+        : '<p class="comm-plan-hint">Чтобы увидеть примеры первого сообщения, нажмите кнопку «Сгенерировать примеры общения по этому сценарию коммуникаций».</p>';
+
+      const noteHtml = reply.note
+        ? '<p class="comm-plan-note">' + escape(reply.note) + '</p>'
+        : '';
+
+      return (
+        '<section class="comm-plan">' +
+          '<article class="comm-plan-card">' +
+            '<h3 class="comm-plan-title">План коммуникации</h3>' +
+            noteHtml +
+            '<p><strong>Сценарий:</strong> ' + escape(reply.scenario_title || 'Рабочий сценарий') + '</p>' +
+            '<div class="comm-plan-table-wrap">' +
+              '<table class="comm-plan-table">' +
+                '<thead><tr><th>Шаг</th><th>Кол-во напоминалок</th><th>Комментарий</th></tr></thead>' +
+                '<tbody>' + tableRows + '</tbody>' +
+              '</table>' +
+            '</div>' +
+            '<p class="comm-plan-goal"><strong>Целевое действие:</strong> ' + escape(reply.goal || 'Договоренность о следующем шаге') + '</p>' +
+          '</article>' +
+          '<article class="comm-plan-card">' +
+            '<p class="comm-plan-subtitle">Примеры первого сообщения</p>' +
+            examplesHtml +
+          '</article>' +
+        '</section>'
+      );
+    }
+
+    function renderMarkdown(container, text) {
+      const html = DOMPurify.sanitize(marked.parse(text || ''));
+      container.innerHTML = html;
+    }
+
+    function renderHistory(items) {
+      historyEl.innerHTML = '';
+      if (!Array.isArray(items) || items.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'muted';
+        empty.textContent = 'История для этого артефакта пока отсутствует.';
+        historyEl.appendChild(empty);
+        return;
+      }
+
+      items.forEach((item) => {
+        const box = document.createElement('div');
+        box.className = 'history-item';
+
+        const head = document.createElement('div');
+        head.className = 'history-head';
+        const left = document.createElement('span');
+        left.textContent = '#' + String(item.artifact_id || '').slice(0, 8);
+        const right = document.createElement('span');
+        right.textContent = item.created_at ? new Date(item.created_at).toLocaleString() : '';
+        head.appendChild(left);
+        head.appendChild(right);
+
+        const body = document.createElement('div');
+        body.className = 'history-body';
+
+        if (item.request_message) {
+          const input = document.createElement('div');
+          input.className = 'input';
+          input.textContent = item.request_message;
+          body.appendChild(input);
+        }
+
+        const reply = document.createElement('div');
+        reply.className = 'reply';
+        renderMarkdown(reply, replyToMarkdown(item.reply));
+        body.appendChild(reply);
+
+        box.appendChild(head);
+        box.appendChild(body);
+        historyEl.appendChild(box);
+      });
+    }
+
+    async function loadArtifact() {
+      try {
+        const res = await fetch('/api/artifacts/' + encodeURIComponent(ARTIFACT_ID));
+        if (res.status === 401) {
+          location.href = '/login';
+          return;
+        }
+        if (!res.ok) {
+          statusEl.textContent = 'Артефакт не найден или недоступен.';
+          return;
+        }
+
+        const data = await res.json();
+        const artifact = data.artifact || {};
+        statusEl.textContent = 'Артефакт загружен';
+
+        addMeta('artifact_id', artifact.artifact_id);
+        addMeta('created_at', artifact.created_at ? new Date(artifact.created_at).toISOString() : null);
+        addMeta('session_id', artifact.session_id);
+        addMeta('vacancy_id', artifact.vacancy_id);
+        addMeta('source', artifact.source);
+        addMeta('recruiter_id', artifact.recruiter_id);
+
+        renderHistory(data.history || []);
+      } catch {
+        statusEl.textContent = 'Ошибка загрузки артефакта.';
+      }
+    }
+
+    marked.use({ breaks: true, gfm: true });
+    loadArtifact();
   </script>
 </body>
 </html>`;
@@ -991,6 +1860,13 @@ function replyToMarkdown(reply) {
     };
   }
 
+  if (reply.kind === "communication_plan") {
+    return {
+      markdown: formatCommunicationPlanMarkdown(reply),
+      actions: Array.isArray(reply.actions) ? reply.actions : []
+    };
+  }
+
   // Unknown — dump as code block
   return {
     markdown: "```json\n" + JSON.stringify(reply, null, 2) + "\n```",
@@ -998,7 +1874,66 @@ function replyToMarkdown(reply) {
   };
 }
 
-async function handleChatWs(ws, msg, wsContext, app) {
+function formatCommunicationPlanMarkdown(reply) {
+  const steps = Array.isArray(reply.steps) ? reply.steps : [];
+  const examples = Array.isArray(reply.examples) ? reply.examples : [];
+
+  const tableRows = steps.length > 0
+    ? steps.map((row) => {
+      const step = escapeHtml(row.step ?? "—");
+      const remindersRaw = Number(row.reminders_count);
+      const reminders = Number.isFinite(remindersRaw) ? remindersRaw : 0;
+      const comment = escapeHtml(row.comment ?? "—");
+      return (
+        "<tr>" +
+          `<td>${step}</td>` +
+          `<td><span class="comm-plan-reminders">${reminders}</span></td>` +
+          `<td>${comment}</td>` +
+        "</tr>"
+      );
+    }).join("")
+    : "<tr><td>—</td><td><span class=\"comm-plan-reminders\">0</span></td><td>—</td></tr>";
+
+  const noteHtml = reply.note
+    ? `<p class="comm-plan-note">${escapeHtml(reply.note)}</p>`
+    : "";
+
+  const examplesHtml = examples.length > 0
+    ? (
+      "<div class=\"comm-plan-examples\">" +
+      examples.map((item, index) => (
+        "<article class=\"comm-plan-example\">" +
+          `<h4 class="comm-plan-example-title">${escapeHtml(item.title ?? `Вариант ${index + 1}`)}</h4>` +
+          `<p class="comm-plan-example-text">${escapeHtml(item.message ?? "")}</p>` +
+        "</article>"
+      )).join("") +
+      "</div>"
+    )
+    : "<p class=\"comm-plan-hint\">Чтобы увидеть примеры первого сообщения, нажмите кнопку «Сгенерировать примеры общения по этому сценарию коммуникаций».</p>";
+
+  return (
+    "<section class=\"comm-plan\">" +
+      "<article class=\"comm-plan-card\">" +
+        "<h3 class=\"comm-plan-title\">План коммуникации</h3>" +
+        noteHtml +
+        `<p><strong>Сценарий:</strong> ${escapeHtml(reply.scenario_title ?? "Рабочий сценарий")}</p>` +
+        "<div class=\"comm-plan-table-wrap\">" +
+          "<table class=\"comm-plan-table\">" +
+            "<thead><tr><th>Шаг</th><th>Кол-во напоминалок</th><th>Комментарий</th></tr></thead>" +
+            `<tbody>${tableRows}</tbody>` +
+          "</table>" +
+        "</div>" +
+        `<p class="comm-plan-goal"><strong>Целевое действие:</strong> ${escapeHtml(reply.goal ?? "Договоренность о следующем шаге")}</p>` +
+      "</article>" +
+      "<article class=\"comm-plan-card\">" +
+        "<p class=\"comm-plan-subtitle\">Примеры первого сообщения</p>" +
+        examplesHtml +
+      "</article>" +
+    "</section>"
+  );
+}
+
+async function handleChatWs(ws, msg, wsContext, app, artifactStore) {
   const send = (obj) => {
     if (ws.readyState === 1) ws.send(JSON.stringify(obj));
   };
@@ -1021,10 +1956,20 @@ async function handleChatWs(ws, msg, wsContext, app) {
     const reply = result.body?.reply ?? result.body;
     console.log("[ws] reply kind:", reply?.kind ?? "unknown", "status:", result.status);
 
+    const artifact = await artifactStore.create({
+      source: "ws",
+      tenantId: wsContext.tenantId,
+      recruiterId: wsContext.recruiterId,
+      sessionId: result.body?.session_id ?? null,
+      vacancyId: result.body?.vacancy_id ?? vacancyId ?? null,
+      requestMessage: text,
+      reply
+    });
+
     send({ type: "progress", tool: "render", label: "Генерирую ответ" });
     const { markdown, actions } = replyToMarkdown(reply);
     send({ type: "chunk", text: markdown });
-    send({ type: "done", actions });
+    send({ type: "done", actions, artifact });
 
   } catch (err) {
     console.error("[ws] error:", err?.message);
@@ -1037,6 +1982,7 @@ export function createHiringAgentServer(app, options = {}) {
   const managementStore = options.managementStore ?? null;
   const poolRegistry = options.poolRegistry ?? null;
   const appEnv = options.appEnv ?? "local";
+  const artifactStore = createChatArtifactStore({ managementSql });
 
   const server = createServer(async (request, response) => {
     try {
@@ -1097,7 +2043,7 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
 
-      if (request.method === "GET" && requestUrl.pathname === "/") {
+      if (request.method === "GET" && (requestUrl.pathname === "/" || isChatShellPath(requestUrl.pathname))) {
         const accessContext = await requireAccessContext(request, response, {
           managementStore,
           poolRegistry,
@@ -1119,6 +2065,26 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
 
+      if (request.method === "GET" && requestUrl.pathname.startsWith("/artifact/")) {
+        const accessContext = await requireAccessContext(request, response, {
+          managementStore,
+          poolRegistry,
+          appEnv,
+          unauthorizedStatus: 302
+        });
+        if (!accessContext) return;
+
+        const artifactId = requestUrl.pathname.slice("/artifact/".length);
+        if (!artifactId) {
+          writeJson(response, 404, { error: "artifact_not_found" });
+          return;
+        }
+
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(ARTIFACT_HTML.replace("__ARTIFACT_ID__", escapeHtml(artifactId)));
+        return;
+      }
+
       if (request.method === "GET" && requestUrl.pathname === "/api/jobs") {
         const accessContext = await requireAccessContext(request, response, {
           managementStore,
@@ -1132,6 +2098,35 @@ export function createHiringAgentServer(app, options = {}) {
           tenantId: accessContext.tenantId
         });
         writeJson(response, result.status, result.body);
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname.startsWith("/api/artifacts/")) {
+        const accessContext = await requireAccessContext(request, response, {
+          managementStore,
+          poolRegistry,
+          appEnv
+        });
+        if (!accessContext) return;
+
+        const artifactId = requestUrl.pathname.slice("/api/artifacts/".length);
+        if (!artifactId) {
+          writeJson(response, 404, { error: "artifact_not_found" });
+          return;
+        }
+
+        const payload = await artifactStore.getById({
+          artifactId,
+          tenantId: accessContext.tenantId,
+          recruiterId: accessContext.recruiterId
+        });
+
+        if (!payload) {
+          writeJson(response, 404, { error: "artifact_not_found" });
+          return;
+        }
+
+        writeJson(response, 200, payload);
         return;
       }
 
@@ -1155,6 +2150,22 @@ export function createHiringAgentServer(app, options = {}) {
           job_id: body.job_id,
           vacancy_id: body.vacancy_id
         });
+
+        if (result.body?.reply) {
+          const artifact = await artifactStore.create({
+            source: "api",
+            tenantId: accessContext.tenantId,
+            recruiterId: accessContext.recruiterId,
+            sessionId: result.body?.session_id ?? null,
+            vacancyId: result.body?.vacancy_id ?? body.vacancy_id ?? body.job_id ?? null,
+            requestMessage: body.message ?? null,
+            reply: result.body.reply
+          });
+          if (artifact) {
+            result.body.artifact = artifact;
+          }
+        }
+
         writeJson(response, result.status, result.body);
         return;
       }
@@ -1238,17 +2249,242 @@ export function createHiringAgentServer(app, options = {}) {
     ws.on("close", () => clearInterval(heartbeat));
     ws.on("error", () => clearInterval(heartbeat));
 
-    ws.on("message", async (raw) => {
-      let msg;
-      try { msg = JSON.parse(raw.toString()); } catch { return; }
-      if (msg.type === "message") {
-        await handleChatWs(ws, msg, wsContext, app);
-      }
+      ws.on("message", async (raw) => {
+        let msg;
+        try { msg = JSON.parse(raw.toString()); } catch { return; }
+        if (msg.type === "message") {
+          await handleChatWs(ws, msg, wsContext, app, artifactStore);
+        }
+      });
     });
-  });
   // ─────────────────────────────────────────────────────────────────────────────
 
   return server;
+}
+
+function createChatArtifactStore({ managementSql }) {
+  const memoryArtifacts = new Map();
+  const memoryByTenant = new Map();
+
+  return {
+    async create({
+      source = "api",
+      tenantId,
+      recruiterId = null,
+      sessionId = null,
+      vacancyId = null,
+      requestMessage = null,
+      reply = null
+    }) {
+      if (!tenantId || !reply) return null;
+
+      const safeReply = toJsonSafe(reply);
+      const safeMessage = requestMessage == null ? null : String(requestMessage);
+
+      if (managementSql) {
+        try {
+          const rows = await managementSql`
+            INSERT INTO management.chat_artifacts (
+              tenant_id,
+              recruiter_id,
+              session_id,
+              vacancy_id,
+              source,
+              request_message,
+              reply
+            )
+            VALUES (
+              ${tenantId},
+              ${recruiterId},
+              ${sessionId},
+              ${vacancyId},
+              ${source},
+              ${safeMessage},
+              ${JSON.stringify(safeReply)}::jsonb
+            )
+            RETURNING artifact_id::text AS artifact_id, created_at, session_id::text AS session_id, vacancy_id
+          `;
+
+          return toArtifactLink(rows[0]);
+        } catch (error) {
+          console.error("[artifact] db insert failed:", error?.message);
+        }
+      }
+
+      const artifactId = randomUUID();
+      const createdAt = new Date().toISOString();
+      const row = {
+        artifact_id: artifactId,
+        tenant_id: tenantId,
+        recruiter_id: recruiterId,
+        session_id: sessionId,
+        vacancy_id: vacancyId,
+        source,
+        request_message: safeMessage,
+        reply: safeReply,
+        created_at: createdAt
+      };
+      memoryArtifacts.set(artifactId, row);
+
+      const ids = memoryByTenant.get(tenantId) ?? [];
+      ids.push(artifactId);
+      memoryByTenant.set(tenantId, ids);
+
+      return toArtifactLink(row);
+    },
+
+    async getById({ artifactId, tenantId }) {
+      if (!artifactId || !tenantId) return null;
+
+      if (managementSql) {
+        try {
+          const rows = await managementSql`
+            SELECT
+              artifact_id::text AS artifact_id,
+              tenant_id,
+              recruiter_id,
+              session_id::text AS session_id,
+              vacancy_id,
+              source,
+              request_message,
+              reply,
+              created_at
+            FROM management.chat_artifacts
+            WHERE artifact_id::text = ${artifactId}
+              AND tenant_id = ${tenantId}
+            LIMIT 1
+          `;
+          const artifact = rows[0] ?? null;
+          if (!artifact) return null;
+
+          const historyRows = await fetchArtifactHistory({
+            managementSql,
+            tenantId,
+            artifact
+          });
+
+          return {
+            artifact,
+            history: historyRows
+          };
+        } catch (error) {
+          console.error("[artifact] db read failed:", error?.message);
+        }
+      }
+
+      const artifact = memoryArtifacts.get(artifactId);
+      if (!artifact || artifact.tenant_id !== tenantId) return null;
+      const history = fetchMemoryHistory({
+        tenantId,
+        artifact,
+        memoryArtifacts,
+        memoryByTenant
+      });
+      return { artifact, history };
+    }
+  };
+}
+
+async function fetchArtifactHistory({ managementSql, tenantId, artifact }) {
+  if (artifact.session_id) {
+    const rows = await managementSql`
+      SELECT
+        artifact_id::text AS artifact_id,
+        tenant_id,
+        recruiter_id,
+        session_id::text AS session_id,
+        vacancy_id,
+        source,
+        request_message,
+        reply,
+        created_at
+      FROM management.chat_artifacts
+      WHERE tenant_id = ${tenantId}
+        AND session_id = ${artifact.session_id}
+      ORDER BY created_at ASC
+      LIMIT 120
+    `;
+    return rows;
+  }
+
+  if (artifact.vacancy_id) {
+    const rows = await managementSql`
+      SELECT
+        artifact_id::text AS artifact_id,
+        tenant_id,
+        recruiter_id,
+        session_id::text AS session_id,
+        vacancy_id,
+        source,
+        request_message,
+        reply,
+        created_at
+      FROM management.chat_artifacts
+      WHERE tenant_id = ${tenantId}
+        AND vacancy_id = ${artifact.vacancy_id}
+      ORDER BY created_at ASC
+      LIMIT 120
+    `;
+    return rows;
+  }
+
+  const rows = await managementSql`
+    SELECT
+      artifact_id::text AS artifact_id,
+      tenant_id,
+      recruiter_id,
+      session_id::text AS session_id,
+      vacancy_id,
+      source,
+      request_message,
+      reply,
+      created_at
+    FROM management.chat_artifacts
+    WHERE tenant_id = ${tenantId}
+      AND recruiter_id IS NOT DISTINCT FROM ${artifact.recruiter_id}
+    ORDER BY created_at ASC
+    LIMIT 120
+  `;
+  return rows;
+}
+
+function fetchMemoryHistory({ tenantId, artifact, memoryArtifacts, memoryByTenant }) {
+  const ids = memoryByTenant.get(tenantId) ?? [];
+  const rows = ids
+    .map((id) => memoryArtifacts.get(id))
+    .filter(Boolean);
+
+  if (artifact.session_id) {
+    return rows.filter((row) => row.session_id === artifact.session_id).slice(-120);
+  }
+
+  if (artifact.vacancy_id) {
+    return rows.filter((row) => row.vacancy_id === artifact.vacancy_id).slice(-120);
+  }
+
+  return rows
+    .filter((row) => row.recruiter_id === artifact.recruiter_id)
+    .slice(-120);
+}
+
+function toArtifactLink(row) {
+  if (!row?.artifact_id) return null;
+  return {
+    id: row.artifact_id,
+    url: `/artifact/${row.artifact_id}`,
+    api_url: `/api/artifacts/${row.artifact_id}`,
+    created_at: row.created_at ?? null,
+    session_id: row.session_id ?? null,
+    vacancy_id: row.vacancy_id ?? null
+  };
+}
+
+function toJsonSafe(value) {
+  try {
+    return JSON.parse(JSON.stringify(value ?? null));
+  } catch {
+    return { kind: "fallback_text", text: String(value ?? "") };
+  }
 }
 
 async function requireAccessContext(request, response, options = {}) {
@@ -1324,6 +2560,11 @@ async function readJsonBody(request) {
 function writeJson(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
+}
+
+function isChatShellPath(pathname) {
+  if (pathname === "/chat") return true;
+  return /^\/chat\/[^/]+$/.test(pathname);
 }
 
 function escapeHtml(value) {

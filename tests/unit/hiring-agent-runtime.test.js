@@ -6,7 +6,9 @@ test("hiring-agent runtime: APP_MODE=demo allows startup without management db",
   const runtime = resolveHiringAgentRuntime({
     APP_MODE: "demo",
     PORT: "4100",
-    APP_ENV: "local"
+    APP_ENV: "local",
+    OPENROUTER_SETUP_COMMUNICATION_PLAN_MODEL: "openai/gpt-5.4-mini",
+    OPENROUTER_SETUP_COMMUNICATION_EXAMPLES_MODEL: "google/gemini-2.5-flash"
   });
 
   assert.equal(runtime.demoMode, true);
@@ -16,6 +18,8 @@ test("hiring-agent runtime: APP_MODE=demo allows startup without management db",
   assert.match(runtime.startedAt, /T/);
   assert.equal(runtime.startupMode, "demo");
   assert.equal(runtime.managementSql, null);
+  assert.equal(runtime.communicationPlanLlmConfig.planModel, "openai/gpt-5.4-mini");
+  assert.equal(runtime.communicationPlanLlmConfig.examplesModel, "google/gemini-2.5-flash");
 });
 
 test("hiring-agent runtime: non-demo mode requires MANAGEMENT_DATABASE_URL", () => {
@@ -50,4 +54,6 @@ test("hiring-agent runtime: management mode uses MANAGEMENT_DATABASE_URL", () =>
   assert.equal(runtime.startupMode, "management-auth");
   assert.equal(typeof runtime.managementSql, "function");
   assert.ok(runtime.managementStore);
+  assert.equal(runtime.communicationPlanLlmConfig.planModel, "openai/gpt-5.4-mini");
+  assert.equal(runtime.communicationPlanLlmConfig.examplesModel, "google/gemini-2.5-flash");
 });
