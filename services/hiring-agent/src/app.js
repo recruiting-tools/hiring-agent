@@ -142,7 +142,7 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      if (!requestManagementSql && playbook.playbook_key === "setup_communication") {
+      if (playbook.playbook_key === "setup_communication") {
         if (tenantSql && tenantId && effectiveVacancyId) {
           const tenantJob = await withTenantDbTimeout(
             () => getTenantJobById(tenantSql, tenantId, effectiveVacancyId),

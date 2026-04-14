@@ -970,6 +970,23 @@ test("hiring-agent: management-backed chat accepts owned job_id and returns funn
 
 test("hiring-agent: management-backed setup_communication returns structured communication_plan reply", async () => {
   const llmCalls = [];
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.playbook_definitions d") && text.includes("d.trigger_description")) {
+      return [{
+        playbook_key: "setup_communication",
+        name: "Настроить общение с кандидатами",
+        trigger_description: "communication",
+        status: "available",
+        sort_order: 1,
+        step_count: 1
+      }];
+    }
+
+    throw new Error(`Unexpected management query: ${text}`);
+  };
+
   const tenantSql = async (strings, ...values) => {
     const text = strings.reduce((result, chunk, index) => (
       result + chunk + (index < values.length ? `$${index + 1}` : "")
@@ -1014,6 +1031,7 @@ test("hiring-agent: management-backed setup_communication returns structured com
 
   const app = createHiringAgentApp({
     demoMode: false,
+    managementSql,
     llmAdapter: {
       async generate(prompt) {
         llmCalls.push(prompt);
@@ -1033,6 +1051,7 @@ test("hiring-agent: management-backed setup_communication returns structured com
   });
   const server = createHiringAgentServer(app, {
     appEnv: "prod",
+    managementSql,
     managementStore: {
       async getRecruiterSession() {
         return {
@@ -1071,6 +1090,8 @@ test("hiring-agent: management-backed setup_communication returns structured com
   try {
     const { status, body } = await req(server, "POST", "/api/chat", {
       message: "настроить общение с кандидатами",
+      action: "start_playbook",
+      playbook_key: "setup_communication",
       job_id: "job-owned",
       vacancy_id: "job-owned"
     }, "session=sess-alpha");
