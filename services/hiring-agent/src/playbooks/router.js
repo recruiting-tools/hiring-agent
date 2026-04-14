@@ -91,21 +91,36 @@ let cachePromise = null;
 
 export async function routePlaybook(message, managementSql = null) {
   const normalized = String(message ?? "").trim().toLowerCase();
-  const routes = managementSql ? await getDbRoutes(managementSql) : FALLBACK_ROUTES;
-
-  return matchRoute(normalized, routes);
-}
-
-async function getDbRoutes(managementSql) {
-  if (cachedDefinitions && (Date.now() - cachedAt) < CACHE_TTL_MS) {
-    return cachedDefinitions.map((row) => ({
-      playbook_key: row.playbook_key,
-      keywords: row.keywords ?? []
-    }));
+  if (!managementSql) {
+    return matchRoute(normalized, FALLBACK_ROUTES);
   }
 
-  if (!cachePromise) {
-    cachePromise = managementSql`
+  const { routes, fromCache } = await getDbRoutes(managementSql);
+  const matched = matchRoute(normalized, routes);
+  if (matched) return matched;
+
+  if (!fromCache) return null;
+
+  // Cache might be stale after playbook keyword updates; retry once with fresh DB routes.
+  const { routes: freshRoutes } = await getDbRoutes(managementSql, { forceRefresh: true });
+  return matchRoute(normalized, freshRoutes);
+}
+
+async function getDbRoutes(managementSql, options = {}) {
+  const forceRefresh = options.forceRefresh === true;
+
+  if (!forceRefresh && cachedDefinitions && (Date.now() - cachedAt) < CACHE_TTL_MS) {
+    return {
+      fromCache: true,
+      routes: cachedDefinitions.map((row) => ({
+        playbook_key: row.playbook_key,
+        keywords: row.keywords ?? []
+      }))
+    };
+  }
+
+  if (!cachePromise || forceRefresh) {
+    const queryPromise = managementSql`
       SELECT
         d.playbook_key,
         d.keywords,
@@ -117,21 +132,38 @@ async function getDbRoutes(managementSql) {
       GROUP BY d.playbook_key, d.keywords, d.sort_order
       ORDER BY d.sort_order ASC, d.playbook_key ASC
     `.then((rows) => {
-      cachedDefinitions = rows.filter((row) => (
+      const filtered = rows.filter((row) => (
         ALWAYS_RUNNABLE_PLAYBOOKS.has(row.playbook_key) || Number(row.step_count ?? 0) > 0
       ));
+      cachedDefinitions = filtered;
       cachedAt = Date.now();
-      return cachedDefinitions;
-    }).finally(() => {
-      cachePromise = null;
+      return filtered;
     });
+
+    if (!forceRefresh) {
+      cachePromise = queryPromise.finally(() => {
+        cachePromise = null;
+      });
+    }
+
+    const rows = forceRefresh ? await queryPromise : await cachePromise;
+    return {
+      fromCache: false,
+      routes: rows.map((row) => ({
+        playbook_key: row.playbook_key,
+        keywords: row.keywords ?? []
+      }))
+    };
   }
 
   const rows = await cachePromise;
-  return rows.map((row) => ({
-    playbook_key: row.playbook_key,
-    keywords: row.keywords ?? []
-  }));
+  return {
+    fromCache: false,
+    routes: rows.map((row) => ({
+      playbook_key: row.playbook_key,
+      keywords: row.keywords ?? []
+    }))
+  };
 }
 
 function matchRoute(normalizedMessage, routes) {
