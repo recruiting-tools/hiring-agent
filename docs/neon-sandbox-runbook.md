@@ -7,6 +7,10 @@
 
 Этот runbook фиксирует рабочую схему Neon branches для `hiring-agent`: production parent branch, постоянная `sandbox` branch и временные `pr-<N>` branches для preview и risky migrations.
 
+Для `hiring-agent` как UI/control-plane сервиса см. также:
+
+- [docs/hiring-agent-sandbox-topology.md](/Users/vova/Documents/GitHub/hiring-agent/docs/hiring-agent-sandbox-topology.md)
+
 ## Neon Project Topology
 
 | Project name | Project ID | Branch name | Branch ID | Endpoint hostname |
