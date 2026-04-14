@@ -72,6 +72,18 @@ export function createHiringAgentApp(options = {}) {
       }
 
       if (playbook.playbook_key === "candidate_funnel") {
+        if (tenantSql && !jobId) {
+          return {
+            status: 200,
+            body: {
+              reply: {
+                kind: "fallback_text",
+                text: "Выберите вакансию в верхней части экрана, чтобы посмотреть воронку."
+              }
+            }
+          };
+        }
+
         if (tenantSql && tenantId && jobId) {
           const tenantJob = await withTenantDbTimeout(
             () => getTenantJobById(tenantSql, tenantId, jobId),
