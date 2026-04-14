@@ -73,18 +73,27 @@ try {
 
 async function cmdListAll() {
   const { rows } = await db.query(`
-    SELECT playbook_key, name, status, sort_order
-    FROM management.playbook_definitions
-    ORDER BY sort_order, playbook_key
+    SELECT
+      d.playbook_key,
+      d.name,
+      d.status,
+      d.sort_order,
+      COUNT(s.step_key)::int AS step_count
+    FROM management.playbook_definitions d
+    LEFT JOIN management.playbook_steps s
+      ON s.playbook_key = d.playbook_key
+    GROUP BY d.playbook_key, d.name, d.status, d.sort_order
+    ORDER BY d.sort_order, d.playbook_key
   `);
   if (rows.length === 0) {
     console.log("No playbooks found. Run: pnpm seed:playbooks");
     return;
   }
-  console.log(`\n${"KEY".padEnd(30)} ${"NAME".padEnd(40)} STATUS`);
-  console.log("-".repeat(80));
+  console.log(`\n${"KEY".padEnd(30)} ${"NAME".padEnd(40)} ${"STATUS".padEnd(12)} ${"STEPS".padEnd(5)} RUNNABLE`);
+  console.log("-".repeat(100));
   for (const r of rows) {
-    console.log(`${r.playbook_key.padEnd(30)} ${r.name.padEnd(40)} ${r.status}`);
+    const runnable = r.step_count > 0 ? "yes" : "no";
+    console.log(`${r.playbook_key.padEnd(30)} ${r.name.padEnd(40)} ${r.status.padEnd(12)} ${String(r.step_count).padEnd(5)} ${runnable}`);
   }
   console.log(`\nTotal: ${rows.length} playbooks`);
 }
@@ -97,23 +106,28 @@ async function cmdListForTenant(tenantRef) {
        d.playbook_key,
        d.name,
        d.status,
+       COUNT(s.step_key)::int AS step_count,
        COALESCE(a.enabled, false) AS enabled,
        a.enabled_at,
        a.enabled_by
      FROM management.playbook_definitions d
+     LEFT JOIN management.playbook_steps s
+       ON s.playbook_key = d.playbook_key
      LEFT JOIN management.tenant_playbook_access a
        ON a.tenant_id = $1 AND a.playbook_key = d.playbook_key
+     GROUP BY d.playbook_key, d.name, d.status, d.sort_order, a.enabled, a.enabled_at, a.enabled_by
      ORDER BY d.sort_order, d.playbook_key`,
     [tenant.tenant_id]
   );
 
   console.log(`\nPlaybooks for tenant: ${tenant.display_name} (${tenant.tenant_id})\n`);
-  console.log(`${"KEY".padEnd(30)} ${"NAME".padEnd(35)} ENABLED  ENABLED_AT`);
-  console.log("-".repeat(90));
+  console.log(`${"KEY".padEnd(30)} ${"NAME".padEnd(35)} ${"ENABLED".padEnd(8)} ${"STEPS".padEnd(5)} RUNNABLE  ENABLED_AT`);
+  console.log("-".repeat(110));
   for (const r of rows) {
     const flag = r.enabled ? "YES    " : "no     ";
     const when = r.enabled_at ? new Date(r.enabled_at).toISOString().slice(0, 10) : "";
-    console.log(`${r.playbook_key.padEnd(30)} ${r.name.padEnd(35)} ${flag}  ${when}`);
+    const runnable = r.step_count > 0 ? "yes" : "no";
+    console.log(`${r.playbook_key.padEnd(30)} ${r.name.padEnd(35)} ${flag} ${String(r.step_count).padEnd(5)} ${runnable.padEnd(8)} ${when}`);
   }
   const enabledCount = rows.filter((r) => r.enabled).length;
   console.log(`\n${enabledCount}/${rows.length} playbooks enabled`);

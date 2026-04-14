@@ -116,6 +116,64 @@ test("hiring-agent: POST /api/chat returns fallback_text for setup_communication
   }
 });
 
+test("hiring-agent: management-backed routing ignores available playbooks with zero steps", async () => {
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.playbook_definitions d") && text.includes("d.keywords")) {
+      return [
+        {
+          playbook_key: "candidate_broadcast",
+          keywords: ["рассылка"],
+          step_count: 0
+        },
+        {
+          playbook_key: "setup_communication",
+          keywords: ["общение"],
+          step_count: 6
+        }
+      ];
+    }
+
+    if (text.includes("FROM management.playbook_definitions d") && text.includes("d.trigger_description")) {
+      return [
+        {
+          playbook_key: "candidate_broadcast",
+          name: "Выборочная рассылка кандидатам",
+          trigger_description: "broadcast",
+          status: "available",
+          sort_order: 1,
+          step_count: 0
+        },
+        {
+          playbook_key: "setup_communication",
+          name: "Настроить общение с кандидатами",
+          trigger_description: "communication",
+          status: "available",
+          sort_order: 2,
+          step_count: 6
+        }
+      ];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    managementSql
+  });
+
+  const result = await app.postChatMessage({
+    message: "сделай рассылку",
+    managementSql
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.reply.kind, "fallback_text");
+  assert.match(result.body.reply.text, /поддерживаю только/i);
+});
+
 test("hiring-agent: GET / serves HTML shell after auth", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {

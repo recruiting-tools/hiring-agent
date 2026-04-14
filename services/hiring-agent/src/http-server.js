@@ -812,12 +812,6 @@ const CHAT_HTML = `<!DOCTYPE html>
           vacancySelect.appendChild(opt);
         });
 
-        // «+ Создать вакансию» at the end (only when other vacancies exist)
-        const createOpt = document.createElement('option');
-        createOpt.value = '__create__';
-        createOpt.textContent = '+ Создать вакансию';
-        vacancySelect.appendChild(createOpt);
-
         // Auto-select if only one
         if (jobs.length === 1) {
           vacancySelect.value = jobs[0].job_id;
@@ -830,11 +824,6 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     vacancySelect.addEventListener('change', () => {
       const val = vacancySelect.value;
-      if (val === '__create__') {
-        vacancySelect.value = selectedVacancyId || '';
-        triggerCreateVacancy();
-        return;
-      }
       const title = vacancySelect.options[vacancySelect.selectedIndex]?.text ?? '';
       onVacancySelected(val || null, title);
     });
@@ -864,9 +853,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       // Add playbook chips
       const PLAYBOOKS = [
         { label: 'Настройте общение', msg: 'настроить общение с кандидатами' },
-        { label: 'Посмотреть вакансию', msg: 'посмотри вакансию' },
         { label: 'Воронка', msg: 'покажи воронку по кандидатам' },
-        { label: 'Рассылка', msg: 'сделай рассылку' },
       ];
 
       const chipsEl = document.createElement('div');
@@ -892,10 +879,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     function triggerCreateVacancy() {
-      selectedVacancyId = null;
-      chatLog.innerHTML = '';
-      updateSendEnabled();
-      sendMessage('создать вакансию');
+      addSystemMessage('> ⚠️ **Создание вакансии пока недоступно**\n\nЭтот playbook ещё не подключён в текущем окружении.');
     }
 
     createVacBtn.addEventListener('click', triggerCreateVacancy);
@@ -982,7 +966,6 @@ function replyToMarkdown(reply) {
       markdown: md,
       actions: [
         { label: "Обновить", message: "обнови воронку" },
-        { label: "Детали кандидата", message: "расскажи подробнее о кандидатах" },
       ],
     };
   }

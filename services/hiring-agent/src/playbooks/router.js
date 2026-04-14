@@ -1,4 +1,8 @@
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
+  "candidate_funnel",
+  "setup_communication"
+]);
 
 const FALLBACK_ROUTES = [
   {
@@ -41,14 +45,22 @@ async function getDbRoutes(managementSql) {
 
   if (!cachePromise) {
     cachePromise = managementSql`
-      SELECT playbook_key, keywords
-      FROM management.playbook_definitions
-      WHERE status = 'available'
-      ORDER BY sort_order ASC, playbook_key ASC
+      SELECT
+        d.playbook_key,
+        d.keywords,
+        COUNT(s.step_key)::int AS step_count
+      FROM management.playbook_definitions d
+      LEFT JOIN management.playbook_steps s
+        ON s.playbook_key = d.playbook_key
+      WHERE d.status = 'available'
+      GROUP BY d.playbook_key, d.keywords, d.sort_order
+      ORDER BY d.sort_order ASC, d.playbook_key ASC
     `.then((rows) => {
-      cachedDefinitions = rows;
+      cachedDefinitions = rows.filter((row) => (
+        ALWAYS_RUNNABLE_PLAYBOOKS.has(row.playbook_key) || Number(row.step_count ?? 0) > 0
+      ));
       cachedAt = Date.now();
-      return rows;
+      return cachedDefinitions;
     }).finally(() => {
       cachePromise = null;
     });
