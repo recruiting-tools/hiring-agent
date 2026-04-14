@@ -1,4 +1,8 @@
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
+  "candidate_funnel",
+  "setup_communication"
+]);
 
 const FALLBACK_PLAYBOOKS = [
   {
@@ -39,15 +43,24 @@ export async function getPlaybookRegistry(managementSql = null) {
 
   if (!cachePromise) {
     cachePromise = managementSql`
-      SELECT playbook_key, name, trigger_description, status, sort_order
-      FROM management.playbook_definitions
-      WHERE status != 'deprecated'
-      ORDER BY sort_order ASC, playbook_key ASC
+      SELECT
+        d.playbook_key,
+        d.name,
+        d.trigger_description,
+        d.status,
+        d.sort_order,
+        COUNT(s.step_key)::int AS step_count
+      FROM management.playbook_definitions d
+      LEFT JOIN management.playbook_steps s
+        ON s.playbook_key = d.playbook_key
+      WHERE d.status != 'deprecated'
+      GROUP BY d.playbook_key, d.name, d.trigger_description, d.status, d.sort_order
+      ORDER BY d.sort_order ASC, d.playbook_key ASC
     `.then((rows) => {
       cachedPlaybooks = rows.map((row) => ({
         ...row,
         title: row.name,
-        enabled: row.status === "available"
+        enabled: row.status === "available" && isRunnablePlaybook(row.playbook_key, row.step_count)
       }));
       cachedAt = Date.now();
       return cachedPlaybooks;
@@ -62,4 +75,8 @@ export async function getPlaybookRegistry(managementSql = null) {
 export async function findPlaybook(playbookKey, managementSql = null) {
   const playbooks = await getPlaybookRegistry(managementSql);
   return playbooks.find((playbook) => playbook.playbook_key === playbookKey) ?? null;
+}
+
+function isRunnablePlaybook(playbookKey, stepCount) {
+  return ALWAYS_RUNNABLE_PLAYBOOKS.has(playbookKey) || Number(stepCount ?? 0) > 0;
 }
