@@ -1009,6 +1009,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       message: text,
       tenantSql: wsContext.tenantSql,
       tenantId: wsContext.tenantId,
+      recruiterId: wsContext.recruiterId,
       job_id: vacancyId,
     });
 
