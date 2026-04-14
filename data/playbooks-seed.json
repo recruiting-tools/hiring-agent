@@ -68,7 +68,7 @@
       "name": "Извлечь must haves",
       "step_type": "llm_extract",
       "user_message": null,
-      "prompt_template": "TBD",
+      "prompt_template": "Из текста вакансии ниже выдели ОБЯЗАТЕЛЬНЫЕ требования к кандидату — то, без чего кандидат не подойдёт совсем.\n\nОбязательные требования — это:\n- Конкретный профессиональный опыт или специализация (например: «опыт плиточника», «B2B продажи», «знание 1С»)\n- Обязательная локация или готовность к разъездам\n- Необходимые документы, лицензии, допуски\n- Жёсткие физические или личностные требования (например: «хороший разговорный русский язык», «опрятный внешний вид»)\n\nНЕ включай:\n- Условия работы (зарплата, график, удалёнка) — это отдельный блок\n- Желательные, но необязательные качества\n- Общие фразы без конкретики («ответственный», «коммуникабельный», «стрессоустойчивый»)\n\nВерни JSON-массив строк. Каждый элемент — одно требование, кратко и чётко.\n\nПример:\n[\"Опыт плиточника / штукатура-маляра / отделочника от 1 года\", \"Наличие собственного инструмента\", \"Хороший разговорный русский язык\"]\n\nТекст вакансии:\n{{context.raw_vacancy_text}}",
       "context_key": "must_haves",
       "db_save_column": "must_haves",
       "next_step_order": 3,
@@ -87,7 +87,7 @@
       "db_save_column": null,
       "next_step_order": 4,
       "options": null,
-      "notes": "Rules: count < 2 → show must_haves and ask recruiter to clarify (missing something?); count >= 5 → show and ask if all correct (seems like a lot); count 2–4 → proceed to step 4 silently."
+      "notes": "Rules: count < 2 → show must_haves, message: «Нашли только {{count}} обязательных требования — кажется маловато. Не упустили ничего важного?»; count >= 5 → show, message: «Нашли {{count}} обязательных требований — это много. Все они действительно блокирующие?»; count 2–4 → proceed silently."
     },
     {
       "step_key": "create_vacancy.4",
@@ -96,7 +96,7 @@
       "name": "Извлечь nice haves",
       "step_type": "llm_extract",
       "user_message": null,
-      "prompt_template": "TBD",
+      "prompt_template": "Из текста вакансии выдели ЖЕЛАТЕЛЬНЫЕ требования — критерии, которые помогают выбрать лучшего среди подходящих, но не являются блокирующими.\n\nЖелательные требования — это:\n- Дополнительный профессиональный опыт сверх обязательного\n- Знания или навыки, которые будут плюсом\n- Личные качества (только если конкретно обозначены)\n\nНЕ включай:\n- То что уже выделено как обязательные требования (см. ниже)\n- Условия работы\n- Общие фразы («ответственный», «пунктуальный»)\n\nУже найденные обязательные требования:\n{{context.must_haves | bullet_list}}\n\nВерни JSON-массив строк. Если желательных требований нет — верни [].\n\nТекст вакансии:\n{{context.raw_vacancy_text}}",
       "context_key": "nice_haves",
       "db_save_column": "nice_haves",
       "next_step_order": 5,
@@ -124,7 +124,7 @@
       "name": "Извлечь условия работы",
       "step_type": "llm_extract",
       "user_message": null,
-      "prompt_template": "TBD",
+      "prompt_template": "Из текста вакансии выдели условия работы — то, что работодатель предлагает кандидату.\n\nВерни JSON-объект. Включай только поля, которые явно упомянуты в тексте, остальные не включай:\n{\n  \"pay_per_shift\": число (оплата за смену в рублях, если посменная оплата),\n  \"salary_range\": {\"min\": число, \"max\": число} (если указана вилка),\n  \"currency\": \"RUB\",\n  \"remote\": true | false,\n  \"schedule\": строка (например «5/2, 9:00–18:00» или «сменный график»),\n  \"shift_duration_hours\": число (длительность смены),\n  \"location\": строка (город, район или адрес),\n  \"tools_own\": true | false (кандидат работает со своим инструментом),\n  \"contract_type\": строка (ТД, ГПХ, самозанятость, ИП),\n  \"perks\": массив строк (ДМС, питание, корпоративная связь, компенсация проезда и т.д.)\n}\n\nТекст вакансии:\n{{context.raw_vacancy_text}}",
       "context_key": "work_conditions",
       "db_save_column": "work_conditions",
       "next_step_order": 7,
@@ -152,12 +152,12 @@
       "name": "Извлечь шаги найма",
       "step_type": "llm_extract",
       "user_message": null,
-      "prompt_template": "TBD",
+      "prompt_template": "Ты помогаешь рекрутеру настроить сценарий переписки с кандидатами.\n\nИз данных вакансии определи шаги, которые агент будет проходить с кандидатом — от первого контакта до финального действия. Нас интересуют прежде всего шаги в нашей зоне ответственности: переписка, уточнение опыта, подтверждение условий, договорённость о встрече или пробном дне.\n\nДля каждого шага верни объект:\n{\n  \"name\": краткое название шага (5–8 слов),\n  \"type\": один из:\n    \"must_have_check\" — проверяем обязательное требование из резюме или в диалоге,\n    \"condition_check\" — кандидат подтверждает условие работы (оплата, инструмент, график, формат),\n    \"target_action\" — финальное действие которое мы хотим получить (пробный день, первый выезд, интервью),\n    \"employer_action\" — шаг на стороне работодателя, не наша зона,\n  \"what\": что именно делаем или проверяем на этом шаге (1–2 предложения),\n  \"script\": как агент об этом говорит — конкретный подход или пример формулировки для агента (не готовый текст сообщения, а инструкция),\n  \"in_our_scope\": true если это делает агент в переписке, false если работодатель офлайн,\n  \"is_target\": true только для одного финального шага\n}\n\nВажно:\n- Разбивай на конкретные чекпойнты, не абстрактные (не «скрининг», а «проверить опыт плиточника»)\n- is_target=true только у одного шага — того к которому мы ведём кандидата\n- Приветствие — не отдельный шаг, это часть первого сообщения\n- Порядок: сначала must_have_check, потом condition_check, потом target_action\n\nДанные вакансии:\nМаст-хэвы: {{context.must_haves | bullet_list}}\nУсловия работы: {{context.work_conditions | formatted}}\nТекст вакансии: {{context.raw_vacancy_text}}\n\nВерни JSON-массив объектов.",
       "context_key": "application_steps",
       "db_save_column": "application_steps",
       "next_step_order": 9,
       "options": null,
-      "notes": "Output: [{name, type (must_have_check|condition_check|target_action|employer_action), what, script, in_our_scope, is_target}]. Фокус на шагах в нашей зоне. target_action = финальное действие (стажировочный день, первый выезд)."
+      "notes": "Output: [{name, type, what, script, in_our_scope, is_target}]. target_action = финальное целевое действие (стажировочный день, первый выезд)."
     },
     {
       "step_key": "create_vacancy.9",
@@ -180,7 +180,7 @@
       "name": "Извлечь информацию о компании",
       "step_type": "llm_extract",
       "user_message": null,
-      "prompt_template": "TBD",
+      "prompt_template": "Из текста вакансии выдели информацию о компании-работодателе.\n\nВерни JSON-объект:\n{\n  \"name\": название компании (если указано),\n  \"description\": краткое описание деятельности компании (1–3 предложения),\n  \"notes\": всё остальное интересное о компании — культура, особенности, достижения (если есть)\n}\n\nЕсли информации о компании нет — верни {\"name\": null, \"description\": null, \"notes\": null}.\n\nТекст вакансии:\n{{context.raw_vacancy_text}}",
       "context_key": "company_info",
       "db_save_column": "company_info",
       "next_step_order": 11,
@@ -208,12 +208,12 @@
       "name": "Сгенерировать FAQ",
       "step_type": "llm_generate",
       "user_message": null,
-      "prompt_template": "TBD",
+      "prompt_template": "На основе данных вакансии составь список частых вопросов кандидатов и ответов на них.\n\nПравила:\n1. Включай только вопросы, на которые есть ответ в данных\n2. Не придумывай — если информации нет, пиши «Уточним при знакомстве» или «Обсудим на встрече»\n3. Охватывай темы: оплата и условия, формат работы, требования к опыту, процесс найма, компания\n4. Формулируй вопросы как их задаёт кандидат, ответы — коротко и по делу\n5. Не отвечай на вопросы вне домена вакансии — лучше «не знаем / уточним»\n\nДанные вакансии:\nМаст-хэвы: {{context.must_haves | bullet_list}}\nУсловия работы: {{context.work_conditions | formatted}}\nШаги найма: {{context.application_steps | names_only}}\nКомпания: {{context.company_info | formatted}}\n\nВерни JSON-массив от 5 до 15 вопросов:\n[{\"q\": \"вопрос кандидата\", \"a\": \"ответ агента\"}]",
       "context_key": "faq",
       "db_save_column": "faq",
       "next_step_order": 13,
       "options": null,
-      "notes": "Output: [{q, a}]. На основе всех данных вакансии — типичные вопросы кандидатов и ответы на них. Не придумывать ответы вне домена. Если есть URL компании в контексте — можно парсить."
+      "notes": "Output: [{q, a}]. Не придумывать ответы вне домена вакансии."
     },
     {
       "step_key": "create_vacancy.13",
@@ -267,12 +267,12 @@
       "name": "Составить варианты плана коммуникации",
       "step_type": "llm_generate",
       "user_message": null,
-      "prompt_template": "TBD",
+      "prompt_template": "Ты помогаешь рекрутеру выстроить сценарий переписки с кандидатами по вакансии.\n\nНа основе данных вакансии составь 3–4 варианта плана коммуникации — последовательность шагов от первого контакта с кандидатом до финального целевого действия.\n\nТребования к плану:\n- Включай только шаги в нашей зоне (in_our_scope=true из application_steps)\n- Первый шаг всегда начинается с тёплого приветствия + одного вопроса\n- Последний шаг — целевое действие (is_target=true)\n- Типичный порядок: проверка must haves → подтверждение условий → договорённость о следующем шаге\n- Варианты могут отличаться: группировкой вопросов в одном сообщении, порядком тем, уровнем детализации\n\nДанные вакансии:\nДолжность: {{context.vacancy.title}}\nМаст-хэвы: {{context.vacancy.must_haves | bullet_list}}\nНайс-хэвы: {{context.vacancy.nice_haves | bullet_list}}\nУсловия работы: {{context.vacancy.work_conditions | formatted}}\nШаги найма (in_our_scope): {{context.vacancy.application_steps | in_scope_only}}\n\nВерни JSON-массив из 3–4 объектов:\n[{\n  \"variant\": \"Вариант 1 — краткое название\",\n  \"steps\": [\"шаг 1 — что делаем и говорим\", \"шаг 2 — ...\"],\n  \"rationale\": \"в 1–2 предложениях: почему такой порядок и для кого подходит\"\n}]",
       "context_key": "communication_plan_options",
       "db_save_column": null,
       "next_step_order": 2,
       "options": null,
-      "notes": "Input: vacancy.application_steps, vacancy.must_haves, vacancy.work_conditions. Output: 3–4 варианта последовательности шагов коммуникации с объяснением почему."
+      "notes": "Input: vacancy.application_steps (in_our_scope), must_haves, work_conditions. Output: 3–4 варианта плана."
     },
     {
       "step_key": "setup_communication.2",
@@ -295,12 +295,12 @@
       "name": "Сгенерировать примеры первых сообщений",
       "step_type": "llm_generate",
       "user_message": null,
-      "prompt_template": "TBD",
+      "prompt_template": "Напиши 3 варианта первого сообщения агента кандидату по этой вакансии.\n\nСтиль: тёплый, человечный, без канцелярита и шаблонных фраз. Кандидат должен почувствовать живой интерес к его опыту, а не скрипт.\n\nСтруктура первого сообщения:\n1. Короткое приветствие — можно упомянуть что-то конкретное из резюме кандидата (если доступно — используй {{candidate.summary}}, иначе общее приветствие)\n2. Один ключевой вопрос — первый шаг из утверждённого плана\n3. Не перегружать — один вопрос за раз, не анкета\n\nТри варианта должны отличаться:\n- Вариант 1: деловой и лаконичный, сразу к делу\n- Вариант 2: чуть теплее, с коротким контекстом о вакансии\n- Вариант 3: максимально персонализированный, с упоминанием конкретного опыта кандидата\n\nДанные:\nДолжность: {{context.vacancy.title}}\nПервый шаг плана: {{context.approved_plan.steps[0]}}\nСкрипт первого шага: {{context.vacancy.application_steps[0].script}}\nМаст-хэвы: {{context.vacancy.must_haves | bullet_list}}\n\nВерни HTML. Каждый вариант в отдельном <div class=\"message-variant\"> с заголовком <h3>Вариант N</h3> и текстом сообщения в <p>.",
       "context_key": "generated_messages",
       "db_save_column": null,
       "next_step_order": 4,
       "options": null,
-      "notes": "Input: approved_plan, vacancy.application_steps[].script, vacancy.must_haves. Output: 3 реалистичных первых сообщения кандидату в HTML. Теплые, персонализированные, не роботизированные."
+      "notes": "Input: approved_plan, application_steps[].script, must_haves. Output: 3 примера первых сообщений HTML."
     },
     {
       "step_key": "setup_communication.4",
@@ -399,12 +399,12 @@
       "name": "Обработать критерий выборки",
       "step_type": "llm_extract",
       "user_message": null,
-      "prompt_template": "TBD",
+      "prompt_template": "Рекрутер хочет выбрать группу кандидатов для рассылки по вакансии «{{context.vacancy.title}}».\n\nКритерий от рекрутера: «{{context.selection_criteria}}»\n\nОпредели как именно выбрать кандидатов:\n- Если критерий чёткий и однозначный (конкретный шаг воронки, временной интервал, статус) → type: \"exact\"\n- Если критерий нечёткий, требует интерпретации или смыслового поиска → type: \"fuzzy\"\n\nДоступные поля в базе данных для фильтрации:\n- current_step: текущий шаг кандидата (имена из application_steps вакансии)\n- last_message_at: время последнего сообщения в переписке\n- status: active | rejected | completed\n- hours_on_step: сколько часов кандидат находится на текущем шаге\n\nВерни JSON:\n{\n  \"type\": \"exact\" | \"fuzzy\",\n  \"description\": строка — как мы выберем кандидатов (для показа рекрутеру, 1–2 предложения),\n  \"sql_filter\": строка или null — WHERE-условие если type=exact (только перечисленные поля),\n  \"threshold\": число или null — порог совпадения в % если type=fuzzy\n}",
       "context_key": "selection_query",
       "db_save_column": null,
       "next_step_order": 3,
       "options": null,
-      "notes": "Output: {type: 'exact'|'fuzzy', description, sql?, threshold?}. Exact = plain SQL filter. Fuzzy = LLM scoring with threshold (e.g. 80%)."
+      "notes": "Output: {type: 'exact'|'fuzzy', description, sql_filter?, threshold?}."
     },
     {
       "step_key": "mass_broadcast.3",
@@ -418,7 +418,7 @@
       "db_save_column": null,
       "next_step_order": 4,
       "options": "Подтвердить;Изменить порог;Изменить критерий",
-      "notes": "If exact → skip threshold mention. If recruiter changes threshold → loop back to step 2."
+      "notes": "If type=exact → skip threshold mention. If recruiter changes threshold → loop back to step 2."
     },
     {
       "step_key": "mass_broadcast.4",
@@ -427,12 +427,12 @@
       "name": "Сгенерировать сообщения и показать репорт",
       "step_type": "llm_generate",
       "user_message": null,
-      "prompt_template": "TBD",
+      "prompt_template": "Составь персонализированные сообщения для группы кандидатов по вакансии «{{context.vacancy.title}}».\n\nКаждое сообщение должно:\n- Обращаться к кандидату по имени\n- Быть коротким и по делу (2–4 предложения)\n- Учитывать на каком шаге находится кандидат\n- Тон: дружелюбный, живой, не шаблонный\n\nДанные вакансии:\nШаги найма: {{context.vacancy.application_steps | names_only}}\n\nСписок кандидатов:\n{{context.candidates | json}}\n\nВерни JSON-массив:\n[{\n  \"candidate_id\": строка,\n  \"name\": строка,\n  \"current_step\": строка,\n  \"message\": текст сообщения\n}]",
       "context_key": "broadcast_report",
       "db_save_column": null,
       "next_step_order": null,
       "options": null,
-      "notes": "Output: список кандидатов с персонализированными сообщениями. Rendered as report (link to /recruiter/ report view)."
+      "notes": "Output: список кандидатов с персонализированными сообщениями. Rendered as report."
     },
 
     // ── candidate_funnel ─────────────────────────────────────────────────────
@@ -449,7 +449,7 @@
       "db_save_column": null,
       "next_step_order": 1,
       "options": null,
-      "notes": "Silent fetch. vacancy.application_steps used to define funnel columns."
+      "notes": "Silent fetch. vacancy.application_steps used to define funnel row labels."
     },
     {
       "step_key": "candidate_funnel.1",
