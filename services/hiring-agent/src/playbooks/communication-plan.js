@@ -547,6 +547,41 @@ async function findVacancy({ tenantSql, vacancyId, jobId }) {
         resolvedVacancyId: vacancy.vacancy_id
       };
     }
+
+    const jobRows = await tenantSql`
+      SELECT job_id, title, description
+      FROM chatbot.jobs
+      WHERE job_id = ${jobId}
+      LIMIT 1
+    `;
+    const job = jobRows[0] ?? null;
+    if (job) {
+      const seededRows = await tenantSql`
+        INSERT INTO chatbot.vacancies (
+          title,
+          raw_text,
+          job_id,
+          status,
+          extraction_status
+        )
+        VALUES (
+          ${job.title ?? "Новая вакансия"},
+          ${job.description ?? null},
+          ${job.job_id},
+          'draft',
+          'pending'
+        )
+        RETURNING *
+      `;
+
+      const seededVacancy = seededRows[0] ?? null;
+      if (seededVacancy) {
+        return {
+          vacancy: seededVacancy,
+          resolvedVacancyId: seededVacancy.vacancy_id
+        };
+      }
+    }
   }
 
   return {
