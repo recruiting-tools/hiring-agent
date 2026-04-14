@@ -9,10 +9,10 @@ import {
 } from "../../scripts/lib/recruiter-access.js";
 import { PostgresHiringStore } from "../../services/candidate-chatbot/src/postgres-store.js";
 
-const DB_URL = process.env.V2_DEV_NEON_URL;
+const DB_URL = process.env.CHATBOT_DATABASE_URL;
 
 if (!DB_URL) {
-  console.log("Skipping recruiter access postgres tests: V2_DEV_NEON_URL not set");
+  console.log("Skipping recruiter access postgres tests: CHATBOT_DATABASE_URL not set");
   process.exit(0);
 }
 

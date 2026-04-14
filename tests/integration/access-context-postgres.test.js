@@ -10,10 +10,10 @@ import {
   seedManagementFixtures
 } from "../helpers/management-fixtures.js";
 
-const DB_URL = process.env.V2_DEV_NEON_URL;
+const DB_URL = process.env.CHATBOT_DATABASE_URL;
 
 if (!DB_URL) {
-  console.log("Skipping access context postgres tests: V2_DEV_NEON_URL not set");
+  console.log("Skipping access context postgres tests: CHATBOT_DATABASE_URL not set");
   process.exit(0);
 }
 

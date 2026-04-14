@@ -18,9 +18,9 @@ import { HhConnector } from "../../hh-connector/src/hh-connector.js";
 let store;
 
 if (process.env.USE_REAL_DB === "true") {
-  const connectionString = process.env.DATABASE_URL || process.env.V2_PROD_NEON_URL || process.env.V2_DEV_NEON_URL;
+  const connectionString = process.env.DATABASE_URL || process.env.CHATBOT_DATABASE_URL;
   if (!connectionString) {
-    throw new Error("USE_REAL_DB=true requires DATABASE_URL, V2_PROD_NEON_URL, or V2_DEV_NEON_URL to be set");
+    throw new Error("USE_REAL_DB=true requires DATABASE_URL or CHATBOT_DATABASE_URL to be set");
   }
   store = new PostgresHiringStore({ connectionString });
   if (process.env.NODE_ENV === "production") {

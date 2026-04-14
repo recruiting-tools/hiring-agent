@@ -9,9 +9,9 @@ import { dirname, join } from "node:path";
 import bcrypt from "bcryptjs";
 import { PostgresHiringStore } from "../services/candidate-chatbot/src/postgres-store.js";
 
-const DB_URL = process.env.SANDBOX_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.V2_DEV_NEON_URL;
+const DB_URL = process.env.SANDBOX_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.CHATBOT_DATABASE_URL;
 if (!DB_URL) {
-  console.error("ERROR: SANDBOX_DATABASE_URL, DATABASE_URL, or V2_DEV_NEON_URL environment variable is required");
+  console.error("ERROR: SANDBOX_DATABASE_URL, DATABASE_URL, or CHATBOT_DATABASE_URL environment variable is required");
   process.exit(1);
 }
 
