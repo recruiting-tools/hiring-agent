@@ -209,8 +209,11 @@ export async function runCommunicationPlanPlaybook({
     existingPlan: savedPlan,
     isEdit: action === ACTION_EDIT
   });
-  const raw = await generateWithModel(llmAdapter, prompt, llmConfig.planModel);
-  const draft = normalizePlan(parseJsonPayload(raw));
+  const { draft } = await generatePlanDraft({
+    llmAdapter,
+    prompt,
+    model: llmConfig.planModel
+  });
 
   if (!draft) {
     return {
@@ -549,6 +552,45 @@ function isCommunicationPlanContractError(error) {
 async function generateWithModel(llmAdapter, prompt, model) {
   const options = model ? { model } : undefined;
   return llmAdapter.generate(prompt, options);
+}
+
+async function generatePlanDraft({ llmAdapter, prompt, model }) {
+  const raw = await generateWithModel(llmAdapter, prompt, model);
+  const parsed = parseJsonPayload(raw);
+  const draft = normalizePlan(parsed);
+  if (draft) {
+    return { draft, raw };
+  }
+
+  const repairedRaw = await generateWithModel(
+    llmAdapter,
+    buildPlanRepairPrompt({ prompt, invalidResponse: raw }),
+    model
+  );
+
+  return {
+    raw: repairedRaw,
+    draft: normalizePlan(parseJsonPayload(repairedRaw))
+  };
+}
+
+function buildPlanRepairPrompt({ prompt, invalidResponse }) {
+  return `${prompt}
+
+Предыдущий ответ не прошел валидацию и не может быть использован как сценарий.
+
+Ниже невалидный ответ модели:
+${String(invalidResponse ?? "").trim() || "— пустой ответ"}
+
+Исправь ответ и верни только валидный JSON строго по указанной выше схеме.
+Без markdown.
+Без пояснений.
+Без текста до или после JSON.
+Проверь перед ответом:
+- 4-7 шагов
+- первый шаг содержит приветствие и один вопрос
+- последний шаг приглашает на следующий этап
+- reminders_count в диапазоне 0-3`;
 }
 
 async function findVacancy({ tenantSql, vacancyId, jobId }) {
