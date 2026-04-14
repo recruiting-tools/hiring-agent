@@ -206,383 +206,728 @@ const CHAT_HTML = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hiring Agent</title>
-  ${STYLE_BLOCK}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
   <style>
-    .shell {
-      max-width: 1180px;
-      margin: 0 auto;
-      padding: 32px 20px 48px;
+    :root {
+      --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --bg:    #080a0f;
+      --bg2:   #0e1118;
+      --bg3:   #161b26;
+      --edge:  #1e2535;
+      --t1:    #e4e8f0;
+      --t2:    #8892a4;
+      --t3:    #4a5268;
+      --acc:   #4f8ff7;
+      --acc-d: rgba(79,143,247,0.12);
+      --green: #34c759;
+      --red:   #ef4444;
     }
-    .topbar {
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--t1);
+      height: 100dvh;
       display: flex;
-      justify-content: space-between;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── HEADER ────────────────────────────────────────────────── */
+    #header {
+      display: flex;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .account {
-      display: grid;
-      gap: 4px;
-    }
-    .account strong {
-      font-size: 20px;
-      font-weight: normal;
-    }
-    h1 {
-      margin: 0;
-      font-size: clamp(34px, 5vw, 56px);
-      line-height: 0.94;
-      max-width: 820px;
-    }
-    .subhead {
-      max-width: 720px;
-      font-size: 18px;
-      line-height: 1.5;
-      color: rgba(30, 36, 48, 0.82);
-    }
-    .hero {
-      display: grid;
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-    .layout {
-      display: grid;
-      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-      gap: 18px;
-    }
-    .chat-panel {
-      padding: 18px;
-      display: grid;
-      gap: 14px;
-      align-self: start;
-      position: sticky;
-      top: 20px;
-    }
-    .chat-log {
-      display: grid;
       gap: 10px;
-      max-height: 360px;
-      overflow: auto;
-      padding-right: 4px;
+      padding: 0 16px;
+      height: 52px;
+      border-bottom: 1px solid var(--edge);
+      flex-shrink: 0;
     }
-    .bubble {
-      padding: 12px 14px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      line-height: 1.45;
-      font-size: 15px;
-      white-space: pre-wrap;
+    #status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--red);
+      flex-shrink: 0;
+      transition: background 0.3s;
     }
-    .bubble.user {
-      background: #fff;
+    #status-dot.connected { background: var(--green); }
+    .logo {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--t1);
+      letter-spacing: -0.01em;
     }
-    .bubble.assistant {
-      background: #f9f4ea;
+    #vacancy-select {
+      flex: 1;
+      max-width: 320px;
+      margin-left: auto;
+      padding: 6px 10px;
+      background: var(--bg3);
+      border: 1px solid var(--edge);
+      border-radius: 8px;
+      color: var(--t1);
+      font-family: var(--font);
+      font-size: 13px;
+      cursor: pointer;
+      outline: none;
     }
-    textarea,
-    select {
-      width: 100%;
-      border-radius: 18px;
-      border: 1px solid var(--line);
-      padding: 14px 16px;
-      background: rgba(255,255,255,0.82);
-    }
-    textarea {
-      min-height: 124px;
-      resize: vertical;
-    }
-    .result-panel {
-      padding: 20px;
-      display: grid;
-      gap: 18px;
-      min-height: 520px;
-    }
-    .placeholder {
-      border: 1px dashed var(--line);
-      border-radius: 20px;
-      padding: 24px;
-      color: rgba(30, 36, 48, 0.72);
-      background: rgba(255,255,255,0.45);
-    }
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 12px;
-    }
-    .metric {
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 14px;
-      background: rgba(255,255,255,0.78);
-    }
-    .metric .label {
+    #vacancy-select:focus { border-color: var(--acc); }
+    #vacancy-select option { background: var(--bg2); }
+    #logout-btn {
+      margin-left: 8px;
+      padding: 5px 12px;
       font-size: 12px;
-      letter-spacing: 0.08em;
+      font-family: var(--font);
+      background: transparent;
+      border: 1px solid var(--edge);
+      border-radius: 7px;
+      color: var(--t2);
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    #logout-btn:hover { border-color: var(--t2); color: var(--t1); }
+
+    /* ── CHAT LOG ──────────────────────────────────────────────── */
+    #chat-log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      scroll-behavior: smooth;
+    }
+    #chat-log::-webkit-scrollbar { width: 4px; }
+    #chat-log::-webkit-scrollbar-track { background: transparent; }
+    #chat-log::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 2px; }
+
+    /* ── EMPTY STATE ───────────────────────────────────────────── */
+    #empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex: 1;
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--t2);
+    }
+    #empty-state .empty-icon { font-size: 40px; }
+    #empty-state h2 { font-size: 18px; font-weight: 600; color: var(--t1); }
+    #empty-state p { font-size: 14px; line-height: 1.5; max-width: 300px; }
+    .btn-primary {
+      padding: 9px 18px;
+      background: var(--acc);
+      color: white;
+      border: none;
+      border-radius: 9px;
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn-primary:hover { opacity: 0.88; }
+
+    /* ── MESSAGE ROWS ──────────────────────────────────────────── */
+    .msg-row { display: flex; }
+    .msg-row.user { justify-content: flex-end; }
+    .msg-row.assistant { justify-content: flex-start; }
+
+    .bubble {
+      max-width: min(75%, 680px);
+      padding: 10px 14px;
+      font-size: 14px;
+      line-height: 1.55;
+      border-radius: 12px;
+      word-break: break-word;
+    }
+    .user-bubble {
+      background: var(--acc);
+      color: white;
+      border-radius: 12px 12px 2px 12px;
+    }
+    .assistant-bubble {
+      background: var(--bg2);
+      border: 1px solid var(--edge);
+      color: var(--t1);
+      border-radius: 12px 12px 12px 2px;
+      position: relative;
+    }
+
+    /* Streaming cursor */
+    .assistant-bubble.streaming .bubble-content:not(:empty)::after {
+      content: '▋';
+      display: inline;
+      color: var(--acc);
+      animation: blink 1s step-end infinite;
+      margin-left: 1px;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* ── PROGRESS STEPS ────────────────────────────────────────── */
+    .progress-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+    .progress-steps:empty { display: none; }
+    .progress-step {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      color: var(--t2);
+    }
+    .step-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--t3);
+    }
+    .progress-step.active .step-dot {
+      background: var(--acc);
+      animation: pulse-dot 1.4s ease-in-out infinite;
+    }
+    .progress-step.done .step-dot { background: var(--green); }
+    @keyframes pulse-dot {
+      0%,100%{opacity:1;transform:scale(1)}
+      50%{opacity:0.45;transform:scale(0.75)}
+    }
+
+    /* ── BUBBLE CONTENT (markdown) ─────────────────────────────── */
+    .bubble-content { overflow-x: auto; }
+    .bubble-content p { margin: 0 0 8px; }
+    .bubble-content p:last-child { margin-bottom: 0; }
+    .bubble-content h1,.bubble-content h2,.bubble-content h3 {
+      font-size: 15px; font-weight: 600; margin: 12px 0 6px;
+      color: var(--t1);
+    }
+    .bubble-content h2 { font-size: 14px; }
+    .bubble-content ul,.bubble-content ol {
+      padding-left: 18px; margin: 4px 0 8px;
+    }
+    .bubble-content li { margin: 3px 0; }
+    .bubble-content code {
+      background: var(--bg3);
+      border: 1px solid var(--edge);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 12px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .bubble-content pre {
+      background: var(--bg3);
+      border: 1px solid var(--edge);
+      border-radius: 8px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+    .bubble-content pre code {
+      background: none; border: none; padding: 0; font-size: 12px;
+    }
+    .bubble-content table {
+      width: 100%; border-collapse: collapse;
+      font-size: 13px; margin: 8px 0;
+    }
+    .bubble-content th,.bubble-content td {
+      padding: 6px 10px;
+      border: 1px solid var(--edge);
+      text-align: left;
+    }
+    .bubble-content th {
+      background: var(--bg3);
+      color: var(--t2);
+      font-size: 11px;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
-      color: rgba(30, 36, 48, 0.58);
     }
-    .metric .value {
-      margin-top: 8px;
-      font-size: 30px;
-      line-height: 1;
+    .bubble-content tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+    .bubble-content blockquote {
+      border-left: 3px solid var(--acc);
+      padding: 4px 12px;
+      margin: 8px 0;
+      color: var(--t2);
+      font-style: italic;
     }
-    .branches {
+    .bubble-content strong { color: var(--t1); font-weight: 600; }
+    .bubble-content a { color: var(--acc); text-decoration: none; }
+    .bubble-content a:hover { text-decoration: underline; }
+
+    /* ── ACTION BUTTONS ────────────────────────────────────────── */
+    .actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 6px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--edge);
     }
-    .badge {
-      border-radius: 999px;
-      padding: 10px 14px;
-      background: var(--olive-soft);
-      color: var(--olive);
-      font-size: 14px;
-    }
-    .badge.warn {
-      background: var(--warn-soft);
-      color: var(--warn);
-    }
-    .badge.accent {
-      background: var(--accent-soft);
-      color: var(--accent);
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      overflow: hidden;
-      border-radius: 20px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.82);
-    }
-    th, td {
-      padding: 12px 14px;
-      text-align: left;
-      border-bottom: 1px solid var(--line);
-      font-size: 14px;
-    }
-    th {
+    .actions:empty { display: none; }
+    .action-btn {
+      padding: 5px 12px;
       font-size: 12px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: rgba(30, 36, 48, 0.58);
-      background: rgba(30, 36, 48, 0.03);
+      font-family: var(--font);
+      font-weight: 500;
+      border-radius: 7px;
+      border: 1px solid var(--edge);
+      background: var(--bg3);
+      color: var(--t2);
+      cursor: pointer;
+      transition: all 0.12s;
+      white-space: nowrap;
     }
-    tr:last-child td {
-      border-bottom: 0;
+    .action-btn:hover {
+      background: var(--acc-d);
+      border-color: var(--acc);
+      color: var(--t1);
     }
+
+    /* ── PLAYBOOK CHIPS (welcome message) ──────────────────────── */
+    .playbook-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .playbook-chip {
+      padding: 5px 12px;
+      font-size: 12px;
+      font-family: var(--font);
+      font-weight: 500;
+      border-radius: 7px;
+      border: 1px solid var(--acc);
+      background: var(--acc-d);
+      color: var(--acc);
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .playbook-chip:hover { background: var(--acc); color: white; }
+
+    /* ── INPUT AREA ────────────────────────────────────────────── */
+    #input-area {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 10px 16px 14px;
+      border-top: 1px solid var(--edge);
+      flex-shrink: 0;
+    }
+    #msg-input {
+      flex: 1;
+      resize: none;
+      background: var(--bg3);
+      border: 1px solid var(--edge);
+      border-radius: 10px;
+      padding: 9px 13px;
+      font-family: var(--font);
+      font-size: 14px;
+      color: var(--t1);
+      max-height: 160px;
+      min-height: 38px;
+      overflow-y: hidden;
+      outline: none;
+      transition: border-color 0.15s;
+      line-height: 1.5;
+    }
+    #msg-input::placeholder { color: var(--t3); }
+    #msg-input:focus { border-color: var(--acc); }
+    #send-btn {
+      width: 36px; height: 36px;
+      flex-shrink: 0;
+      border-radius: 9px;
+      border: none;
+      background: var(--acc);
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.12s;
+    }
+    #send-btn:disabled { opacity: 0.35; cursor: default; }
+    #send-btn svg { width: 16px; height: 16px; }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <div class="topbar">
-      <div class="account">
-        <div class="eyebrow">Recruiter Session</div>
-        <strong id="recruiterEmail">__RECRUITER_EMAIL__</strong>
-      </div>
-      <a href="/logout"><button class="secondary" type="button">Выйти</button></a>
-    </div>
-    <div class="hero">
-      <div class="eyebrow">Recruiter Chat / Prod Shell</div>
-      <h1>Playbook-driven chat shell для рекрутера</h1>
-      <div class="subhead">Стейтлесс-демо с pattern router, gated playbooks и локальным funnel adapter поверх runtime-shaped данных.</div>
-    </div>
-    <div class="layout">
-      <section class="panel chat-panel">
-        <label class="eyebrow" for="jobSelect">Вакансия</label>
-        <select id="jobSelect">
-          <option value="">Выберите вакансию</option>
-        </select>
-        <div class="notice" id="chatError"></div>
-        <div class="chat-log" id="chatLog"></div>
-        <textarea id="messageInput">Визуализируй воронку по кандидатам</textarea>
-        <button id="sendBtn">Запустить playbook</button>
-      </section>
-      <section class="panel result-panel" id="resultPanel">
-        <div class="placeholder">Спросите про воронку, план коммуникации или выборочную рассылку. Для PR 1 включён только funnel playbook.</div>
-      </section>
+  <!-- Header -->
+  <header id="header">
+    <div id="status-dot" title="WebSocket"></div>
+    <div class="logo">Hiring Agent</div>
+    <select id="vacancy-select">
+      <option value="">Загрузка вакансий…</option>
+    </select>
+    <a href="/logout" id="logout-btn">Выйти</a>
+  </header>
+
+  <!-- Chat log -->
+  <div id="chat-log">
+    <!-- Empty state shown before vacancy selected / on load -->
+    <div id="empty-state">
+      <div class="empty-icon">📋</div>
+      <h2>Выберите вакансию</h2>
+      <p>Выберите вакансию в меню выше или создайте новую</p>
+      <button class="btn-primary" id="create-vacancy-btn">Создать вакансию</button>
     </div>
   </div>
+
+  <!-- Input -->
+  <div id="input-area">
+    <textarea id="msg-input" placeholder="Напишите сообщение…" rows="1"></textarea>
+    <button id="send-btn" disabled title="Отправить">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"></line>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+      </svg>
+    </button>
+  </div>
+
   <script>
-    const chatLog = document.getElementById("chatLog");
-    const resultPanel = document.getElementById("resultPanel");
-    const messageInput = document.getElementById("messageInput");
-    const sendBtn = document.getElementById("sendBtn");
-    const jobSelect = document.getElementById("jobSelect");
-    const chatError = document.getElementById("chatError");
-    const storageKey = "hiring-agent-chat-history";
+    // ── Config ────────────────────────────────────────────────────────────────
+    const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws';
+    const STEP_LABELS = {
+      auto_fetch:    'Загружаю данные вакансии',
+      route_playbook:'Определяю плейбук',
+      llm_extract:   'Извлекаю данные',
+      llm_generate:  'Генерирую текст',
+      data_fetch:    'Запрашиваю данные',
+      decision:      'Проверяю условия',
+      render:        'Генерирую ответ',
+    };
 
-    function escapeHtml(text) {
-      return String(text)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll("\\"", "&quot;")
-        .replaceAll("'", "&#39;");
+    // ── State ─────────────────────────────────────────────────────────────────
+    let ws = null;
+    let streaming = false;
+    let selectedVacancyId = null;
+    let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
+
+    // ── DOM refs ──────────────────────────────────────────────────────────────
+    const chatLog        = document.getElementById('chat-log');
+    const emptyState     = document.getElementById('empty-state');
+    const vacancySelect  = document.getElementById('vacancy-select');
+    const msgInput       = document.getElementById('msg-input');
+    const sendBtn        = document.getElementById('send-btn');
+    const statusDot      = document.getElementById('status-dot');
+    const createVacBtn   = document.getElementById('create-vacancy-btn');
+
+    // ── WebSocket ─────────────────────────────────────────────────────────────
+    function connect() {
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        statusDot.classList.add('connected');
+        updateSendEnabled();
+      };
+
+      ws.onclose = () => {
+        statusDot.classList.remove('connected');
+        updateSendEnabled();
+        setTimeout(connect, 3000); // auto-reconnect
+      };
+
+      ws.onerror = () => statusDot.classList.remove('connected');
+
+      ws.onmessage = (ev) => {
+        const data = JSON.parse(ev.data);
+
+        if (data.type === 'progress' && currentAssistant) {
+          // Mark previous step done
+          const prev = currentAssistant.stepsEl.querySelector('.progress-step.active');
+          if (prev) prev.classList.replace('active', 'done');
+
+          const step = document.createElement('div');
+          step.className = 'progress-step active';
+          step.innerHTML =
+            '<span class="step-dot"></span>' +
+            '<span>' + escapeHtml(data.label || STEP_LABELS[data.tool] || data.tool) + '</span>';
+          currentAssistant.stepsEl.appendChild(step);
+          scrollBottom();
+        }
+
+        if (data.type === 'chunk' && currentAssistant) {
+          currentAssistant.text += data.text;
+          renderMarkdown(currentAssistant.contentEl, currentAssistant.text);
+          scrollBottom();
+        }
+
+        if (data.type === 'done' && currentAssistant) {
+          // Mark last step done
+          const active = currentAssistant.stepsEl.querySelector('.progress-step.active');
+          if (active) active.classList.replace('active', 'done');
+
+          // Remove streaming cursor
+          currentAssistant.bubbleEl.classList.remove('streaming');
+
+          // Render action buttons
+          if (data.actions && data.actions.length > 0) {
+            data.actions.forEach(({ label, message }) => {
+              const btn = document.createElement('button');
+              btn.className = 'action-btn';
+              btn.textContent = label;
+              btn.dataset.msg = message;
+              btn.addEventListener('click', () => sendMessage(message));
+              currentAssistant.actionsEl.appendChild(btn);
+            });
+          }
+
+          currentAssistant = null;
+          streaming = false;
+          updateSendEnabled();
+          scrollBottom();
+        }
+
+        if (data.type === 'error') {
+          if (currentAssistant) {
+            currentAssistant.bubbleEl.classList.remove('streaming');
+            const errEl = document.createElement('p');
+            errEl.style.color = 'var(--red)';
+            errEl.style.fontSize = '13px';
+            errEl.textContent = '❌ ' + (data.message || 'Ошибка сервера');
+            currentAssistant.contentEl.appendChild(errEl);
+            currentAssistant = null;
+          }
+          streaming = false;
+          updateSendEnabled();
+        }
+      };
     }
 
-    function showError(message) {
-      chatError.textContent = message;
-      chatError.classList.add("visible");
+    function renderMarkdown(el, text) {
+      const html = DOMPurify.sanitize(marked.parse(text));
+      el.innerHTML = html;
     }
 
-    function clearError() {
-      chatError.classList.remove("visible");
-    }
-
-    function readHistory() {
-      try {
-        const raw = sessionStorage.getItem(storageKey);
-        const parsed = raw ? JSON.parse(raw) : [];
-        return Array.isArray(parsed) ? parsed : [];
-      } catch (_error) {
-        return [];
-      }
-    }
-
-    function writeHistory(history) {
-      sessionStorage.setItem(storageKey, JSON.stringify(history.slice(-30)));
-    }
-
-    function addBubble(role, text, options = {}) {
-      const bubble = document.createElement("div");
-      bubble.className = "bubble " + role;
+    // ── Messages ──────────────────────────────────────────────────────────────
+    function addUserBubble(text) {
+      const row = document.createElement('div');
+      row.className = 'msg-row user';
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble user-bubble';
       bubble.textContent = text;
-      chatLog.appendChild(bubble);
-      chatLog.scrollTop = chatLog.scrollHeight;
-
-      if (options.persist !== false) {
-        const history = readHistory();
-        history.push({ role, text });
-        writeHistory(history);
-      }
+      row.appendChild(bubble);
+      chatLog.appendChild(row);
+      scrollBottom();
     }
 
-    function restoreHistory() {
-      for (const item of readHistory()) {
-        addBubble(item.role, item.text, { persist: false });
-      }
+    function addAssistantBubble() {
+      const row = document.createElement('div');
+      row.className = 'msg-row assistant';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble assistant-bubble streaming';
+
+      const stepsEl = document.createElement('div');
+      stepsEl.className = 'progress-steps';
+
+      const contentEl = document.createElement('div');
+      contentEl.className = 'bubble-content';
+
+      const actionsEl = document.createElement('div');
+      actionsEl.className = 'actions';
+
+      bubble.appendChild(stepsEl);
+      bubble.appendChild(contentEl);
+      bubble.appendChild(actionsEl);
+      row.appendChild(bubble);
+      chatLog.appendChild(row);
+      scrollBottom();
+
+      return { bubbleEl: bubble, stepsEl, contentEl, actionsEl, text: '' };
     }
 
-    function renderReply(reply) {
-      if (reply.kind === "fallback_text") {
-        resultPanel.innerHTML = '<div class="placeholder">' + escapeHtml(reply.text) + '</div>';
-        addBubble("assistant", reply.text);
-        return;
-      }
-
-      if (reply.kind === "playbook_locked") {
-        resultPanel.innerHTML =
-          '<div class="placeholder"><strong>' + escapeHtml(reply.title) + '</strong><br><br>' + escapeHtml(reply.message) + "</div>";
-        addBubble("assistant", reply.message);
-        return;
-      }
-
-      if (reply.kind !== "render_funnel") return;
-
-      addBubble("assistant", "Построил funnel snapshot по goal-этапам.");
-      const branchMarkup = reply.branches.map((branch, index) => {
-        const cls = index === 0 ? "badge accent" : index === 1 ? "badge warn" : "badge";
-        return '<div class="' + cls + '">' + escapeHtml(branch.title) + ": " + escapeHtml(branch.count) + "</div>";
-      }).join("");
-
-      const rowsMarkup = reply.rows.map((row) => (
-        "<tr>" +
-          "<td>" + escapeHtml(row.step_name) + "</td>" +
-          "<td>" + escapeHtml(row.total) + "</td>" +
-          "<td>" + escapeHtml(row.completed) + "</td>" +
-          "<td>" + escapeHtml(row.in_progress) + "</td>" +
-          "<td>" + escapeHtml(row.stuck) + "</td>" +
-          "<td>" + escapeHtml(row.rejected) + "</td>" +
-        "</tr>"
-      )).join("");
-
-      resultPanel.innerHTML =
-        "<div>" +
-          '<div class="eyebrow">Playbook</div>' +
-          '<h2 style="margin:8px 0 0;font-size:32px;">' + escapeHtml(reply.title) + "</h2>" +
-          '<div style="margin-top:8px;color:rgba(30,36,48,.62);font-size:14px;">Generated at ' + escapeHtml(new Date(reply.generated_at).toLocaleString()) + "</div>" +
-        "</div>" +
-        '<div class="cards">' +
-          '<div class="metric"><div class="label">Всего</div><div class="value">' + escapeHtml(reply.summary.total) + "</div></div>" +
-          '<div class="metric"><div class="label">Квалифицированы</div><div class="value">' + escapeHtml(reply.summary.qualified) + "</div></div>" +
-          '<div class="metric"><div class="label">Отсечены</div><div class="value">' + escapeHtml(reply.summary.rejected) + "</div></div>" +
-          '<div class="metric"><div class="label">Ждут движения</div><div class="value">' + escapeHtml(reply.summary.waiting) + "</div></div>" +
-        "</div>" +
-        '<div class="branches">' + branchMarkup + "</div>" +
-        "<table>" +
-          "<thead><tr><th>Этап</th><th>Вошли</th><th>Завершили</th><th>В работе</th><th>Зависли</th><th>Отсечены</th></tr></thead>" +
-          "<tbody>" + rowsMarkup + "</tbody>" +
-        "</table>";
+    function addSystemMessage(markdown) {
+      const row = document.createElement('div');
+      row.className = 'msg-row assistant';
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble assistant-bubble';
+      const contentEl = document.createElement('div');
+      contentEl.className = 'bubble-content';
+      renderMarkdown(contentEl, markdown);
+      bubble.appendChild(contentEl);
+      row.appendChild(bubble);
+      chatLog.appendChild(row);
+      scrollBottom();
+      return bubble;
     }
 
-    async function handleApiError(response) {
-      if (response.status === 401) {
-        window.location = "/login";
-        throw new Error("unauthorized");
-      }
+    function sendMessage(text) {
+      if (!text || !text.trim()) return;
+      if (streaming) return;
+      if (!ws || ws.readyState !== 1) return;
 
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || "request_failed");
+      streaming = true;
+      updateSendEnabled();
+
+      addUserBubble(text);
+      currentAssistant = addAssistantBubble();
+
+      msgInput.value = '';
+      msgInput.style.height = 'auto';
+
+      ws.send(JSON.stringify({ type: 'message', text: text.trim(), vacancyId: selectedVacancyId }));
     }
 
-    async function loadJobs() {
-      const response = await fetch("/api/jobs");
-      if (!response.ok) await handleApiError(response);
-
-      const data = await response.json();
-      const jobs = Array.isArray(data.jobs) ? data.jobs : [];
-      for (const job of jobs) {
-        const option = document.createElement("option");
-        option.value = job.job_id;
-        option.textContent = job.title;
-        jobSelect.appendChild(option);
-      }
-      if (jobs.length === 1) {
-        jobSelect.value = jobs[0].job_id;
-      }
-    }
-
-    async function submitMessage() {
-      const message = messageInput.value.trim();
-      if (!message) return;
-
-      clearError();
-      sendBtn.disabled = true;
-      addBubble("user", message);
-
+    // ── Vacancy selector ──────────────────────────────────────────────────────
+    async function loadVacancies() {
       try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            message,
-            job_id: jobSelect.value
-          })
+        const res = await fetch('/api/jobs');
+        if (res.status === 401) { window.location = '/login'; return; }
+        const data = await res.json();
+        const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+
+        // Clear and repopulate
+        vacancySelect.innerHTML = '';
+
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = jobs.length === 0 ? 'Нет вакансий' : 'Выберите вакансию…';
+        vacancySelect.appendChild(placeholder);
+
+        jobs.forEach(job => {
+          const opt = document.createElement('option');
+          opt.value = job.job_id;
+          opt.textContent = job.title;
+          vacancySelect.appendChild(opt);
         });
 
-        if (!response.ok) await handleApiError(response);
+        // «+ Создать вакансию» at the end
+        const createOpt = document.createElement('option');
+        createOpt.value = '__create__';
+        createOpt.textContent = '+ Создать вакансию';
+        vacancySelect.appendChild(createOpt);
 
-        const data = await response.json();
-        renderReply(data.reply);
-      } catch (error) {
-        if (error.message !== "unauthorized") {
-          showError("Не удалось получить ответ. Проверьте сеть или повторите запрос.");
+        // Auto-select if only one
+        if (jobs.length === 1) {
+          vacancySelect.value = jobs[0].job_id;
+          onVacancySelected(jobs[0].job_id, jobs[0].title);
         }
-      } finally {
-        sendBtn.disabled = false;
+      } catch {
+        vacancySelect.innerHTML = '<option value="">Ошибка загрузки</option>';
       }
     }
 
-    restoreHistory();
-    loadJobs().catch((error) => {
-      if (error.message !== "unauthorized") {
-        showError("Не удалось загрузить вакансии.");
+    vacancySelect.addEventListener('change', () => {
+      const val = vacancySelect.value;
+      if (val === '__create__') {
+        vacancySelect.value = selectedVacancyId || '';
+        triggerCreateVacancy();
+        return;
+      }
+      const title = vacancySelect.options[vacancySelect.selectedIndex]?.text ?? '';
+      onVacancySelected(val || null, title);
+    });
+
+    function onVacancySelected(vacancyId, title) {
+      selectedVacancyId = vacancyId;
+
+      // Clear chat
+      chatLog.innerHTML = '';
+
+      if (!vacancyId) {
+        chatLog.appendChild(emptyState);
+        updateSendEnabled();
+        return;
+      }
+
+      // Welcome message with playbook chips
+      showWelcome(vacancyId, title);
+      updateSendEnabled();
+    }
+
+    function showWelcome(vacancyId, title) {
+      const bubbleEl = addSystemMessage(
+        'Работаю с вакансией **' + escapeText(title) + '**. Что будем делать?'
+      );
+
+      // Add playbook chips
+      const PLAYBOOKS = [
+        { label: 'Настрой общение', msg: 'настрой общение с кандидатами' },
+        { label: 'Посмотреть вакансию', msg: 'посмотри вакансию' },
+        { label: 'Воронка', msg: 'покажи воронку по кандидатам' },
+        { label: 'Рассылка', msg: 'сделай рассылку' },
+      ];
+
+      const chipsEl = document.createElement('div');
+      chipsEl.className = 'playbook-chips';
+      PLAYBOOKS.forEach(({ label, msg }) => {
+        const chip = document.createElement('button');
+        chip.className = 'playbook-chip';
+        chip.textContent = label;
+        chip.addEventListener('click', () => sendMessage(msg));
+        chipsEl.appendChild(chip);
+      });
+      bubbleEl.appendChild(chipsEl);
+    }
+
+    function triggerCreateVacancy() {
+      selectedVacancyId = null;
+      chatLog.innerHTML = '';
+      updateSendEnabled();
+      sendMessage('создать вакансию');
+    }
+
+    createVacBtn.addEventListener('click', triggerCreateVacancy);
+
+    // ── Input handling ────────────────────────────────────────────────────────
+    msgInput.addEventListener('input', () => {
+      msgInput.style.height = 'auto';
+      msgInput.style.height = Math.min(msgInput.scrollHeight, 160) + 'px';
+      updateSendEnabled();
+    });
+
+    msgInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (!sendBtn.disabled) sendMessage(msgInput.value);
       }
     });
-    sendBtn.addEventListener("click", submitMessage);
+
+    sendBtn.addEventListener('click', () => sendMessage(msgInput.value));
+
+    function updateSendEnabled() {
+      const ready = ws?.readyState === 1 && !streaming && msgInput.value.trim().length > 0;
+      sendBtn.disabled = !ready;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function scrollBottom() {
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function escapeText(s) {
+      // For use inside markdown (not HTML)
+      return String(s ?? '').replace(/[\\*_[\]()]/g, '\\$&');
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    // Configure marked
+    marked.use({ breaks: true, gfm: true });
+
+    // Start WS
+    connect();
+
+    // Load vacancies
+    loadVacancies();
+
+    // Show empty state initially
+    chatLog.innerHTML = '';
+    chatLog.appendChild(emptyState);
   </script>
 </body>
 </html>`;
+
 
 function replyToMarkdown(reply) {
   if (!reply || typeof reply !== "object") {

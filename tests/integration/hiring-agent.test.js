@@ -123,8 +123,8 @@ test("hiring-agent: GET / serves HTML shell after auth", async () => {
     const { status, body, contentType } = await req(server, "GET", "/", undefined, sessionCookie);
     assert.equal(status, 200);
     assert.ok(contentType?.includes("text/html"));
-    assert.ok(body.includes("Playbook-driven chat shell"));
-    assert.ok(body.includes("demo@local"));
+    assert.ok(body.includes("Hiring Agent"));
+    assert.ok(body.includes("vacancy-select"));
   } finally {
     server.close();
   }
