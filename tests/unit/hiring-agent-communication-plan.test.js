@@ -267,6 +267,43 @@ test("communication plan: uses playbook-specific model overrides", async () => {
   assert.deepEqual(examplesModelCalls, ["google/gemini-2.5-flash"]);
 });
 
+test("communication plan: resolves vacancy by job_id when selector passes job value", async () => {
+  const savedPlan = {
+    scenario_title: "Сохраненный сценарий",
+    goal: "Назначить интервью",
+    steps: [
+      { step: "Приветствие и вопрос?", reminders_count: 1, comment: "Открываем диалог" },
+      { step: "Проверка опыта", reminders_count: 1, comment: "Скрининг" },
+      { step: "Сверка условий", reminders_count: 1, comment: "Ожидания" },
+      { step: "Приглашение на интервью", reminders_count: 2, comment: "Слот" }
+    ]
+  };
+
+  const store = createVacancySql({
+    vacancy_id: "vac-7",
+    job_id: "job-sales-1",
+    title: "Менеджер по продажам",
+    communication_plan: savedPlan,
+    communication_plan_draft: null
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "job-sales-1",
+    jobId: "job-sales-1",
+    recruiterInput: "настроить общение с кандидатами",
+    llmAdapter: {
+      async generate() {
+        throw new Error("LLM must not be called");
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.is_configured, true);
+  assert.equal(result.reply.scenario_title, "Сохраненный сценарий");
+});
+
 function createVacancySql(initialVacancy) {
   const vacancy = {
     must_haves: [],
@@ -289,8 +326,16 @@ function createVacancySql(initialVacancy) {
         acc + chunk + (index < values.length ? `$${index + 1}` : "")
       ), "");
 
-      if (text.includes("SELECT *") && text.includes("FROM chatbot.vacancies")) {
-        return [structuredClone(vacancy)];
+      if (text.includes("SELECT *") && text.includes("FROM chatbot.vacancies") && text.includes("WHERE vacancy_id")) {
+        return String(values[0]) === String(vacancy.vacancy_id)
+          ? [structuredClone(vacancy)]
+          : [];
+      }
+
+      if (text.includes("SELECT *") && text.includes("FROM chatbot.vacancies") && text.includes("WHERE job_id")) {
+        return String(values[0]) === String(vacancy.job_id)
+          ? [structuredClone(vacancy)]
+          : [];
       }
 
       if (text.includes("SET") && text.includes("communication_plan =") && text.includes("communication_plan_draft = NULL")) {
