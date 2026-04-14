@@ -325,6 +325,55 @@ test("hiring-agent: management-backed GET /api/jobs keeps two recruiter sessions
   }
 });
 
+test("hiring-agent: management-backed GET /api/jobs returns explicit timeout error for stuck tenant db", async () => {
+  const app = createHiringAgentApp({ demoMode: false, tenantDbTimeoutMs: 20 });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return async () => new Promise(() => {});
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
+    assert.equal(status, 503);
+    assert.equal(body.error, "tenant_db_timeout");
+    assert.equal(body.operation, "getJobs");
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: management-backed access denies suspended recruiter", async () => {
   const app = createHiringAgentApp({ demoMode: false });
   const server = createHiringAgentServer(app, {

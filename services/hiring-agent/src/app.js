@@ -3,8 +3,11 @@ import { executeWithDb, runCandidateFunnelPlaybook } from "./playbooks/candidate
 import { findPlaybook, getPlaybookRegistry } from "./playbooks/registry.js";
 import { routePlaybook } from "./playbooks/router.js";
 
+const TENANT_DB_TIMEOUT_MS = 5000;
+
 export function createHiringAgentApp(options = {}) {
   const demoMode = options.demoMode ?? true;
+  const tenantDbTimeoutMs = options.tenantDbTimeoutMs ?? TENANT_DB_TIMEOUT_MS;
   const healthMetadata = {
     app_env: options.appEnv ?? "local",
     deploy_sha: options.deploySha ?? "unknown",
@@ -70,7 +73,10 @@ export function createHiringAgentApp(options = {}) {
 
       if (playbook.playbook_key === "candidate_funnel") {
         if (tenantSql && tenantId && jobId) {
-          const tenantJob = await getTenantJobById(tenantSql, tenantId, jobId);
+          const tenantJob = await withTenantDbTimeout(
+            () => getTenantJobById(tenantSql, tenantId, jobId),
+            { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
+          );
           if (!tenantJob) {
             return {
               status: 404,
@@ -85,7 +91,10 @@ export function createHiringAgentApp(options = {}) {
           status: 200,
           body: {
             reply: tenantSql
-              ? await executeWithDb({ sql: tenantSql, tenantId, jobId })
+              ? await withTenantDbTimeout(
+                () => executeWithDb({ sql: tenantSql, tenantId, jobId }),
+                { operation: "executeWithDb", timeoutMs: tenantDbTimeoutMs }
+              )
               : runCandidateFunnelPlaybook({ runtimeData: getDemoRuntimeData() })
           }
         };
@@ -109,12 +118,15 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      const rows = await tenantSql`
-        SELECT job_id, title
-        FROM chatbot.jobs
-        WHERE client_id = ${tenantId}
-        ORDER BY created_at DESC
-      `;
+      const rows = await withTenantDbTimeout(
+        () => tenantSql`
+          SELECT job_id, title
+          FROM chatbot.jobs
+          WHERE client_id = ${tenantId}
+          ORDER BY created_at DESC
+        `,
+        { operation: "getJobs", timeoutMs: tenantDbTimeoutMs }
+      );
 
       return {
         status: 200,
@@ -124,6 +136,33 @@ export function createHiringAgentApp(options = {}) {
       };
     }
   };
+}
+
+export class TenantDbTimeoutError extends Error {
+  constructor(operation, timeoutMs) {
+    super(`Tenant DB operation timed out after ${timeoutMs}ms: ${operation}`);
+    this.name = "TenantDbTimeoutError";
+    this.code = "tenant_db_timeout";
+    this.httpStatus = 503;
+    this.operation = operation;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+async function withTenantDbTimeout(run, { operation, timeoutMs }) {
+  let timeoutHandle = null;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(run),
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new TenantDbTimeoutError(operation, timeoutMs));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
 }
 
 async function getTenantJobById(tenantSql, tenantId, jobId) {

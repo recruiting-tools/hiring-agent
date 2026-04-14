@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import bcrypt from "bcryptjs";
 import { createSession, getRecruiterByEmail, parseCookies, resolveSession } from "./auth.js";
+import { TenantDbTimeoutError } from "./app.js";
 import {
   AccessContextError,
   resolveAccessContext
@@ -701,6 +702,15 @@ export function createHiringAgentServer(app, options = {}) {
     } catch (error) {
       if (error instanceof InvalidJsonError) {
         writeJson(response, 400, { error: "invalid_json" });
+        return;
+      }
+
+      if (error instanceof TenantDbTimeoutError) {
+        writeJson(response, error.httpStatus, {
+          error: error.code,
+          message: error.message,
+          operation: error.operation
+        });
         return;
       }
 
