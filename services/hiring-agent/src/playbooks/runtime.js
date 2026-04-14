@@ -73,7 +73,7 @@ export async function dispatch({
 
   const stepMap = new Map(steps.map((step) => [step.step_order, step]));
   let currentStepOrder = session.current_step_order ?? steps[0].step_order;
-  let context = structuredClone(session.context ?? {});
+  let context = normalizeSessionContext(session.context);
   if (vacancyId && !context.vacancy_id) {
     context.vacancy_id = vacancyId;
   }
@@ -174,4 +174,23 @@ export async function dispatch({
       throw error;
     }
   }
+}
+
+function normalizeSessionContext(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return structuredClone(value);
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
 }

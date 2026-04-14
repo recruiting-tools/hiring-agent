@@ -541,6 +541,75 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
   ]);
 });
 
+test("playbook runtime: parses stringified session context before injecting vacancy_id", async () => {
+  const calls = [];
+  const managementStore = {
+    async getPlaybookSteps(playbookKey) {
+      assert.equal(playbookKey, "setup_communication");
+      return [{
+        step_key: "setup_communication.0",
+        step_order: 0,
+        step_type: "user_input",
+        user_message: "Что уточнить по вакансии?",
+        context_key: "question",
+        next_step_order: 1
+      }];
+    },
+    async getActiveSession(params) {
+      calls.push(["getActiveSession", params]);
+      return {
+        session_id: "sess-existing",
+        playbook_key: "setup_communication",
+        vacancy_id: "job-prod-004",
+        current_step_order: 0,
+        context: "{\"vacancy_id\":\"job-prod-004\"}",
+        call_stack: [],
+        status: "active"
+      };
+    },
+    async abortActiveSessions() {
+      throw new Error("should not abort when active session exists");
+    },
+    async createPlaybookSession() {
+      throw new Error("should not create a new session");
+    },
+    async updateSession(sessionId, patch) {
+      calls.push(["update", sessionId, patch]);
+    },
+    async completeSession() {
+      throw new Error("should not complete on awaiting input");
+    }
+  };
+
+  const result = await dispatch({
+    managementStore,
+    tenantSql: null,
+    tenantId: "tenant-1",
+    recruiterId: "rec-1",
+    vacancyId: "job-prod-004",
+    playbookKey: "setup_communication",
+    recruiterInput: null,
+    llmAdapter: null
+  });
+
+  assert.equal(result.sessionId, "sess-existing");
+  assert.deepEqual(result.reply, {
+    kind: "user_input",
+    message: "Что уточнить по вакансии?"
+  });
+  assert.deepEqual(calls.at(-1), [
+    "update",
+    "sess-existing",
+    {
+      currentStepOrder: 0,
+      context: {
+        vacancy_id: "job-prod-004"
+      },
+      vacancyId: "job-prod-004"
+    }
+  ]);
+});
+
 function createMockSql(handler) {
   return async (strings, ...values) => {
     const text = strings.reduce((result, chunk, index) => (
