@@ -83,7 +83,8 @@ export class HhApiClient {
 
   async sendMessage(hhNegotiationId, text) {
     const payload = await this._requestJson("POST", `/negotiations/${hhNegotiationId}/messages`, {
-      body: { text }
+      body: { message: text },
+      bodyType: "form"
     });
     return { hh_message_id: payload.id ?? payload.hh_message_id ?? null };
   }
@@ -94,11 +95,12 @@ export class HhApiClient {
     });
   }
 
-  async _requestJson(method, path, { query, body, retryOn401 = true } = {}) {
+  async _requestJson(method, path, { query, body, bodyType = "json", retryOn401 = true } = {}) {
     const tokens = await this._getUsableTokens();
     const response = await this._fetchJson(method, path, {
       query,
       body,
+      bodyType,
       accessToken: tokens.access_token
     });
 
@@ -107,6 +109,7 @@ export class HhApiClient {
       const retried = await this._fetchJson(method, path, {
         query,
         body,
+        bodyType,
         accessToken: refreshed.access_token
       });
       return this._parseOrThrow(retried);
@@ -148,7 +151,7 @@ export class HhApiClient {
     return this._parseOrThrow(response);
   }
 
-  async _fetchJson(method, path, { query, body, accessToken }) {
+  async _fetchJson(method, path, { query, body, bodyType, accessToken }) {
     const url = new URL(`${this.apiBaseUrl}${path}`);
     if (query) {
       for (const [key, value] of Object.entries(query)) {
@@ -157,14 +160,22 @@ export class HhApiClient {
       }
     }
 
+    const serializedBody = bodyType === "form" && body
+      ? new URLSearchParams(Object.entries(body).filter(([, value]) => value !== undefined && value !== null)).toString()
+      : (body ? JSON.stringify(body) : undefined);
+
+    const contentType = bodyType === "form"
+      ? "application/x-www-form-urlencoded"
+      : "application/json";
+
     return this.fetchImpl(String(url), {
       method,
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
-        ...(body ? { "content-type": "application/json" } : {})
+        ...(body ? { "content-type": contentType } : {})
       },
-      ...(body ? { body: JSON.stringify(body) } : {})
+      ...(body ? { body: serializedBody } : {})
     });
   }
 
