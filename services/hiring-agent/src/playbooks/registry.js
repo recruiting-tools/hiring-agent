@@ -1,3 +1,5 @@
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
 const FALLBACK_PLAYBOOKS = [
   {
     playbook_key: "candidate_funnel",
@@ -23,28 +25,38 @@ const FALLBACK_PLAYBOOKS = [
 ];
 
 let cachedPlaybooks = null;
+let cachedAt = 0;
+let cachePromise = null;
 
 export async function getPlaybookRegistry(managementSql = null) {
   if (!managementSql) {
     return structuredClone(FALLBACK_PLAYBOOKS);
   }
 
-  if (!cachedPlaybooks) {
-    const rows = await managementSql`
+  if (cachedPlaybooks && (Date.now() - cachedAt) < CACHE_TTL_MS) {
+    return structuredClone(cachedPlaybooks);
+  }
+
+  if (!cachePromise) {
+    cachePromise = managementSql`
       SELECT playbook_key, name, trigger_description, status, sort_order
       FROM management.playbook_definitions
       WHERE status != 'deprecated'
       ORDER BY sort_order ASC, playbook_key ASC
-    `;
-
-    cachedPlaybooks = rows.map((row) => ({
-      ...row,
-      title: row.name,
-      enabled: row.status === "available"
-    }));
+    `.then((rows) => {
+      cachedPlaybooks = rows.map((row) => ({
+        ...row,
+        title: row.name,
+        enabled: row.status === "available"
+      }));
+      cachedAt = Date.now();
+      return cachedPlaybooks;
+    }).finally(() => {
+      cachePromise = null;
+    });
   }
 
-  return structuredClone(cachedPlaybooks);
+  return structuredClone(await cachePromise);
 }
 
 export async function findPlaybook(playbookKey, managementSql = null) {

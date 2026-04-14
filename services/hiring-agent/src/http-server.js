@@ -784,12 +784,21 @@ const CHAT_HTML = `<!DOCTYPE html>
         const data = await res.json();
         const jobs = Array.isArray(data.jobs) ? data.jobs : [];
 
-        // Clear and repopulate
+        if (jobs.length === 0) {
+          // No vacancies: hide dropdown, update empty state to "create first"
+          vacancySelect.style.display = 'none';
+          document.querySelector('#empty-state h2').textContent = 'Нет вакансий';
+          document.querySelector('#empty-state p').textContent = 'Создайте первую вакансию, чтобы начать работу с кандидатами';
+          return;
+        }
+
+        // Has vacancies: ensure dropdown is visible
+        vacancySelect.style.display = '';
         vacancySelect.innerHTML = '';
 
         const placeholder = document.createElement('option');
         placeholder.value = '';
-        placeholder.textContent = jobs.length === 0 ? 'Нет вакансий' : 'Выберите вакансию…';
+        placeholder.textContent = 'Выберите вакансию…';
         vacancySelect.appendChild(placeholder);
 
         jobs.forEach(job => {
@@ -799,7 +808,7 @@ const CHAT_HTML = `<!DOCTYPE html>
           vacancySelect.appendChild(opt);
         });
 
-        // «+ Создать вакансию» at the end
+        // «+ Создать вакансию» at the end (only when other vacancies exist)
         const createOpt = document.createElement('option');
         createOpt.value = '__create__';
         createOpt.textContent = '+ Создать вакансию';
@@ -1000,6 +1009,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       message: text,
       tenantSql: wsContext.tenantSql,
       tenantId: wsContext.tenantId,
+      recruiterId: wsContext.recruiterId,
       job_id: vacancyId,
     });
 
