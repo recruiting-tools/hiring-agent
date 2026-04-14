@@ -356,6 +356,79 @@ test("hiring-agent: management-backed GET /api/vacancies resolves tenant sql via
   }
 });
 
+test("hiring-agent: management-backed GET /api/vacancies falls back to chatbot.jobs when vacancies table is empty", async () => {
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (/FROM chatbot\.vacancies/.test(text)) {
+      assert.deepEqual(values, []);
+      return [];
+    }
+
+    if (/FROM chatbot\.jobs/.test(text)) {
+      assert.match(text, /WHERE client_id = \$1/);
+      assert.deepEqual(values, ["tenant-alpha-001"]);
+      return [{ job_id: "job-1", title: "Alpha role" }];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
+    assert.equal(status, 200);
+    assert.deepEqual(body.vacancies, [{
+      vacancy_id: "job-1",
+      job_id: "job-1",
+      title: "Alpha role",
+      status: "active",
+      extraction_status: "pending"
+    }]);
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: management-backed GET /api/vacancies keeps two recruiter sessions isolated", async () => {
   const app = createHiringAgentApp({ demoMode: false });
   const server = createHiringAgentServer(app, {
