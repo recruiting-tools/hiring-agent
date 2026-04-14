@@ -563,6 +563,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     <select id="vacancy-select">
       <option value="">Загрузка вакансий…</option>
     </select>
+    <span id="recruiter-email" style="font-size:12px;color:var(--t3);margin-left:4px;">__RECRUITER_EMAIL__</span>
     <a href="/logout" id="logout-btn">Выйти</a>
   </header>
 
@@ -1154,7 +1155,7 @@ export function createHiringAgentServer(app, options = {}) {
   });
 
   // ── WebSocket server ─────────────────────────────────────────────────────────
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ server, path: "/ws" });
 
   wss.on("connection", async (ws, req) => {
     const cookies = parseCookies(req.headers.cookie ?? "");
@@ -1186,7 +1187,7 @@ export function createHiringAgentServer(app, options = {}) {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
       if (msg.type === "message") {
-        await handleChatWs(ws, msg, wsContext, app, { managementSql, poolRegistry, appEnv });
+        await handleChatWs(ws, msg, wsContext, app, { managementStore, poolRegistry, appEnv });
       }
     });
   });
