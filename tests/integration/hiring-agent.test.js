@@ -731,3 +731,122 @@ test("hiring-agent: WebSocket closes with 4001 when session cookie is missing", 
     server.close();
   }
 });
+
+test("hiring-agent: management-backed WebSocket uses tenant sql resolved at connection time", async () => {
+  let callIndex = 0;
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+    callIndex += 1;
+
+    if (callIndex === 1) {
+      assert.match(text, /WHERE job_id = \$1/);
+      assert.deepEqual(values, ["job-ws-owned", "tenant-alpha-001"]);
+      return [{ job_id: "job-ws-owned", title: "WS test role" }];
+    }
+
+    if (text === "and pipeline_runs.job_id = $1") {
+      assert.deepEqual(values, ["job-ws-owned"]);
+      return { fragment: true };
+    }
+
+    assert.match(text, /with scoped_runs as/);
+    return [{
+      step_name: "Interview",
+      step_id: "interview",
+      step_index: 0,
+      total: 5,
+      in_progress: 2,
+      completed: 2,
+      stuck: 0,
+      rejected: 1
+    }];
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  const port = server.address().port;
+  try {
+    const messages = await new Promise((resolve, reject) => {
+      const ws = new WsClient(`ws://localhost:${port}/ws`, {
+        headers: { cookie: "session=sess-alpha" }
+      });
+      const received = [];
+      let settled = false;
+
+      const settle = (val, isErr) => {
+        if (settled) return;
+        settled = true;
+        ws.close();
+        isErr ? reject(val) : resolve(val);
+      };
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({
+          type: "message",
+          text: "Визуализируй воронку по кандидатам",
+          vacancyId: "job-ws-owned"
+        }));
+      });
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data);
+        received.push(msg);
+        if (msg.type === "done") settle(received, false);
+      });
+      ws.on("error", (err) => settle(err, true));
+      ws.on("close", (code) => {
+        if (code === 4001) settle(new Error("Unauthorized 4001"), true);
+        else settle(received, false);
+      });
+      setTimeout(() => settle(new Error("timeout"), true), 5000);
+    });
+
+    const chunk = messages.find((m) => m.type === "chunk");
+    const done = messages.find((m) => m.type === "done");
+    assert.ok(chunk, "should receive chunk message");
+    assert.ok(typeof chunk.text === "string" && chunk.text.length > 0, "chunk text should be non-empty");
+    assert.ok(done, "should receive done message");
+    assert.ok(Array.isArray(done.actions), "done.actions should be an array");
+    // Verify tenant sql was actually called (callIndex > 0 means tenantSql was used, not demo data)
+    assert.ok(callIndex > 0, "tenant sql should have been called at least once");
+  } finally {
+    server.close();
+  }
+});

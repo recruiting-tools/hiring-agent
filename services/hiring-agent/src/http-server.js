@@ -1147,17 +1147,41 @@ export function createHiringAgentServer(app, options = {}) {
 
   wss.on("connection", async (ws, req) => {
     const cookies = parseCookies(req.headers.cookie ?? "");
-    const recruiter = await resolveSession(managementSql, cookies.session).catch(() => null);
-    if (!recruiter) {
-      ws.close(4001, "Unauthorized");
-      return;
-    }
 
-    const wsContext = {
-      recruiterId: recruiter.recruiter_id,
-      tenantId: recruiter.tenant_id,
-      recruiterEmail: recruiter.email,
-    };
+    // Resolve access context at connection time — mirrors requireAccessContext.
+    // This ensures tenantSql is properly tenant-scoped in management mode.
+    let wsContext;
+    if (managementStore && poolRegistry) {
+      try {
+        const ctx = await resolveAccessContext({
+          managementStore,
+          poolRegistry,
+          appEnv,
+          sessionToken: cookies.session,
+        });
+        wsContext = {
+          recruiterId: ctx.recruiterId,
+          tenantId: ctx.tenantId,
+          recruiterEmail: ctx.recruiterEmail,
+          tenantSql: ctx.tenantSql,
+        };
+      } catch {
+        ws.close(4001, "Unauthorized");
+        return;
+      }
+    } else {
+      const recruiter = await resolveSession(managementSql, cookies.session).catch(() => null);
+      if (!recruiter) {
+        ws.close(4001, "Unauthorized");
+        return;
+      }
+      wsContext = {
+        recruiterId: recruiter.recruiter_id,
+        tenantId: recruiter.tenant_id,
+        recruiterEmail: recruiter.email,
+        tenantSql: null,
+      };
+    }
 
     let alive = true;
     ws.on("pong", () => { alive = true; });
@@ -1175,7 +1199,7 @@ export function createHiringAgentServer(app, options = {}) {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
       if (msg.type === "message") {
-        await handleChatWs(ws, msg, wsContext, app, { managementStore, poolRegistry, appEnv });
+        await handleChatWs(ws, msg, wsContext, app);
       }
     });
   });
