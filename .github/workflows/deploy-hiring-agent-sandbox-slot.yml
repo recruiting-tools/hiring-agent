@@ -130,7 +130,7 @@ jobs:
           location = /sandbox-003 { return 301 /sandbox-003/; }
 
           location ^~ /sandbox-001/ {
-            proxy_pass http://127.0.0.1:3201/;
+            proxy_pass http://127.0.0.1:3201;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -141,7 +141,7 @@ jobs:
           }
 
           location ^~ /sandbox-002/ {
-            proxy_pass http://127.0.0.1:3202/;
+            proxy_pass http://127.0.0.1:3202;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -152,7 +152,7 @@ jobs:
           }
 
           location ^~ /sandbox-003/ {
-            proxy_pass http://127.0.0.1:3203/;
+            proxy_pass http://127.0.0.1:3203;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
