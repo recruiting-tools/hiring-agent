@@ -13,12 +13,12 @@ import { createHash } from "node:crypto";
 
 const ACTION_SAVE = "save";
 const ACTION_EDIT = "edit";
-const ACTION_EXAMPLES = "examples";
+const ACTION_START = "start";
 const ACTION_SHOW = "show";
 
 const SAVE_ACTION_MESSAGE = "настроить общение: сохранить настройку коммуникаций";
+const START_ACTION_MESSAGE = "настроить общение: запустить сценарий коммуникаций";
 const EDIT_ACTION_MESSAGE = "настроить общение: поправить сценарий коммуникаций";
-const EXAMPLES_ACTION_MESSAGE = "настроить общение: сгенерировать примеры общения по этому сценарию коммуникаций";
 
 export async function runCommunicationPlanPlaybook({
   tenantSql,
@@ -138,7 +138,7 @@ export async function runCommunicationPlanPlaybook({
     };
   }
 
-  if (action === ACTION_EXAMPLES) {
+  if (action === ACTION_START) {
     const planForExamples = draftPlan ?? savedPlan;
     if (!planForExamples) {
       return {
@@ -405,19 +405,19 @@ function buildActions({ isConfigured }) {
   const actions = [];
   if (!isConfigured) {
     actions.push({
-      label: "Сохранить настройку",
+      label: "Сохранить",
       message: SAVE_ACTION_MESSAGE
     });
   }
 
   actions.push({
-    label: "Поправить",
-    message: EDIT_ACTION_MESSAGE
+    label: "Запустить",
+    message: START_ACTION_MESSAGE
   });
 
   actions.push({
-    label: "Сгенерировать примеры общения по этому сценарию коммуникаций",
-    message: EXAMPLES_ACTION_MESSAGE
+    label: "Поправить",
+    message: EDIT_ACTION_MESSAGE
   });
 
   return actions;
@@ -427,11 +427,14 @@ function detectAction(input) {
   const text = String(input ?? "").toLowerCase();
   if (!text) return ACTION_SHOW;
   if (text.includes("сохранить настрой")) return ACTION_SAVE;
+  if (text.includes("запустить сценар") || text.includes("запуск сценар")) {
+    return ACTION_START;
+  }
   if (text.includes("поправить") || text.includes("изменить сценар") || text.includes("отредактир")) {
     return ACTION_EDIT;
   }
   if (text.includes("сгенерировать пример") || text.includes("примеры общен") || text.includes("обновить пример")) {
-    return ACTION_EXAMPLES;
+    return ACTION_START;
   }
   return ACTION_SHOW;
 }

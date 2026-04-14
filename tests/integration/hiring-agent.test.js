@@ -1361,6 +1361,137 @@ test("hiring-agent: WebSocket returns funnel chunks for authenticated session", 
   }
 });
 
+test("hiring-agent: WebSocket renders communication_plan as markdown table and returns actions", async () => {
+  const app = {
+    getHealth() {
+      return { status: 200, body: { status: "ok" } };
+    },
+    async postChatMessage() {
+      return {
+        status: 200,
+        body: {
+          reply: {
+            kind: "communication_plan",
+            scenario_title: "Первичный скрининг",
+            goal: "Договориться о звонке",
+            steps: [
+              {
+                step: "Приветствие и вопрос мотивации",
+                reminders_count: 1,
+                comment: "Открываем диалог"
+              },
+              {
+                step: "Проверка релевантного опыта",
+                reminders_count: 1,
+                comment: "Короткий скрининг"
+              },
+              {
+                step: "Приглашение на звонок",
+                reminders_count: 2,
+                comment: "Фиксируем слот"
+              }
+            ],
+            examples: [],
+            note: "Сценарий сформирован.",
+            actions: [
+              { label: "Сохранить", message: "настроить общение: сохранить настройку коммуникаций" },
+              { label: "Запустить", message: "настроить общение: запустить сценарий коммуникаций" },
+              { label: "Поправить", message: "настроить общение: поправить сценарий коммуникаций" }
+            ]
+          }
+        }
+      };
+    }
+  };
+
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return async () => [];
+      }
+    }
+  }).listen(0);
+
+  const port = server.address().port;
+  try {
+    const messages = await new Promise((resolve, reject) => {
+      const ws = new WsClient(`ws://localhost:${port}/ws`, {
+        headers: { cookie: "session=sess-alpha" }
+      });
+      const received = [];
+      let settled = false;
+
+      const settle = (val, isErr) => {
+        if (settled) return;
+        settled = true;
+        ws.close();
+        isErr ? reject(val) : resolve(val);
+      };
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({
+          type: "message",
+          text: "настроить общение с кандидатами",
+          vacancyId: "vac-test-1"
+        }));
+      });
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data);
+        received.push(msg);
+        if (msg.type === "done") settle(received, false);
+      });
+      ws.on("error", (err) => settle(err, true));
+      ws.on("close", (code) => {
+        if (code === 4001) settle(new Error("Unauthorized 4001"), true);
+      });
+      setTimeout(() => settle(new Error("timeout"), true), 5000);
+    });
+
+    const chunk = messages.find((m) => m.type === "chunk");
+    const done = messages.find((m) => m.type === "done");
+    assert.ok(chunk, "should receive chunk message");
+    assert.ok(done, "should receive done message");
+    assert.match(chunk.text, /## План коммуникации/);
+    assert.match(chunk.text, /\| Шаг \| Кол-во напоминалок \| Комментарий \|/);
+    assert.ok(!chunk.text.includes("```json"), "should not dump raw JSON");
+    assert.deepEqual(
+      done.actions.map((item) => item.label),
+      ["Сохранить", "Запустить", "Поправить"]
+    );
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: WebSocket closes with 4001 when session cookie is missing", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   const port = server.address().port;
