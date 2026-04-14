@@ -304,8 +304,52 @@ test("communication plan: resolves vacancy by job_id when selector passes job va
   assert.equal(result.reply.scenario_title, "Сохраненный сценарий");
 });
 
+test("communication plan: creates draft vacancy from job when vacancy row is missing", async () => {
+  const store = createVacancySql({
+    noInitialVacancy: true,
+    jobRecord: {
+      job_id: "job-sales-2",
+      title: "Менеджер по продажам",
+      description: "B2B продажи, входящие лиды, CRM"
+    }
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "job-sales-2",
+    jobId: "job-sales-2",
+    recruiterInput: "настроить общение с кандидатами",
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify({
+          scenario_title: "Базовый сценарий",
+          goal: "Назначить интервью",
+          steps: [
+            { step: "Приветствие и вопрос?", reminders_count: 1, comment: "Открыть диалог" },
+            { step: "Проверка релевантного опыта", reminders_count: 1, comment: "Скрининг" },
+            { step: "Сверка условий", reminders_count: 1, comment: "Ожидания" },
+            { step: "Приглашение на интервью", reminders_count: 2, comment: "Фиксируем слот" }
+          ]
+        });
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(store.getVacancy().job_id, "job-sales-2");
+  assert.equal(store.getVacancy().title, "Менеджер по продажам");
+  assert.equal(result.reply.is_configured, false);
+});
+
 function createVacancySql(initialVacancy) {
-  const vacancy = {
+  const {
+    jobRecord = null,
+    noInitialVacancy = false,
+    ...initialVacancyData
+  } = structuredClone(initialVacancy ?? {});
+
+  let sequence = 1;
+  let vacancy = noInitialVacancy ? null : {
     must_haves: [],
     nice_haves: [],
     work_conditions: {},
@@ -314,7 +358,7 @@ function createVacancySql(initialVacancy) {
     communication_plan_draft: null,
     communication_examples: [],
     communication_examples_plan_hash: null,
-    ...structuredClone(initialVacancy)
+    ...initialVacancyData
   };
 
   return {
@@ -327,18 +371,46 @@ function createVacancySql(initialVacancy) {
       ), "");
 
       if (text.includes("SELECT *") && text.includes("FROM chatbot.vacancies") && text.includes("WHERE vacancy_id")) {
+        if (!vacancy) return [];
         return String(values[0]) === String(vacancy.vacancy_id)
           ? [structuredClone(vacancy)]
           : [];
       }
 
       if (text.includes("SELECT *") && text.includes("FROM chatbot.vacancies") && text.includes("WHERE job_id")) {
+        if (!vacancy) return [];
         return String(values[0]) === String(vacancy.job_id)
           ? [structuredClone(vacancy)]
           : [];
       }
 
+      if (text.includes("SELECT job_id, title, description") && text.includes("FROM chatbot.jobs")) {
+        if (!jobRecord) return [];
+        return String(values[0]) === String(jobRecord.job_id)
+          ? [structuredClone(jobRecord)]
+          : [];
+      }
+
+      if (text.includes("INSERT INTO chatbot.vacancies")) {
+        vacancy = {
+          must_haves: [],
+          nice_haves: [],
+          work_conditions: {},
+          application_steps: [],
+          communication_plan: null,
+          communication_plan_draft: null,
+          communication_examples: [],
+          communication_examples_plan_hash: null,
+          vacancy_id: `vac-generated-${sequence++}`,
+          title: values[0],
+          raw_text: values[1],
+          job_id: values[2]
+        };
+        return [structuredClone(vacancy)];
+      }
+
       if (text.includes("SET") && text.includes("communication_plan =") && text.includes("communication_plan_draft = NULL")) {
+        if (!vacancy) throw new Error("No vacancy to update");
         vacancy.communication_plan = values[0] ? JSON.parse(values[0]) : null;
         vacancy.communication_plan_draft = null;
         vacancy.communication_examples = values[1] ? JSON.parse(values[1]) : [];
@@ -347,11 +419,13 @@ function createVacancySql(initialVacancy) {
       }
 
       if (text.includes("SET") && text.includes("communication_plan_draft") && text.includes("WHERE vacancy_id")) {
+        if (!vacancy) throw new Error("No vacancy to update");
         vacancy.communication_plan_draft = values[0] ? JSON.parse(values[0]) : null;
         return [];
       }
 
       if (text.includes("SET") && text.includes("communication_examples")) {
+        if (!vacancy) throw new Error("No vacancy to update");
         vacancy.communication_examples = values[0] ? JSON.parse(values[0]) : [];
         vacancy.communication_examples_plan_hash = values[1] ?? null;
         return [];
