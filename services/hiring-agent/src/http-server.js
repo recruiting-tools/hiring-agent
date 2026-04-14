@@ -1443,6 +1443,56 @@ const CHAT_HTML = `<!DOCTYPE html>
 </html>`;
 
 
+function escapeMarkdownTableCell(value) {
+  return String(value ?? "—").replace(/\|/g, "\\|");
+}
+
+function formatCommunicationPlanMarkdown(reply) {
+  const title = String(reply.scenario_title ?? "Сценарий коммуникации");
+  const goal = String(reply.goal ?? "Договориться о следующем шаге");
+  const rows = Array.isArray(reply.steps) ? reply.steps : [];
+  const examples = Array.isArray(reply.examples) ? reply.examples : [];
+  const note = String(reply.note ?? "").trim();
+
+  const tableRows = rows.length > 0
+    ? rows.map((row) => {
+      const reminders = Number.isInteger(row?.reminders_count)
+        ? row.reminders_count
+        : 0;
+      return `| ${escapeMarkdownTableCell(row?.step)} | ${reminders} | ${escapeMarkdownTableCell(row?.comment)} |`;
+    }).join("\n")
+    : "| — | — | — |";
+
+  const examplesBlock = examples.length > 0
+    ? [
+      "",
+      "### Примеры первого сообщения",
+      "",
+      ...examples.map((item, index) => (
+        `**${index + 1}. ${item?.title ?? `Вариант ${index + 1}`}:** ${item?.message ?? "—"}`
+      ))
+    ].join("\n")
+    : "";
+
+  const hintBlock = examples.length === 0
+    ? "\n\n_Чтобы получить примеры первого сообщения, нажмите «Запустить»._"
+    : "";
+
+  return [
+    "## План коммуникации",
+    "",
+    `**Сценарий:** ${title}`,
+    `**Цель:** ${goal}`,
+    "",
+    "| Шаг | Кол-во напоминалок | Комментарий |",
+    "|---|---:|---|",
+    tableRows,
+    note ? `\n> ${note}` : "",
+    hintBlock,
+    examplesBlock
+  ].filter(Boolean).join("\n");
+}
+
 function replyToMarkdown(reply) {
   if (!reply || typeof reply !== "object") {
     return { markdown: String(reply ?? "…"), actions: [] };
@@ -1492,6 +1542,13 @@ function replyToMarkdown(reply) {
     return {
       markdown: reply.content ?? "…",
       actions: [],
+    };
+  }
+
+  if (reply.kind === "communication_plan") {
+    return {
+      markdown: formatCommunicationPlanMarkdown(reply),
+      actions: Array.isArray(reply.actions) ? reply.actions : [],
     };
   }
 

@@ -36,7 +36,10 @@ test("communication plan: returns saved plan without LLM call", async () => {
 
   assert.equal(result.reply.kind, "communication_plan");
   assert.equal(result.reply.is_configured, true);
-  assert.equal(result.reply.actions.some((item) => item.label === "Сохранить настройку"), false);
+  assert.deepEqual(
+    result.reply.actions.map((item) => item.label),
+    ["Запустить", "Поправить"]
+  );
   assert.equal(result.reply.steps.length, 4);
 });
 
@@ -75,7 +78,10 @@ test("communication plan: creates draft on initial generation", async () => {
 
   assert.equal(result.reply.kind, "communication_plan");
   assert.equal(result.reply.is_configured, false);
-  assert.equal(result.reply.actions.some((item) => item.label === "Сохранить настройку"), true);
+  assert.deepEqual(
+    result.reply.actions.map((item) => item.label),
+    ["Сохранить", "Запустить", "Поправить"]
+  );
   assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
 });
 
@@ -206,7 +212,7 @@ test("communication plan: save command moves draft to saved plan", async () => {
   assert.equal(store.getVacancy().communication_plan_draft, null);
 });
 
-test("communication plan: examples command generates and stores examples", async () => {
+test("communication plan: start command generates and stores examples", async () => {
   const savedPlan = {
     scenario_title: "Сценарий",
     goal: "Собеседование",
@@ -229,7 +235,7 @@ test("communication plan: examples command generates and stores examples", async
   const result = await runCommunicationPlanPlaybook({
     tenantSql: store.sql,
     vacancyId: "vac-4",
-    recruiterInput: "настроить общение: сгенерировать примеры общения по этому сценарию коммуникаций",
+    recruiterInput: "настроить общение: запустить сценарий коммуникаций",
     llmAdapter: {
       async generate() {
         return JSON.stringify([
@@ -245,11 +251,9 @@ test("communication plan: examples command generates and stores examples", async
   assert.equal(result.reply.examples.length, 3);
   assert.equal(store.getVacancy().communication_examples.length, 3);
   assert.equal(typeof store.getVacancy().communication_examples_plan_hash, "string");
-  assert.equal(
-    result.reply.actions.some((item) => (
-      item.label === "Сгенерировать примеры общения по этому сценарию коммуникаций"
-    )),
-    true
+  assert.deepEqual(
+    result.reply.actions.map((item) => item.label),
+    ["Запустить", "Поправить"]
   );
 });
 
@@ -349,7 +353,7 @@ test("communication plan: uses playbook-specific model overrides", async () => {
   await runCommunicationPlanPlaybook({
     tenantSql: store.sql,
     vacancyId: "vac-6",
-    recruiterInput: "настроить общение: сгенерировать примеры общения по этому сценарию коммуникаций",
+    recruiterInput: "настроить общение: запустить сценарий коммуникаций",
     llmAdapter,
     llmConfig: {
       planModel: "openai/gpt-5.4-mini",
