@@ -75,7 +75,7 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
 
   git fetch origin "$DEPLOY_REF"
   git checkout "$DEPLOY_REF"
-  git pull origin "$DEPLOY_REF"
+  git reset --hard "origin/$DEPLOY_REF"
 
   run_pnpm() {
     if command -v pnpm >/dev/null 2>&1; then
