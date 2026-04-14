@@ -733,7 +733,7 @@ export class InMemoryHiringStore {
     return this.conversations.get(conversationId) ?? null;
   }
 
-  async getQueueForRecruiter(recruiterToken) {
+  async getQueueForRecruiter(recruiterToken, { jobId } = {}) {
     const recruiter = await this.getRecruiterByToken(recruiterToken);
     if (!recruiter) return null; // null = token not found
 
@@ -748,6 +748,7 @@ export class InMemoryHiringStore {
         if (!conv) return false;
         const job = this.jobs.get(conv.job_id);
         if (!job) return false;
+        if (jobId && conv.job_id !== jobId) return false;
         // Exclude if job has a client_id that doesn't match recruiter's client_id.
         // Treat missing/null job.client_id as "no tenant" (backward compat).
         // Null-client_id recruiter sees only null-client_id jobs (matches Postgres behavior).
@@ -762,6 +763,8 @@ export class InMemoryHiringStore {
         const run = [...this.pipelineRuns.values()].find((r) => r.pipeline_run_id === pm.pipeline_run_id);
         const stepStates = run ? this.getStepStates(run.pipeline_run_id) : [];
         const activeStep = stepStates.find((s) => s.step_id === (run?.active_step_id ?? pm.step_id));
+        const history = this.getHistory(pm.conversation_id);
+        const lastMessageBody = history.at(-1)?.body ?? pm.body;
         let templateStep = null;
         if (job && activeStep) {
           try {
@@ -773,14 +776,28 @@ export class InMemoryHiringStore {
         return {
           planned_message_id: pm.planned_message_id,
           conversation_id: pm.conversation_id,
+          candidate_id: pm.candidate_id,
           candidate_display_name: candidate?.display_name ?? "Неизвестно",
+          job_id: job?.job_id ?? null,
           job_title: job?.title ?? "Неизвестно",
+          step_id: pm.step_id ?? null,
           active_step_goal: templateStep?.goal ?? pm.step_id ?? "",
           body: pm.body,
+          planned_message_preview: summarizeText(pm.body, 200),
+          last_message_preview: summarizeText(lastMessageBody, 200),
           reason: pm.reason,
           review_status: pm.review_status,
           auto_send_after: pm.auto_send_after,
-          seconds_until_auto_send: Math.round((new Date(pm.auto_send_after) - now) / 1000)
+          seconds_until_auto_send: Math.round((new Date(pm.auto_send_after) - now) / 1000),
+          resume_text: candidate?.resume_text ?? "",
+          history: history.map((message) => ({
+            message_id: message.message_id,
+            direction: message.direction,
+            body: message.body,
+            occurred_at: message.occurred_at,
+            channel: message.channel,
+            message_type: message.message_type
+          }))
         };
       })
       .sort((a, b) => new Date(a.auto_send_after) - new Date(b.auto_send_after));
@@ -890,6 +907,12 @@ function appendImportResetReason(reason) {
   const suffix = " Заблокировано после HH re-import remap.";
   if (!reason) return suffix.trim();
   return reason.includes("HH re-import remap") ? reason : `${reason}${suffix}`;
+}
+
+function summarizeText(value, maxLength) {
+  const compact = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (compact.length <= maxLength) return compact;
+  return `${compact.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
 // Determine starting pipeline step for an imported HH candidate based on HH collection.

@@ -822,7 +822,9 @@ export class PostgresHiringStore {
       SELECT
         pm.planned_message_id,
         pm.conversation_id,
+        pm.candidate_id,
         cand.display_name AS candidate_display_name,
+        cand.resume_text,
         j.title AS job_title,
         j.job_id,
         pm.step_id,
@@ -843,12 +845,43 @@ export class PostgresHiringStore {
         ${jobId ? this.sql`AND c.job_id = ${jobId}` : this.sql``}
       ORDER BY pm.auto_send_after ASC
     `;
+    const conversationIds = [...new Set(rows.map((row) => row.conversation_id))];
+    const historyRows = conversationIds.length
+      ? await this.sql`
+        SELECT message_id, conversation_id, direction, message_type, body, channel, occurred_at
+        FROM chatbot.messages
+        WHERE conversation_id = ANY(${conversationIds})
+        ORDER BY occurred_at ASC NULLS LAST
+      `
+      : [];
+    const historyByConversationId = new Map();
+    for (const message of historyRows) {
+      const current = historyByConversationId.get(message.conversation_id) ?? [];
+      current.push({
+        message_id: message.message_id,
+        direction: message.direction,
+        body: message.body,
+        occurred_at: message.occurred_at,
+        channel: message.channel,
+        message_type: message.message_type
+      });
+      historyByConversationId.set(message.conversation_id, current);
+    }
+
     return rows.map((row) => {
+      const history = historyByConversationId.get(row.conversation_id) ?? [];
+      const lastMessageBody = history.at(-1)?.body ?? row.body;
       let active_step_goal = row.active_step_id ?? row.step_id ?? "";
       try {
         active_step_goal = this.getTemplateStep(row.job_id, row.active_step_id ?? row.step_id)?.goal ?? active_step_goal;
       } catch { /* job not in _jobs registry */ }
-      return { ...row, active_step_goal };
+      return {
+        ...row,
+        active_step_goal,
+        planned_message_preview: summarizeText(row.body, 200),
+        last_message_preview: summarizeText(lastMessageBody, 200),
+        history
+      };
     });
   }
 
@@ -1104,4 +1137,10 @@ function buildPlannedMessageReason(llmOutput, job) {
     ? ` Отказ по шагу ${llmOutput.rejected_step_id}.`
     : "";
   return `${completed}${missing}${reject} Вакансия: ${job.title}.`;
+}
+
+function summarizeText(value, maxLength) {
+  const compact = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (compact.length <= maxLength) return compact;
+  return `${compact.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
