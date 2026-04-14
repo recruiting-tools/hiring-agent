@@ -956,3 +956,17 @@ After iteration 2 (frontend):
 git add services/hiring-agent/src/http-server.js
 git commit -m "feat: rewrite hiring-agent chat UI — dark mode, streaming bubbles, playbook chips, vacancy modality"
 ```
+
+---
+
+## Verification Note
+
+2026-04-14: Iteration 1 backend work is already present on `feature/chat-ui-replication` in commit `59acb00` (`feat: add WebSocket server to hiring-agent — streaming, heartbeat, WS auth`).
+
+Validation run from repo root:
+
+```bash
+pnpm test
+```
+
+Result: 13 tests passed, 0 failed.
