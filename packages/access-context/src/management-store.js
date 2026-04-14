@@ -93,6 +93,7 @@ export function createManagementStore(managementSql) {
           db_save_column,
           next_step_order,
           options,
+          routing,
           notes,
           created_at
         FROM management.playbook_steps

@@ -1,3 +1,5 @@
+import { resolveNextStepOrder } from "./routing.js";
+
 export async function handleDecisionStep({ step, context }) {
   const rules = parseDecisionRules(step.notes, context);
   const rule = rules.find((candidate) => {
@@ -8,14 +10,14 @@ export async function handleDecisionStep({ step, context }) {
   if (!rule) {
     return {
       context,
-      nextStepOrder: step.next_step_order ?? null,
+      nextStepOrder: resolveNextStepOrder(step),
       reply: null
     };
   }
 
   return {
     context,
-    nextStepOrder: rule.next ?? step.next_step_order ?? null,
+    nextStepOrder: rule.next ?? resolveNextStepOrder(step, rule.route ?? rule.outcome),
     reply: rule.message
       ? {
         kind: "display",

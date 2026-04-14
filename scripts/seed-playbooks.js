@@ -112,8 +112,8 @@ try {
       `INSERT INTO management.playbook_steps
          (step_key, playbook_key, step_order, name, step_type,
           user_message, prompt_template, context_key, db_save_column,
-          next_step_order, options, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          next_step_order, options, routing, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [
         step.step_key,
         step.playbook_key,
@@ -126,6 +126,7 @@ try {
         step.db_save_column ?? null,
         step.next_step_order ?? null,
         step.options ?? null,
+        step.routing ? JSON.stringify(step.routing) : null,
         step.notes ?? null,
       ]
     );

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS management.playbook_definitions (
 -- step_order=0 is reserved for auto_fetch (loads vacancy from UI context silently).
 -- Routing: next_step_order NULL = end of playbook.
 -- options: semicolon-separated button labels for 'buttons' and 'display' steps.
+-- routing: explicit branching map, e.g. {"Approve": 4, "Refine": 2}
 
 CREATE TABLE IF NOT EXISTS management.playbook_steps (
   step_key        TEXT PRIMARY KEY,  -- e.g. "setup_communication.1"
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS management.playbook_steps (
   db_save_column    TEXT,     -- for llm_extract: column in management.vacancies to UPDATE
   next_step_order   INTEGER,  -- default next step (NULL = playbook complete)
   options           TEXT,     -- semicolon-separated labels for buttons/display choices
+  routing           JSONB,    -- explicit branching per option/outcome; falls back to next_step_order
   notes             TEXT,     -- internal notes, not shown to recruiter
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 
