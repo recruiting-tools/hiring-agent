@@ -1,6 +1,6 @@
 #!/bin/bash
-# Deploy hiring-agent to GCP VM (34.31.217.176) via SSH.
-# Usage: [VM_USER=username] [TARGET_PORT=3101] ./scripts/deploy-hiring-agent.sh
+# Deploy hiring-agent to GCP VM via SSH.
+# Usage: [VM_USER=username] [TARGET_PORT=3101] [DEPLOY_DIR=/opt/hiring-agent] ./scripts/deploy-hiring-agent.sh
 set -euo pipefail
 
 VM_HOST="${VM_HOST:-hiring-agent-vm}"
@@ -75,7 +75,7 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
   # ── Deploy ─────────────────────────────────────────────────────────────────
   if [ ! -d "$DEPLOY_DIR/.git" ]; then
     echo "First deploy detected: cloning repository into $DEPLOY_DIR"
-    mkdir -p /opt
+    mkdir -p "$(dirname "$DEPLOY_DIR")"
     rm -rf "$DEPLOY_DIR"
     git clone "$REPO_URL" "$DEPLOY_DIR"
   fi

@@ -54,21 +54,21 @@ jobs:
             sandbox-1)
               default_port=3201
               base_path="/sandbox-001"
-              deploy_dir="/opt/hiring-agent-sandbox-001"
+              deploy_dir="/home/vova/hiring-agent-sandbox-001"
               pm2_app_name="hiring-agent-sandbox-001"
               session_cookie_name="session_sandbox_001"
               ;;
             sandbox-2)
               default_port=3202
               base_path="/sandbox-002"
-              deploy_dir="/opt/hiring-agent-sandbox-002"
+              deploy_dir="/home/vova/hiring-agent-sandbox-002"
               pm2_app_name="hiring-agent-sandbox-002"
               session_cookie_name="session_sandbox_002"
               ;;
             sandbox-3)
               default_port=3203
               base_path="/sandbox-003"
-              deploy_dir="/opt/hiring-agent-sandbox-003"
+              deploy_dir="/home/vova/hiring-agent-sandbox-003"
               pm2_app_name="hiring-agent-sandbox-003"
               session_cookie_name="session_sandbox_003"
               ;;
@@ -124,51 +124,54 @@ jobs:
 
       - name: Ensure nginx routes for sandbox paths
         run: |
-          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << 'EOF'
+          SNIPPET_B64=$(cat <<'NGINX' | base64 -w0
+          location = /sandbox-001 { return 301 /sandbox-001/; }
+          location = /sandbox-002 { return 301 /sandbox-002/; }
+          location = /sandbox-003 { return 301 /sandbox-003/; }
+
+          location ^~ /sandbox-001/ {
+            proxy_pass http://127.0.0.1:3201/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+          }
+
+          location ^~ /sandbox-002/ {
+            proxy_pass http://127.0.0.1:3202/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+          }
+
+          location ^~ /sandbox-003/ {
+            proxy_pass http://127.0.0.1:3203/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+          }
+          NGINX
+          )
+
+          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" SNIPPET_B64="$SNIPPET_B64" bash -s << 'EOF'
             set -euo pipefail
             if ! sudo -n true 2>/dev/null; then
               echo "ERROR: sudo without password is required to configure nginx sandbox routes"
               exit 1
             fi
 
-            sudo tee /etc/nginx/snippets/hiring-agent-sandbox-locations.conf >/dev/null <<'NGINX'
-            location = /sandbox-001 { return 301 /sandbox-001/; }
-            location = /sandbox-002 { return 301 /sandbox-002/; }
-            location = /sandbox-003 { return 301 /sandbox-003/; }
-
-            location ^~ /sandbox-001/ {
-              proxy_pass http://127.0.0.1:3201/;
-              proxy_http_version 1.1;
-              proxy_set_header Host $host;
-              proxy_set_header X-Real-IP $remote_addr;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto $scheme;
-              proxy_set_header Upgrade $http_upgrade;
-              proxy_set_header Connection "upgrade";
-            }
-
-            location ^~ /sandbox-002/ {
-              proxy_pass http://127.0.0.1:3202/;
-              proxy_http_version 1.1;
-              proxy_set_header Host $host;
-              proxy_set_header X-Real-IP $remote_addr;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto $scheme;
-              proxy_set_header Upgrade $http_upgrade;
-              proxy_set_header Connection "upgrade";
-            }
-
-            location ^~ /sandbox-003/ {
-              proxy_pass http://127.0.0.1:3203/;
-              proxy_http_version 1.1;
-              proxy_set_header Host $host;
-              proxy_set_header X-Real-IP $remote_addr;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto $scheme;
-              proxy_set_header Upgrade $http_upgrade;
-              proxy_set_header Connection "upgrade";
-            }
-            NGINX
+            echo "$SNIPPET_B64" | base64 -d | sudo tee /etc/nginx/snippets/hiring-agent-sandbox-locations.conf >/dev/null
 
             SITE_FILE=$(sudo grep -Rls "server_name .*hiring-chat\\.recruiter-assistant\\.com" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -n1 || true)
             if [ -z "$SITE_FILE" ]; then
