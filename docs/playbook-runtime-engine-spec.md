@@ -206,9 +206,13 @@ Execute a controlled tenant-data fetch and store the result in `context[context_
 Preferred contract:
 - `step.notes` contains JSON config such as `{ "source": "candidate_funnel" }`
 - the handler resolves `source` to a known fetch adapter instead of executing arbitrary SQL text
-- adapter inputs come from runtime context (`tenantId`, `vacancy_id`, etc.)
+- adapter inputs come from runtime context (`tenantId`, `vacancy.job_id`, selection filters, etc.)
 
-Current implementation supports `source = "candidate_funnel"` and also preserves a compatibility fallback for the seeded `candidate_funnel` step until the seed data is updated.
+Current implementation supports:
+- `source = "candidate_funnel"` for per-vacancy funnel aggregation via `vacancy.job_id`
+- `source = "mass_broadcast_candidates"` for safe recruiter-reviewed candidate selection
+
+The handler still preserves a compatibility fallback for legacy `candidate_funnel` seeds that omitted explicit JSON config.
 
 ---
 

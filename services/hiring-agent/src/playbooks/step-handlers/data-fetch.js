@@ -1,4 +1,5 @@
 import { getFunnelData } from "../../data/funnel-adapter.js";
+import { getMassBroadcastCandidates } from "../../data/mass-broadcast-adapter.js";
 
 export async function handleDataFetchStep({ step, context, tenantSql, tenantId }) {
   if (!tenantSql) {
@@ -40,7 +41,16 @@ async function fetchData({ fetchConfig, context, tenantSql, tenantId }) {
 
     return getFunnelData(tenantSql, {
       tenantId,
-      jobId: context.vacancy_id ?? context.vacancy?.vacancy_id ?? null
+      jobId: context.vacancy?.job_id ?? context.job_id ?? context.vacancy_id ?? null
+    });
+  }
+
+  if (fetchConfig.source === "mass_broadcast_candidates") {
+    return getMassBroadcastCandidates(tenantSql, {
+      tenantId,
+      jobId: context.vacancy?.job_id ?? context.job_id ?? null,
+      selectionQuery: context.selection_query ?? {},
+      limit: fetchConfig.limit
     });
   }
 
