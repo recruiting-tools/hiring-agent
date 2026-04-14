@@ -74,10 +74,19 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
 
   # ── Deploy ─────────────────────────────────────────────────────────────────
   if [ ! -d "$DEPLOY_DIR/.git" ]; then
-    echo "First deploy detected: cloning repository into $DEPLOY_DIR"
+    echo "First deploy detected for $DEPLOY_DIR"
     mkdir -p "$(dirname "$DEPLOY_DIR")"
     rm -rf "$DEPLOY_DIR"
-    git clone "$REPO_URL" "$DEPLOY_DIR"
+
+    # Reuse the already-provisioned production checkout when available.
+    # This avoids bootstrapping auth on VM for additional sandbox directories.
+    if [ -d /opt/hiring-agent/.git ] && [ "$DEPLOY_DIR" != "/opt/hiring-agent" ]; then
+      echo "Bootstrapping from /opt/hiring-agent"
+      cp -a /opt/hiring-agent "$DEPLOY_DIR"
+    else
+      echo "Cloning repository into $DEPLOY_DIR"
+      git clone "$REPO_URL" "$DEPLOY_DIR"
+    fi
   fi
 
   cd "$DEPLOY_DIR"

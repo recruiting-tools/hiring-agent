@@ -208,6 +208,7 @@ jobs:
           TARGET_PORT: ${{ steps.slot.outputs.target_port }}
           DEPLOY_DIR: ${{ steps.slot.outputs.deploy_dir }}
           PM2_APP_NAME: ${{ steps.slot.outputs.pm2_app_name }}
+          REPO_URL: git@github.com:recruiting-tools/hiring-agent.git
         run: bash ./scripts/deploy-hiring-agent.sh
 
       - name: Verify runtime on VM
