@@ -1,0 +1,12 @@
+# Ignore generated timestamped MCP Playwright artifacts by default.
+console-*.log
+page-*.yml
+*.png
+*.jpeg
+*.jpg
+
+# Keep curated QA artifacts under qa/.
+!README.md
+!qa/
+!qa/.gitkeep
+!qa/**

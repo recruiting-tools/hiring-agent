@@ -65,8 +65,9 @@ return reply to UI (buttons / text / display / loading)
 - If found → resume at `current_step_order`
 
 ### Advance
-- After each step completes: `UPDATE playbook_sessions SET current_step_order = next_step_order, context = $updated, updated_at = now()`
-- If `next_step_order IS NULL` → set `status = 'completed'`, `completed_at = now()`
+- After each step completes: `UPDATE playbook_sessions SET current_step_order = resolved_next_step_order, context = $updated, updated_at = now()`
+- `resolved_next_step_order` comes from `step.routing` when an option/outcome is selected; otherwise it falls back to `next_step_order`
+- If `resolved_next_step_order IS NULL` → set `status = 'completed'`, `completed_at = now()`
 
 ### Abort
 - Recruiter types `/cancel` or starts a different playbook → set `status = 'aborted'`
@@ -89,6 +90,7 @@ context.raw_vacancy_text = vacancy.raw_text;
 
 ### `buttons`
 Show `user_message` + option buttons from `step.options` (semicolon-separated).
+If `step.routing` is present, it defines explicit per-option branching.
 
 Reply shape:
 ```json
@@ -100,7 +102,11 @@ Reply shape:
 }
 ```
 
-On next recruiter message: match against options, store in `context[context_key]`, advance to `next_step_order`.
+On next recruiter message:
+- match against options
+- store the selected label in `context[context_key]` when `context_key` is defined
+- resolve next step from `step.routing[selected_label]`
+- if no explicit route exists, fall back to `next_step_order`
 
 ### `user_input`
 Show `user_message`. Wait for free text.
@@ -155,17 +161,35 @@ Reply shape:
 }
 ```
 
-### `decision`
-Evaluate a condition on context, route to different `next_step_order`.
+If `step.options` are present, the next recruiter message is validated against them:
+- on valid choice, store the selected label in `context[context_key]` when configured
+- resolve next step from `step.routing[selected_label]`, else from `next_step_order`
+- on invalid choice, re-show the same display step with options
 
-The routing rules are encoded in `step.notes` as JSON (for now). Example:
+### `decision`
+Evaluate a condition on context, route to a resolved next step.
+
+The condition rules are encoded in `step.notes` as JSON. A rule may either provide:
+- `next`: direct target step order
+- `outcome`: symbolic outcome key resolved through `step.routing`
+
+Example:
 ```json
 {
   "rules": [
-    { "condition": "context.must_haves.length < 2", "next": 2, "message": "Нашли мало обязательных требований..." },
-    { "condition": "context.must_haves.length >= 5", "next": 2, "message": "Нашли много обязательных требований..." },
-    { "default": true, "next": 4 }
+    { "condition": "context.must_haves.length < 2", "outcome": "too_few", "message": "Нашли мало обязательных требований..." },
+    { "condition": "context.must_haves.length >= 5", "outcome": "too_many", "message": "Нашли много обязательных требований..." },
+    { "default": true, "outcome": "ok" }
   ]
+}
+```
+
+With matching `step.routing`:
+```json
+{
+  "too_few": 2,
+  "too_many": 2,
+  "ok": 4
 }
 ```
 
@@ -177,9 +201,18 @@ Push `{playbook_key, return_step_order}` to `call_stack`. Start sub-playbook at 
 On sub-playbook `completed`: pop from `call_stack`, resume parent at `return_step_order`.
 
 ### `data_fetch`
-Execute a parameterized SQL query on `tenantSql`. Store result in `context[context_key]`. Used by `candidate_funnel` playbook.
+Execute a controlled tenant-data fetch and store the result in `context[context_key]`.
 
-SQL is in `step.notes` with `{{context.vacancy.vacancy_id}}` substitution.
+Preferred contract:
+- `step.notes` contains JSON config such as `{ "source": "candidate_funnel" }`
+- the handler resolves `source` to a known fetch adapter instead of executing arbitrary SQL text
+- adapter inputs come from runtime context (`tenantId`, `vacancy.job_id`, selection filters, etc.)
+
+Current implementation supports:
+- `source = "candidate_funnel"` for per-vacancy funnel aggregation via `vacancy.job_id`
+- `source = "mass_broadcast_candidates"` for safe recruiter-reviewed candidate selection
+
+The handler still preserves a compatibility fallback for legacy `candidate_funnel` seeds that omitted explicit JSON config.
 
 ---
 

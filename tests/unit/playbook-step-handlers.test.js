@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { handleAutoFetchStep } from "../../services/hiring-agent/src/playbooks/step-handlers/auto-fetch.js";
 import { handleButtonsStep } from "../../services/hiring-agent/src/playbooks/step-handlers/buttons.js";
+import { handleDataFetchStep } from "../../services/hiring-agent/src/playbooks/step-handlers/data-fetch.js";
 import { handleDecisionStep } from "../../services/hiring-agent/src/playbooks/step-handlers/decision.js";
 import { handleDisplayStep } from "../../services/hiring-agent/src/playbooks/step-handlers/display.js";
 import { handleLlmExtractStep } from "../../services/hiring-agent/src/playbooks/step-handlers/llm-extract.js";
@@ -82,6 +83,29 @@ test("playbook handler: buttons prompt and accept known option", async () => {
   });
   assert.equal(result.reply, null);
   assert.equal(result.context.next_action, "Готово");
+});
+
+test("playbook handler: buttons can route different options to different next steps", async () => {
+  const result = await handleButtonsStep({
+    step: {
+      step_key: "mass_broadcast.3",
+      user_message: "Что делаем дальше?",
+      context_key: "broadcast_action",
+      next_step_order: 4,
+      options: "Подтвердить;Изменить порог;Изменить критерий",
+      routing: {
+        "Подтвердить": 4,
+        "Изменить порог": 2,
+        "Изменить критерий": 1
+      }
+    },
+    context: {},
+    recruiterInput: "Изменить порог"
+  });
+
+  assert.equal(result.reply, null);
+  assert.equal(result.context.broadcast_action, "Изменить порог");
+  assert.equal(result.nextStepOrder, 2);
 });
 
 test("playbook handler: llm_extract retries once, appends JSON instruction, and saves vacancy column", async () => {
@@ -171,6 +195,56 @@ test("playbook handler: display renders templated content and optional buttons",
   assert.equal(result.awaitingInput, true);
 });
 
+test("playbook handler: display captures selected option and uses explicit routing", async () => {
+  const result = await handleDisplayStep({
+    step: {
+      user_message: "Выберите вариант плана",
+      context_key: "approved_plan_variant",
+      options: "Вариант 1;Вариант 2;Уточнить",
+      next_step_order: 3,
+      routing: {
+        "Вариант 1": 3,
+        "Вариант 2": 3,
+        "Уточнить": 1
+      }
+    },
+    context: {},
+    recruiterInput: "Уточнить"
+  });
+
+  assert.equal(result.reply, null);
+  assert.equal(result.context.approved_plan_variant, "Уточнить");
+  assert.equal(result.nextStepOrder, 1);
+});
+
+test("playbook handler: display re-prompts on unknown option", async () => {
+  const result = await handleDisplayStep({
+    step: {
+      user_message: "Выберите вариант плана",
+      options: "Вариант 1;Вариант 2"
+    },
+    context: {},
+    recruiterInput: "Вариант 3"
+  });
+
+  assert.equal(result.awaitingInput, true);
+  assert.deepEqual(result.reply.options, ["Вариант 1", "Вариант 2"]);
+});
+
+test("playbook handler: display marks html-filtered content as html", async () => {
+  const result = await handleDisplayStep({
+    step: {
+      user_message: "Вот варианты:\n{{context.generated_messages | html}}"
+    },
+    context: {
+      generated_messages: "<div class=\"message-variant\"><p>Привет</p></div>"
+    },
+    recruiterInput: null
+  });
+
+  assert.equal(result.reply.content_type, "html");
+});
+
 test("playbook handler: decision evaluates JSON rules and can return a message", async () => {
   const result = await handleDecisionStep({
     step: {
@@ -197,6 +271,132 @@ test("playbook handler: decision evaluates JSON rules and can return a message",
     content: "Нашли много обязательных требований.",
     content_type: "text"
   });
+});
+
+test("playbook handler: decision can resolve next step via routing map outcome", async () => {
+  const result = await handleDecisionStep({
+    step: {
+      next_step_order: 4,
+      routing: {
+        too_many: 2,
+        ok: 4
+      },
+      notes: JSON.stringify({
+        rules: [
+          {
+            condition: "context.must_haves.length >= 5",
+            outcome: "too_many",
+            message: "Нашли много обязательных требований."
+          },
+          { default: true, outcome: "ok" }
+        ]
+      })
+    },
+    context: {
+      must_haves: ["1", "2", "3", "4", "5"]
+    }
+  });
+
+  assert.equal(result.nextStepOrder, 2);
+  assert.deepEqual(result.reply, {
+    kind: "display",
+    content: "Нашли много обязательных требований.",
+    content_type: "text"
+  });
+});
+
+test("playbook handler: data_fetch loads funnel data into context", async () => {
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /with scoped_runs as/i);
+    assert.deepEqual(values, ["job-1", "tenant-1"]);
+    return [{
+      step_name: "qualification",
+      step_id: "qualification",
+      step_index: 0,
+      total: 5,
+      in_progress: 2,
+      completed: 2,
+      stuck: 1,
+      rejected: 0
+    }];
+  });
+
+  const result = await handleDataFetchStep({
+    step: {
+      playbook_key: "candidate_funnel",
+      step_key: "candidate_funnel.1",
+      context_key: "funnel_data",
+      notes: JSON.stringify({ source: "candidate_funnel" }),
+      next_step_order: 2
+    },
+    context: {
+      vacancy_id: "vac-1",
+      vacancy: { vacancy_id: "vac-1", job_id: "job-1" }
+    },
+    tenantSql,
+    tenantId: "tenant-1"
+  });
+
+  assert.equal(result.nextStepOrder, 2);
+  assert.deepEqual(result.context.funnel_data, [{
+    step_name: "qualification",
+    step_id: "qualification",
+    step_index: 0,
+    total: 5,
+    in_progress: 2,
+    completed: 2,
+    stuck: 1,
+    rejected: 0
+  }]);
+});
+
+test("playbook handler: data_fetch loads mass broadcast candidates into context", async () => {
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /with scoped_runs as/i);
+    assert.deepEqual(values, ["job-1", "tenant-1"]);
+    return [{
+      candidate_id: "cand-1",
+      display_name: "Иван",
+      resume_text: "Опыт Java и backend интеграций",
+      status: "active",
+      current_step: "Интервью",
+      current_step_updated_at: new Date(Date.now() - 48 * 36e5).toISOString(),
+      awaiting_reply: true,
+      last_message_at: new Date(Date.now() - 30 * 36e5).toISOString()
+    }];
+  });
+
+  const result = await handleDataFetchStep({
+    step: {
+      playbook_key: "mass_broadcast",
+      step_key: "mass_broadcast.4",
+      context_key: "candidates",
+      notes: JSON.stringify({ source: "mass_broadcast_candidates", limit: 25 }),
+      next_step_order: 5
+    },
+    context: {
+      vacancy: { vacancy_id: "vac-1", job_id: "job-1" },
+      selection_query: {
+        type: "exact",
+        exact_filter: {
+          current_step: "Интервью",
+          last_message_older_than_hours: 24
+        }
+      }
+    },
+    tenantSql,
+    tenantId: "tenant-1"
+  });
+
+  assert.equal(result.nextStepOrder, 5);
+  assert.deepEqual(result.context.candidates, [{
+    candidate_id: "cand-1",
+    name: "Иван",
+    current_step: "Интервью",
+    status: "active",
+    hours_on_step: 48,
+    last_message_at: result.context.candidates[0].last_message_at
+  }]);
 });
 
 test("playbook runtime: creates a session, skips silent auto_fetch, and returns first interactive reply", async () => {
