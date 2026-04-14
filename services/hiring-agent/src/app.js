@@ -222,7 +222,7 @@ export function createHiringAgentApp(options = {}) {
       };
     },
 
-    async getVacancies({ tenantSql = null }) {
+    async getVacancies({ tenantSql = null, tenantId = null }) {
       if (!tenantSql) {
         return {
           status: 200,
@@ -243,11 +243,49 @@ export function createHiringAgentApp(options = {}) {
         { operation: "getVacancies", timeoutMs: tenantDbTimeoutMs }
       );
 
+      if (rows.length > 0) {
+        return {
+          status: 200,
+          body: {
+            jobs: rows,
+            vacancies: rows
+          }
+        };
+      }
+
+      const jobsFallback = await withTenantDbTimeout(
+        () => {
+          if (tenantId) {
+            return tenantSql`
+              SELECT job_id, title
+              FROM chatbot.jobs
+              WHERE client_id = ${tenantId}
+              ORDER BY created_at DESC
+            `;
+          }
+
+          return tenantSql`
+            SELECT job_id, title
+            FROM chatbot.jobs
+            ORDER BY created_at DESC
+          `;
+        },
+        { operation: "getVacancies", timeoutMs: tenantDbTimeoutMs }
+      );
+
+      const synthesizedRows = jobsFallback.map((job) => ({
+        vacancy_id: job.job_id,
+        job_id: job.job_id,
+        title: job.title,
+        status: "active",
+        extraction_status: "pending"
+      }));
+
       return {
         status: 200,
         body: {
-          jobs: rows,
-          vacancies: rows
+          jobs: synthesizedRows,
+          vacancies: synthesizedRows
         }
       };
     },
