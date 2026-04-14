@@ -1,0 +1,292 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { handleAutoFetchStep } from "../../services/hiring-agent/src/playbooks/step-handlers/auto-fetch.js";
+import { handleButtonsStep } from "../../services/hiring-agent/src/playbooks/step-handlers/buttons.js";
+import { handleDecisionStep } from "../../services/hiring-agent/src/playbooks/step-handlers/decision.js";
+import { handleDisplayStep } from "../../services/hiring-agent/src/playbooks/step-handlers/display.js";
+import { handleLlmExtractStep } from "../../services/hiring-agent/src/playbooks/step-handlers/llm-extract.js";
+import { handleLlmGenerateStep } from "../../services/hiring-agent/src/playbooks/step-handlers/llm-generate.js";
+import { handleUserInputStep } from "../../services/hiring-agent/src/playbooks/step-handlers/user-input.js";
+import { dispatch } from "../../services/hiring-agent/src/playbooks/runtime.js";
+
+test("playbook handler: auto_fetch loads vacancy and raw text into context", async () => {
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /FROM chatbot\.vacancies/);
+    assert.deepEqual(values, ["vac-1"]);
+    return [{
+      vacancy_id: "vac-1",
+      raw_text: "Текст вакансии",
+      title: "Sales manager"
+    }];
+  });
+
+  const result = await handleAutoFetchStep({
+    step: { next_step_order: 1 },
+    context: { vacancy_id: "vac-1" },
+    tenantSql
+  });
+
+  assert.equal(result.nextStepOrder, 1);
+  assert.equal(result.reply, null);
+  assert.equal(result.context.raw_vacancy_text, "Текст вакансии");
+  assert.equal(result.context.vacancy.title, "Sales manager");
+});
+
+test("playbook handler: user_input prompts first and stores recruiter input on resume", async () => {
+  const step = {
+    user_message: "Опишите вакансию",
+    context_key: "raw_vacancy_text",
+    next_step_order: 2
+  };
+
+  const prompt = await handleUserInputStep({ step, context: {}, recruiterInput: null });
+  assert.deepEqual(prompt.reply, {
+    kind: "user_input",
+    message: "Опишите вакансию"
+  });
+  assert.equal(prompt.awaitingInput, true);
+  assert.equal(prompt.nextStepOrder, null);
+
+  const result = await handleUserInputStep({
+    step,
+    context: {},
+    recruiterInput: "Нужен плиточник с опытом"
+  });
+  assert.equal(result.reply, null);
+  assert.equal(result.nextStepOrder, 2);
+  assert.equal(result.context.raw_vacancy_text, "Нужен плиточник с опытом");
+});
+
+test("playbook handler: buttons prompt and accept known option", async () => {
+  const step = {
+    step_key: "create_vacancy.14",
+    user_message: "Что хотите сделать?",
+    context_key: "next_action",
+    next_step_order: null,
+    options: "Настроить общение с кандидатами;Готово"
+  };
+
+  const prompt = await handleButtonsStep({ step, context: {}, recruiterInput: null });
+  assert.deepEqual(prompt.reply, {
+    kind: "buttons",
+    message: "Что хотите сделать?",
+    options: ["Настроить общение с кандидатами", "Готово"],
+    step_key: "create_vacancy.14"
+  });
+  assert.equal(prompt.awaitingInput, true);
+
+  const result = await handleButtonsStep({
+    step,
+    context: {},
+    recruiterInput: "Готово"
+  });
+  assert.equal(result.reply, null);
+  assert.equal(result.context.next_action, "Готово");
+});
+
+test("playbook handler: llm_extract retries once, appends JSON instruction, and saves vacancy column", async () => {
+  let attempts = 0;
+  const prompts = [];
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /UPDATE chatbot\.vacancies/);
+    assert.deepEqual(values, ["[\"Опыт 1 год\"]", "vac-42"]);
+    return [];
+  });
+
+  const result = await handleLlmExtractStep({
+    step: {
+      prompt_template: "Извлеки требования из {{context.raw_vacancy_text}}",
+      context_key: "must_haves",
+      db_save_column: "must_haves",
+      next_step_order: 3
+    },
+    context: {
+      vacancy_id: "vac-42",
+      raw_vacancy_text: "Нужен опыт от 1 года"
+    },
+    tenantSql,
+    llmAdapter: {
+      async generate(prompt) {
+        prompts.push(prompt);
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("temporary");
+        }
+        return "[\"Опыт 1 год\"]";
+      }
+    }
+  });
+
+  assert.equal(result.nextStepOrder, 3);
+  assert.equal(result.reply, null);
+  assert.deepEqual(result.context.must_haves, ["Опыт 1 год"]);
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[0], /Return valid JSON only, no markdown\./);
+});
+
+test("playbook handler: llm_generate stores parsed JSON and returns UI payload", async () => {
+  const result = await handleLlmGenerateStep({
+    step: {
+      prompt_template: "Сгенерируй FAQ по {{context.raw_vacancy_text}}",
+      context_key: "faq",
+      next_step_order: 13
+    },
+    context: {
+      raw_vacancy_text: "Текст вакансии"
+    },
+    llmAdapter: {
+      async generate() {
+        return "[{\"q\":\"Какая зарплата?\",\"a\":\"200 тыс.\"}]";
+      }
+    }
+  });
+
+  assert.equal(result.nextStepOrder, 13);
+  assert.deepEqual(result.context.faq, [{ q: "Какая зарплата?", a: "200 тыс." }]);
+  assert.deepEqual(result.reply, {
+    kind: "llm_output",
+    content: "[{\"q\":\"Какая зарплата?\",\"a\":\"200 тыс.\"}]",
+    content_type: "text"
+  });
+});
+
+test("playbook handler: display renders templated content and optional buttons", async () => {
+  const result = await handleDisplayStep({
+    step: {
+      user_message: "Нашли:\n{{context.must_haves | bullet_list}}",
+      options: "Уточнить;Продолжить"
+    },
+    context: {
+      must_haves: ["Опыт B2B", "Готовность к выездам"]
+    },
+    recruiterInput: null
+  });
+
+  assert.deepEqual(result.reply, {
+    kind: "display",
+    content: "Нашли:\n• Опыт B2B\n• Готовность к выездам",
+    content_type: "text",
+    options: ["Уточнить", "Продолжить"]
+  });
+  assert.equal(result.awaitingInput, true);
+});
+
+test("playbook handler: decision evaluates JSON rules and can return a message", async () => {
+  const result = await handleDecisionStep({
+    step: {
+      next_step_order: 4,
+      notes: JSON.stringify({
+        rules: [
+          {
+            condition: "context.must_haves.length >= 5",
+            next: 2,
+            message: "Нашли много обязательных требований."
+          },
+          { default: true, next: 4 }
+        ]
+      })
+    },
+    context: {
+      must_haves: ["1", "2", "3", "4", "5"]
+    }
+  });
+
+  assert.equal(result.nextStepOrder, 2);
+  assert.deepEqual(result.reply, {
+    kind: "display",
+    content: "Нашли много обязательных требований.",
+    content_type: "text"
+  });
+});
+
+test("playbook runtime: creates a session, skips silent auto_fetch, and returns first interactive reply", async () => {
+  const calls = [];
+  const managementStore = {
+    async getPlaybookSteps(playbookKey) {
+      assert.equal(playbookKey, "setup_communication");
+      return [
+        { step_key: "setup_communication.0", step_order: 0, step_type: "auto_fetch", next_step_order: 1 },
+        {
+          step_key: "setup_communication.1",
+          step_order: 1,
+          step_type: "user_input",
+          user_message: "Что уточнить по вакансии?",
+          context_key: "clarification",
+          next_step_order: 2
+        }
+      ];
+    },
+    async getActiveSession() {
+      return null;
+    },
+    async abortActiveSessions(params) {
+      calls.push(["abort", params]);
+    },
+    async createPlaybookSession(input) {
+      calls.push(["create", input]);
+      return {
+        session_id: "sess-1",
+        playbook_key: input.playbookKey,
+        vacancy_id: input.vacancyId,
+        current_step_order: input.currentStepOrder,
+        context: input.context,
+        call_stack: [],
+        status: "active"
+      };
+    },
+    async updateSession(sessionId, patch) {
+      calls.push(["update", sessionId, patch]);
+    },
+    async completeSession() {
+      throw new Error("should not complete");
+    }
+  };
+
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /FROM chatbot\.vacancies/);
+    assert.deepEqual(values, ["vac-7"]);
+    return [{ vacancy_id: "vac-7", raw_text: "raw text", title: "Ops manager" }];
+  });
+
+  const result = await dispatch({
+    managementStore,
+    tenantSql,
+    tenantId: "tenant-1",
+    recruiterId: "rec-1",
+    vacancyId: "vac-7",
+    playbookKey: "setup_communication",
+    recruiterInput: null,
+    llmAdapter: { async generate() { throw new Error("unused"); } }
+  });
+
+  assert.equal(result.sessionId, "sess-1");
+  assert.deepEqual(result.reply, {
+    kind: "user_input",
+    message: "Что уточнить по вакансии?"
+  });
+  assert.deepEqual(calls[0][0], "abort");
+  assert.deepEqual(calls[1][0], "create");
+  assert.deepEqual(calls.at(-1), [
+    "update",
+    "sess-1",
+    {
+      currentStepOrder: 1,
+      context: {
+        vacancy_id: "vac-7",
+        vacancy: { vacancy_id: "vac-7", raw_text: "raw text", title: "Ops manager" },
+        raw_vacancy_text: "raw text"
+      },
+      vacancyId: "vac-7"
+    }
+  ]);
+});
+
+function createMockSql(handler) {
+  return async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    return handler({ text, values });
+  };
+}

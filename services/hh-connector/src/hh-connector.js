@@ -62,14 +62,16 @@ export class HhConnector {
     // Preserve awaiting_reply/last_sender if HH returns empty array to avoid
     // incorrectly resetting state when the API returns no messages transiently.
     const lastMsg = sorted.at(-1);
+    const isAwaitingReply = lastMsg !== undefined
+      ? lastMsg.author === "employer"
+      : (pollState?.awaiting_reply ?? false);
+    const pollIntervalMs = isAwaitingReply ? 4 * 3600_000 : 60_000;
     await this.store.upsertHhPollState(hhNegotiationId, {
       last_polled_at: new Date().toISOString(),
       hh_updated_at: lastMsg?.created_at ?? lastSeenAt,
       last_sender: lastMsg?.author ?? pollState?.last_sender ?? null,
-      awaiting_reply: lastMsg !== undefined
-        ? lastMsg.author === "employer"
-        : (pollState?.awaiting_reply ?? false),
-      next_poll_at: new Date(Date.now() + 60_000).toISOString()
+      awaiting_reply: isAwaitingReply,
+      next_poll_at: new Date(Date.now() + pollIntervalMs).toISOString()
     });
   }
 }

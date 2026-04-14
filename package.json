@@ -10,7 +10,7 @@
     "test": "node --test tests/integration/candidate-chatbot.test.js",
     "test:postgres": "node --test tests/integration/candidate-chatbot-postgres.test.js",
     "test:unit": "node --test tests/unit/prompt-builder.test.js tests/unit/cta-validator.test.js",
-    "test:hiring-agent": "node --test tests/unit/hiring-agent-router.test.js tests/unit/hiring-agent-funnel-query.test.js tests/unit/hiring-agent-auth.test.js tests/unit/hiring-agent-runtime.test.js tests/unit/access-context.test.js tests/integration/hiring-agent.test.js tests/integration/hiring-agent-funnel-adapter.test.js tests/integration/access-context-postgres.test.js",
+    "test:hiring-agent": "node --test tests/unit/hiring-agent-router.test.js tests/unit/hiring-agent-funnel-query.test.js tests/unit/hiring-agent-auth.test.js tests/unit/hiring-agent-runtime.test.js tests/unit/access-context.test.js tests/unit/playbook-context-interpolation.test.js tests/unit/playbook-step-handlers.test.js tests/integration/hiring-agent.test.js tests/integration/hiring-agent-funnel-adapter.test.js tests/integration/access-context-postgres.test.js tests/integration/hiring-agent-playbook-runtime.test.js",
     "test:hh": "node --test tests/integration/hh-connector.test.js tests/integration/hh-api-client.test.js",
     "test:cron": "node --test tests/integration/cron-sender.test.js",
     "test:moderation": "node --test tests/integration/moderation-ui.test.js",
