@@ -2,7 +2,7 @@
 // Seed the tenant operational dev DB with iteration-1 fixtures.
 // This script intentionally keeps writing tenant-local auth rows in chatbot.recruiters
 // for candidate-chatbot compatibility. It is not the control-plane bootstrap path for hiring-agent.
-// Usage: V2_DEV_NEON_URL=... node scripts/seed-dev-db.js
+// Usage: CHATBOT_DATABASE_URL=... node scripts/seed-dev-db.js
 
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -10,9 +10,9 @@ import { dirname, join } from "node:path";
 import bcrypt from "bcryptjs";
 import { PostgresHiringStore } from "../services/candidate-chatbot/src/postgres-store.js";
 
-const DB_URL = process.env.V2_DEV_NEON_URL;
+const DB_URL = process.env.CHATBOT_DATABASE_URL;
 if (!DB_URL) {
-  console.error("ERROR: V2_DEV_NEON_URL environment variable is required");
+  console.error("ERROR: CHATBOT_DATABASE_URL environment variable is required");
   process.exit(1);
 }
 

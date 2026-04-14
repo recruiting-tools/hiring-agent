@@ -18,9 +18,12 @@ import { HhConnector } from "../../hh-connector/src/hh-connector.js";
 let store;
 
 if (process.env.USE_REAL_DB === "true") {
-  const connectionString = process.env.DATABASE_URL || process.env.V2_PROD_NEON_URL || process.env.V2_DEV_NEON_URL;
+  // CHATBOT_DATABASE_URL is the canonical env for the tenant operational DB.
+  // DATABASE_URL accepted as a convenience alias (CI, local overrides) but
+  // CHATBOT_DATABASE_URL takes priority to prevent accidental cross-env connections.
+  const connectionString = process.env.CHATBOT_DATABASE_URL || process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error("USE_REAL_DB=true requires DATABASE_URL, V2_PROD_NEON_URL, or V2_DEV_NEON_URL to be set");
+    throw new Error("USE_REAL_DB=true requires CHATBOT_DATABASE_URL (or DATABASE_URL) to be set");
   }
   store = new PostgresHiringStore({ connectionString });
   if (process.env.NODE_ENV === "production") {

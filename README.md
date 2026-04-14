@@ -24,9 +24,9 @@ pnpm test:watch    # watch mode
 ```bash
 # ~/.zshrc
 V2_NEON_ORG_ID=org-bold-wave-46400152
-V2_MANAGEMENT_DB_URL=...   # Neon project: orange-silence-65083641
-V2_DEV_NEON_URL=...        # Neon project: round-leaf-16031956
-GEMINI_API_KEY=...         # уже есть в shell
+MANAGEMENT_DATABASE_URL=...   # management DB (shared, all tenants) — Neon project: orange-silence-65083641
+CHATBOT_DATABASE_URL=...      # demo tenant chatbot DB — Neon project: round-leaf-16031956
+GEMINI_API_KEY=...            # уже есть в shell
 ```
 
 ## Архитектура — коротко

@@ -3,7 +3,7 @@
 import pg from "pg";
 
 const MANAGEMENT_DB_URL = process.env.MANAGEMENT_DATABASE_URL;
-const SOURCE_DB_URL = process.env.SOURCE_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.V2_DEV_NEON_URL;
+const SOURCE_DB_URL = process.env.SOURCE_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.CHATBOT_DATABASE_URL;
 
 if (!MANAGEMENT_DB_URL) {
   console.error("ERROR: MANAGEMENT_DATABASE_URL environment variable is required");
@@ -11,7 +11,7 @@ if (!MANAGEMENT_DB_URL) {
 }
 
 if (!SOURCE_DB_URL) {
-  console.error("ERROR: SOURCE_DATABASE_URL, DATABASE_URL, or V2_DEV_NEON_URL is required");
+  console.error("ERROR: SOURCE_DATABASE_URL, DATABASE_URL, or CHATBOT_DATABASE_URL is required");
   process.exit(1);
 }
 
