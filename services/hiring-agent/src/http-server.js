@@ -467,6 +467,12 @@ const CHAT_HTML = `<!DOCTYPE html>
     #moderation-link[hidden] {
       display: none;
     }
+    .moderation-copy {
+      margin-top: 8px;
+      color: var(--t2);
+      font-size: 12px;
+      line-height: 1.5;
+    }
 
     .chat-stage {
       display: flex;
@@ -942,7 +948,8 @@ const CHAT_HTML = `<!DOCTYPE html>
             </button>
           </div>
 
-          <a href="#" class="ghost-btn" id="moderation-link" hidden target="_blank" rel="noopener">Открыть модерацию кандидатов</a>
+          <a href="#" class="ghost-btn" id="moderation-link" hidden target="_blank" rel="noopener">Сообщения на модерации</a>
+          <div class="moderation-copy" id="moderation-copy">Здесь будут запланированные сообщения кандидатам и очередь на ручную проверку.</div>
         </section>
       </aside>
 
@@ -1027,6 +1034,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     const chatStageSubtitle = document.getElementById('chat-stage-subtitle');
     const composerMeta = document.getElementById('composer-meta');
     const moderationLink = document.getElementById('moderation-link');
+    const moderationCopy = document.getElementById('moderation-copy');
     const shortcutButtons = Array.from(document.querySelectorAll('.shortcut-btn'));
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
@@ -1349,12 +1357,19 @@ const CHAT_HTML = `<!DOCTYPE html>
         ? 'Enter отправляет сообщение, Shift+Enter переносит строку.'
         : 'Можно писать свободно или сначала выбрать вакансию слева.';
 
-      if (CHATBOT_MODERATION_BASE && hasVacancy && selectedVacancyJobId) {
-        const titleParam = encodeURIComponent(selectedVacancyTitle || '');
-        moderationLink.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(selectedVacancyJobId) + (titleParam ? '&title=' + titleParam : '');
+      if (CHATBOT_MODERATION_BASE) {
+        if (hasVacancy && selectedVacancyJobId) {
+          const titleParam = encodeURIComponent(selectedVacancyTitle || '');
+          moderationLink.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(selectedVacancyJobId) + (titleParam ? '&title=' + titleParam : '');
+          moderationCopy.textContent = 'Откроет очередь сообщений по выбранной вакансии, включая запланированные отправки кандидатам.';
+        } else {
+          moderationLink.href = CHATBOT_MODERATION_BASE;
+          moderationCopy.textContent = 'Откроет общую очередь сообщений на модерации по всем вакансиям.';
+        }
         moderationLink.hidden = false;
       } else {
         moderationLink.hidden = true;
+        moderationCopy.textContent = 'Модерация сообщений появится здесь, когда будет доступен recruiter token.';
       }
 
       syncShortcuts();
