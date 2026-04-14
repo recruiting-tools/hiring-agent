@@ -201,9 +201,14 @@ Push `{playbook_key, return_step_order}` to `call_stack`. Start sub-playbook at 
 On sub-playbook `completed`: pop from `call_stack`, resume parent at `return_step_order`.
 
 ### `data_fetch`
-Execute a parameterized SQL query on `tenantSql`. Store result in `context[context_key]`. Used by `candidate_funnel` playbook.
+Execute a controlled tenant-data fetch and store the result in `context[context_key]`.
 
-SQL is in `step.notes` with `{{context.vacancy.vacancy_id}}` substitution.
+Preferred contract:
+- `step.notes` contains JSON config such as `{ "source": "candidate_funnel" }`
+- the handler resolves `source` to a known fetch adapter instead of executing arbitrary SQL text
+- adapter inputs come from runtime context (`tenantId`, `vacancy_id`, etc.)
+
+Current implementation supports `source = "candidate_funnel"` and also preserves a compatibility fallback for the seeded `candidate_funnel` step until the seed data is updated.
 
 ---
 

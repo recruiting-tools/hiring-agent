@@ -339,7 +339,7 @@ CREATE TABLE IF NOT EXISTS management.tenant_playbook_access (
 | order | step_type | name | что происходит |
 |---|---|---|---|
 | 0 | `auto_fetch` | Загрузить данные вакансии | SELECT. Не показывается рекрутеру. |
-| 1 | `data_fetch` | Получить данные воронки | CTE по pipeline_runs + pipeline_step_state, фильтр по vacancy_id. |
+| 1 | `data_fetch` | Получить данные воронки | Через fetch source `candidate_funnel`, фильтр по vacancy_id. |
 | 2 | `display` | Таблица воронки | Шаг × статус: дошло / висит >1ч / >24ч / >48ч. |
 
 ---

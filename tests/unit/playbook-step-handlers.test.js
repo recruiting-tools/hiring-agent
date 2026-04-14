@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { handleAutoFetchStep } from "../../services/hiring-agent/src/playbooks/step-handlers/auto-fetch.js";
 import { handleButtonsStep } from "../../services/hiring-agent/src/playbooks/step-handlers/buttons.js";
+import { handleDataFetchStep } from "../../services/hiring-agent/src/playbooks/step-handlers/data-fetch.js";
 import { handleDecisionStep } from "../../services/hiring-agent/src/playbooks/step-handlers/decision.js";
 import { handleDisplayStep } from "../../services/hiring-agent/src/playbooks/step-handlers/display.js";
 import { handleLlmExtractStep } from "../../services/hiring-agent/src/playbooks/step-handlers/llm-extract.js";
@@ -230,6 +231,20 @@ test("playbook handler: display re-prompts on unknown option", async () => {
   assert.deepEqual(result.reply.options, ["Вариант 1", "Вариант 2"]);
 });
 
+test("playbook handler: display marks html-filtered content as html", async () => {
+  const result = await handleDisplayStep({
+    step: {
+      user_message: "Вот варианты:\n{{context.generated_messages | html}}"
+    },
+    context: {
+      generated_messages: "<div class=\"message-variant\"><p>Привет</p></div>"
+    },
+    recruiterInput: null
+  });
+
+  assert.equal(result.reply.content_type, "html");
+});
+
 test("playbook handler: decision evaluates JSON rules and can return a message", async () => {
   const result = await handleDecisionStep({
     step: {
@@ -288,6 +303,47 @@ test("playbook handler: decision can resolve next step via routing map outcome",
     content: "Нашли много обязательных требований.",
     content_type: "text"
   });
+});
+
+test("playbook handler: data_fetch loads funnel data into context", async () => {
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /with scoped_runs as/i);
+    assert.deepEqual(values, ["vac-1", "tenant-1"]);
+    return [{
+      step_name: "qualification",
+      step_id: "qualification",
+      step_index: 0,
+      total: 5,
+      in_progress: 2,
+      completed: 2,
+      stuck: 1,
+      rejected: 0
+    }];
+  });
+
+  const result = await handleDataFetchStep({
+    step: {
+      playbook_key: "candidate_funnel",
+      step_key: "candidate_funnel.1",
+      context_key: "funnel_data",
+      next_step_order: 2
+    },
+    context: { vacancy_id: "vac-1" },
+    tenantSql,
+    tenantId: "tenant-1"
+  });
+
+  assert.equal(result.nextStepOrder, 2);
+  assert.deepEqual(result.context.funnel_data, [{
+    step_name: "qualification",
+    step_id: "qualification",
+    step_index: 0,
+    total: 5,
+    in_progress: 2,
+    completed: 2,
+    stuck: 1,
+    rejected: 0
+  }]);
 });
 
 test("playbook runtime: creates a session, skips silent auto_fetch, and returns first interactive reply", async () => {
