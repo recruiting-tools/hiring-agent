@@ -275,7 +275,8 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
         vacancy_id: "vac-7",
         vacancy: { vacancy_id: "vac-7", raw_text: "raw text", title: "Ops manager" },
         raw_vacancy_text: "raw text"
-      }
+      },
+      vacancyId: "vac-7"
     }
   ]);
 });

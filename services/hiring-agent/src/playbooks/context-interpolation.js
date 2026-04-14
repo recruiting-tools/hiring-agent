@@ -70,7 +70,12 @@ export function interpolate(template, context = {}) {
 function resolvePath(context, path) {
   if (!path) return "";
 
-  return path.split(".").reduce((current, segment) => {
+  const segments = path.split(".");
+  const normalizedSegments = segments[0] === "context" && !Object.hasOwn(context, "context")
+    ? segments.slice(1)
+    : segments;
+
+  return normalizedSegments.reduce((current, segment) => {
     if (current == null) return undefined;
     return current[segment];
   }, context);
