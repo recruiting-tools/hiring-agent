@@ -123,7 +123,7 @@ test("hiring-agent: management-backed routing ignores available playbooks with z
     if (text.includes("FROM management.playbook_definitions d") && text.includes("d.keywords")) {
       return [
         {
-          playbook_key: "candidate_broadcast",
+          playbook_key: "mass_broadcast",
           keywords: ["рассылка"],
           step_count: 0
         },
@@ -138,7 +138,7 @@ test("hiring-agent: management-backed routing ignores available playbooks with z
     if (text.includes("FROM management.playbook_definitions d") && text.includes("d.trigger_description")) {
       return [
         {
-          playbook_key: "candidate_broadcast",
+          playbook_key: "mass_broadcast",
           name: "Выборочная рассылка кандидатам",
           trigger_description: "broadcast",
           status: "available",
@@ -171,7 +171,7 @@ test("hiring-agent: management-backed routing ignores available playbooks with z
 
   assert.equal(result.status, 200);
   assert.equal(result.body.reply.kind, "fallback_text");
-  assert.match(result.body.reply.text, /поддерживаю только/i);
+  assert.match(result.body.reply.text, /доступны сценарии/i);
 });
 
 test("hiring-agent: GET / serves HTML shell after auth", async () => {
@@ -299,14 +299,14 @@ test("hiring-agent: invalid JSON request body returns 400", async () => {
   }
 });
 
-test("hiring-agent: management-backed GET /api/jobs resolves tenant sql via access context", async () => {
+test("hiring-agent: management-backed GET /api/vacancies resolves tenant sql via access context", async () => {
   const tenantSql = async (strings, ...values) => {
     const text = strings.reduce((result, chunk, index) => (
       result + chunk + (index < values.length ? `$${index + 1}` : "")
     ), "");
-    assert.match(text, /FROM chatbot\.jobs/);
-    assert.deepEqual(values, ["tenant-alpha-001"]);
-    return [{ job_id: "job-1", title: "Alpha role" }];
+    assert.match(text, /FROM chatbot\.vacancies/);
+    assert.deepEqual(values, []);
+    return [{ vacancy_id: "vac-1", job_id: "job-1", title: "Alpha role", status: "active", extraction_status: "complete" }];
   };
 
   const app = createHiringAgentApp({ demoMode: false });
@@ -348,15 +348,15 @@ test("hiring-agent: management-backed GET /api/jobs resolves tenant sql via acce
   }).listen(0);
 
   try {
-    const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
+    const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
     assert.equal(status, 200);
-    assert.deepEqual(body.jobs, [{ job_id: "job-1", title: "Alpha role" }]);
+    assert.deepEqual(body.vacancies, [{ vacancy_id: "vac-1", job_id: "job-1", title: "Alpha role", status: "active", extraction_status: "complete" }]);
   } finally {
     server.close();
   }
 });
 
-test("hiring-agent: management-backed GET /api/jobs keeps two recruiter sessions isolated", async () => {
+test("hiring-agent: management-backed GET /api/vacancies keeps two recruiter sessions isolated", async () => {
   const app = createHiringAgentApp({ demoMode: false });
   const server = createHiringAgentServer(app, {
     appEnv: "sandbox",
@@ -410,34 +410,34 @@ test("hiring-agent: management-backed GET /api/jobs keeps two recruiter sessions
           const text = strings.reduce((result, chunk, index) => (
             result + chunk + (index < values.length ? `$${index + 1}` : "")
           ), "");
-          assert.match(text, /FROM chatbot\.jobs/);
+          assert.match(text, /FROM chatbot\.vacancies/);
 
           if (dbAlias === "db-tenant-alpha-001") {
-            assert.deepEqual(values, ["tenant-alpha-001"]);
-            return [{ job_id: "job-alpha-1", title: "Alpha role" }];
+            assert.deepEqual(values, []);
+            return [{ vacancy_id: "vac-alpha-1", job_id: "job-alpha-1", title: "Alpha role", status: "active", extraction_status: "complete" }];
           }
 
-          assert.deepEqual(values, ["tenant-beta-001"]);
-          return [{ job_id: "job-beta-1", title: "Beta role" }];
+          assert.deepEqual(values, []);
+          return [{ vacancy_id: "vac-beta-1", job_id: "job-beta-1", title: "Beta role", status: "active", extraction_status: "complete" }];
         };
       }
     }
   }).listen(0);
 
   try {
-    const alpha = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
-    const beta = await req(server, "GET", "/api/jobs", undefined, "session=sess-beta");
+    const alpha = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
+    const beta = await req(server, "GET", "/api/vacancies", undefined, "session=sess-beta");
 
     assert.equal(alpha.status, 200);
-    assert.deepEqual(alpha.body.jobs, [{ job_id: "job-alpha-1", title: "Alpha role" }]);
+    assert.deepEqual(alpha.body.vacancies, [{ vacancy_id: "vac-alpha-1", job_id: "job-alpha-1", title: "Alpha role", status: "active", extraction_status: "complete" }]);
     assert.equal(beta.status, 200);
-    assert.deepEqual(beta.body.jobs, [{ job_id: "job-beta-1", title: "Beta role" }]);
+    assert.deepEqual(beta.body.vacancies, [{ vacancy_id: "vac-beta-1", job_id: "job-beta-1", title: "Beta role", status: "active", extraction_status: "complete" }]);
   } finally {
     server.close();
   }
 });
 
-test("hiring-agent: management-backed GET /api/jobs returns explicit timeout error for stuck tenant db", async () => {
+test("hiring-agent: management-backed GET /api/vacancies returns explicit timeout error for stuck tenant db", async () => {
   const app = createHiringAgentApp({ demoMode: false, tenantDbTimeoutMs: 20 });
   const server = createHiringAgentServer(app, {
     appEnv: "prod",
@@ -477,10 +477,10 @@ test("hiring-agent: management-backed GET /api/jobs returns explicit timeout err
   }).listen(0);
 
   try {
-    const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
+    const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
     assert.equal(status, 503);
     assert.equal(body.error, "tenant_db_timeout");
-    assert.equal(body.operation, "getJobs");
+    assert.equal(body.operation, "getVacancies");
   } finally {
     server.close();
   }
@@ -511,7 +511,7 @@ test("hiring-agent: management-backed access denies suspended recruiter", async 
   }).listen(0);
 
   try {
-    const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
+    const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
     assert.equal(status, 403);
     assert.equal(body.error, "ERROR_RECRUITER_SUSPENDED");
   } finally {
@@ -544,7 +544,7 @@ test("hiring-agent: management-backed access denies archived tenant", async () =
   }).listen(0);
 
   try {
-    const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
+    const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
     assert.equal(status, 403);
     assert.equal(body.error, "ERROR_TENANT_SUSPENDED");
   } finally {
@@ -556,7 +556,7 @@ test("hiring-agent: demo mode missing session returns 401 explicitly", async () 
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
 
   try {
-    const { status, body } = await req(server, "GET", "/api/jobs");
+    const { status, body } = await req(server, "GET", "/api/vacancies");
     assert.equal(status, 401);
     assert.equal(body.error, "unauthorized");
   } finally {
@@ -1252,7 +1252,7 @@ test("hiring-agent: management-backed WebSocket forwards recruiterId to app", as
     async postChatMessage(input) {
       assert.equal(input.recruiterId, "rec-alpha-001");
       assert.equal(input.tenantId, "tenant-alpha-001");
-      assert.equal(input.job_id, "job-ws-owned");
+      assert.equal(input.vacancy_id, "job-ws-owned");
       return {
         status: 200,
         body: {

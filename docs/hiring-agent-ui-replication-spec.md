@@ -292,7 +292,7 @@ Current UI has a `<select id="jobSelect">` dropdown to pick the active vacancy. 
 </select>
 ```
 
-Populated via `GET /api/jobs` on page load (already implemented). Selected job ID sent with each WS message:
+Populated via `GET /api/vacancies` on page load (legacy alias: `GET /api/jobs`). Selected `vacancy_id` is sent with each WS message:
 
 ```json
 { "type": "message", "text": "покажи воронку", "jobId": "job-123" }

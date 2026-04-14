@@ -14,8 +14,12 @@ test("router: maps button click to setup_communication", async () => {
   assert.equal(await routePlaybook("настроить общение с кандидатами"), "setup_communication");
 });
 
-test("router: maps broadcast request to candidate_broadcast", async () => {
-  assert.equal(await routePlaybook("Отправь всем кандидатам ссылку на календарь"), "candidate_broadcast");
+test("router: maps broadcast request to mass_broadcast", async () => {
+  assert.equal(await routePlaybook("Отправь всем кандидатам ссылку на календарь"), "mass_broadcast");
+});
+
+test("router: maps vacancy request to view_vacancy", async () => {
+  assert.equal(await routePlaybook("карточка вакансии"), "view_vacancy");
 });
 
 test("router: returns null for unsupported requests", async () => {
