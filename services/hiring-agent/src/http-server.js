@@ -145,7 +145,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
     <section class="panel login-card">
       <div class="eyebrow">Recruiter Chat</div>
       <h1>Вход в hiring agent</h1>
-      <div class="subhead">Войдите по email и паролю, чтобы открыть playbook-driven chat для своей клиентской зоны.</div>
+      <div class="subhead">Войдите по email и паролю, чтобы открыть рабочее пространство для автоматизации рекрутинга.</div>
       <div class="notice" id="loginError"></div>
       <form id="loginForm">
         <label>
