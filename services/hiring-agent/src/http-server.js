@@ -1137,7 +1137,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;')
-        .replace(/\n/g, '<br>');
+        .replace(/\\n/g, '<br>');
       el.innerHTML = DOMPurify.sanitize(escaped);
     }
 
