@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { randomUUID, randomBytes } from "node:crypto";
-import { getModerationAutoSendDelayMs } from "./config.js";
+import { resolveModerationDelayMs } from "./config.js";
 
 function resolveInitialStepIdPostgres(template, collection) {
   if (collection === "phone_interview" && template.steps.length > 1) {
@@ -271,7 +271,7 @@ export class PostgresHiringStore {
     return rows[0];
   }
 
-  async applyLlmDecision({ run, job, llmOutput, conversation, pendingSteps }) {
+  async applyLlmDecision({ run, job, llmOutput, conversation, pendingSteps, vacancyModerationSettings }) {
     // Compute the next active step in-memory from already-fetched pendingSteps.
     // This avoids an interactive read-then-write transaction and allows using
     // the neon() HTTP batch transaction API.
@@ -299,7 +299,7 @@ export class PostgresHiringStore {
     // Pre-generate IDs for all events and planned message
     const plannedMessageId = llmOutput.next_message ? randomUUID() : null;
     const stepId = llmOutput.rejected_step_id ?? nextActiveStepId ?? run.active_step_id;
-    const sendAfter = new Date(Date.now() + getModerationAutoSendDelayMs()).toISOString();
+    const sendAfter = new Date(Date.now() + resolveModerationDelayMs(vacancyModerationSettings)).toISOString();
 
     // Build the full list of SQL queries to execute as a batch transaction
     const queries = [];
