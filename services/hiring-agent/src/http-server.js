@@ -1002,11 +1002,11 @@ async function handleChatWs(ws, msg, wsContext, app) {
   };
 
   const { text, vacancyId } = msg;
+  console.log("[ws] message:", JSON.stringify({ text, vacancyId, tenantId: wsContext.tenantId }));
 
   try {
     send({ type: "progress", tool: "route_playbook", label: "Определяю плейбук" });
 
-    // tenantSql is resolved once at connection time and stored in wsContext
     const result = await app.postChatMessage({
       message: text,
       tenantSql: wsContext.tenantSql,
@@ -1017,6 +1017,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
     });
 
     const reply = result.body?.reply ?? result.body;
+    console.log("[ws] reply kind:", reply?.kind ?? "unknown", "status:", result.status);
 
     send({ type: "progress", tool: "render", label: "Генерирую ответ" });
     const { markdown, actions } = replyToMarkdown(reply);
@@ -1024,6 +1025,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
     send({ type: "done", actions });
 
   } catch (err) {
+    console.error("[ws] error:", err?.message);
     send({ type: "error", message: err?.message ?? "Ошибка сервера" });
   }
 }
@@ -1174,6 +1176,7 @@ export function createHiringAgentServer(app, options = {}) {
   const wss = new WebSocketServer({ server, path: "/ws" });
 
   wss.on("connection", async (ws, req) => {
+    console.log("[ws] new connection");
     const cookies = parseCookies(req.headers.cookie ?? "");
 
     // Resolve access context at connection time — mirrors requireAccessContext.
@@ -1193,13 +1196,15 @@ export function createHiringAgentServer(app, options = {}) {
           recruiterEmail: ctx.recruiterEmail,
           tenantSql: ctx.tenantSql,
         };
-      } catch {
+      } catch (err) {
+        console.log("[ws] auth failed (management):", err?.message);
         ws.close(4001, "Unauthorized");
         return;
       }
     } else {
       const recruiter = await resolveSession(managementSql, cookies.session).catch(() => null);
       if (!recruiter) {
+        console.log("[ws] auth failed (session)");
         ws.close(4001, "Unauthorized");
         return;
       }
