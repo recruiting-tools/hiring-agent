@@ -23,6 +23,7 @@ const EXAMPLES_ACTION_MESSAGE = "настроить общение: сгенер
 export async function runCommunicationPlanPlaybook({
   tenantSql,
   vacancyId,
+  jobId = null,
   llmAdapter,
   recruiterInput = null,
   llmConfig = {}
@@ -36,7 +37,7 @@ export async function runCommunicationPlanPlaybook({
     };
   }
 
-  if (!vacancyId) {
+  if (!vacancyId && !jobId) {
     return {
       reply: {
         kind: "fallback_text",
@@ -45,14 +46,11 @@ export async function runCommunicationPlanPlaybook({
     };
   }
 
-  const rows = await tenantSql`
-    SELECT *
-    FROM chatbot.vacancies
-    WHERE vacancy_id = ${vacancyId}
-    LIMIT 1
-  `;
-
-  const vacancy = rows[0] ?? null;
+  const { vacancy, resolvedVacancyId } = await findVacancy({
+    tenantSql,
+    vacancyId,
+    jobId
+  });
   if (!vacancy) {
     return {
       reply: {
@@ -113,7 +111,7 @@ export async function runCommunicationPlanPlaybook({
         communication_examples = ${JSON.stringify(syncedExamples)}::jsonb,
         communication_examples_plan_hash = ${syncedExamples.length > 0 ? draftHash : null},
         updated_at = now()
-      WHERE vacancy_id = ${vacancyId}
+      WHERE vacancy_id = ${resolvedVacancyId}
     `;
 
     return {
@@ -159,7 +157,7 @@ export async function runCommunicationPlanPlaybook({
         communication_examples = ${JSON.stringify(generatedExamples)}::jsonb,
         communication_examples_plan_hash = ${computePlanHash(planForExamples)},
         updated_at = now()
-      WHERE vacancy_id = ${vacancyId}
+      WHERE vacancy_id = ${resolvedVacancyId}
     `;
 
     return {
@@ -214,7 +212,7 @@ export async function runCommunicationPlanPlaybook({
     SET
       communication_plan_draft = ${JSON.stringify(draft)}::jsonb,
       updated_at = now()
-    WHERE vacancy_id = ${vacancyId}
+    WHERE vacancy_id = ${resolvedVacancyId}
   `;
 
   return {
@@ -506,6 +504,55 @@ function resolveExamplesForPlan({ plan, examples, examplesPlanHash }) {
 async function generateWithModel(llmAdapter, prompt, model) {
   const options = model ? { model } : undefined;
   return llmAdapter.generate(prompt, options);
+}
+
+async function findVacancy({ tenantSql, vacancyId, jobId }) {
+  if (vacancyId) {
+    const rows = await tenantSql`
+      SELECT *
+      FROM chatbot.vacancies
+      WHERE vacancy_id = ${vacancyId}
+      LIMIT 1
+    `;
+
+    const vacancy = rows[0] ?? null;
+    if (vacancy) {
+      return {
+        vacancy,
+        resolvedVacancyId: vacancy.vacancy_id
+      };
+    }
+  }
+
+  if (jobId) {
+    const rows = await tenantSql`
+      SELECT *
+      FROM chatbot.vacancies
+      WHERE job_id = ${jobId}
+      ORDER BY
+        CASE status
+          WHEN 'active' THEN 0
+          WHEN 'draft' THEN 1
+          ELSE 2
+        END ASC,
+        updated_at DESC,
+        created_at DESC
+      LIMIT 1
+    `;
+
+    const vacancy = rows[0] ?? null;
+    if (vacancy) {
+      return {
+        vacancy,
+        resolvedVacancyId: vacancy.vacancy_id
+      };
+    }
+  }
+
+  return {
+    vacancy: null,
+    resolvedVacancyId: null
+  };
 }
 
 function formatList(items) {
