@@ -38,6 +38,7 @@ GEMINI_API_KEY=...            # уже есть в shell
 ## Release Process
 
 Каждая фича проходит через sandbox перед merge в main. Подробно: [`docs/release-process.md`](docs/release-process.md).
+Для параллельной работы агентов и чистых веток: [`AI-AGENT.md`](AI-AGENT.md).
 
 **Локально перед PR:** `pnpm gate:sandbox`
 **CI gate (авто):** `sandbox-gate` workflow — должен быть зелёным для merge
