@@ -188,6 +188,60 @@ test("hiring-agent: GET / serves HTML shell after auth", async () => {
   }
 });
 
+test("hiring-agent: base path mode isolates auth/app routes under /sandbox-001", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp(), {
+    appBasePath: "/sandbox-001",
+    sessionCookieName: "session_sandbox_001"
+  }).listen(0);
+
+  try {
+    const port = server.address().port;
+    const loginResponse = await fetch(`http://localhost:${port}/sandbox-001/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "demo@local",
+        password: "demo"
+      })
+    });
+    const setCookie = loginResponse.headers.get("set-cookie") ?? "";
+    assert.equal(loginResponse.status, 200);
+    assert.match(setCookie, /^session_sandbox_001=/);
+    assert.match(setCookie, /Path=\/sandbox-001/);
+
+    const shellResponse = await fetch(`http://localhost:${port}/sandbox-001/`, {
+      headers: { cookie: setCookie }
+    });
+    const shellHtml = await shellResponse.text();
+    assert.equal(shellResponse.status, 200);
+    assert.match(shellHtml, /const APP_BASE_PATH = '\/sandbox-001';/);
+    assert.match(shellHtml, /href="\/sandbox-001\/logout"/);
+
+    const wsUrl = `ws://localhost:${port}/sandbox-001/ws`;
+    await new Promise((resolve, reject) => {
+      const ws = new WsClient(wsUrl, { headers: { cookie: setCookie } });
+      const timeout = setTimeout(() => reject(new Error("ws timeout")), 2_000);
+      ws.on("open", () => {
+        clearTimeout(timeout);
+        ws.close();
+        resolve();
+      });
+      ws.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+
+    const noPrefixResponse = await fetch(`http://localhost:${port}/`, {
+      headers: { cookie: setCookie },
+      redirect: "manual"
+    });
+    assert.equal(noPrefixResponse.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: POST /auth/login sets 30 day cookie without secure outside production", async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = "test";
@@ -820,37 +874,48 @@ test("hiring-agent: management-backed chat accepts owned job_id and returns funn
   }
 });
 
-test("hiring-agent: management-backed setup_communication uses chatbot.jobs and returns llm output", async () => {
+test("hiring-agent: management-backed setup_communication returns structured communication_plan reply", async () => {
   const llmCalls = [];
-  let callIndex = 0;
   const tenantSql = async (strings, ...values) => {
     const text = strings.reduce((result, chunk, index) => (
       result + chunk + (index < values.length ? `$${index + 1}` : "")
     ), "");
-    callIndex += 1;
 
-    if (callIndex === 1) {
+    if (/FROM chatbot\.jobs/.test(text) && /WHERE job_id = \$1\s+AND client_id = \$2/.test(text)) {
       assert.match(text, /FROM chatbot\.jobs/);
       assert.deepEqual(values, ["job-owned", "tenant-alpha-001"]);
       return [{ job_id: "job-owned", title: "Owned role" }];
     }
 
-    assert.match(text, /LEFT JOIN chatbot\.pipeline_templates/);
-    assert.match(text, /FROM chatbot\.jobs j/);
-    assert.deepEqual(values, ["job-owned"]);
-    return [{
-      job_id: "job-owned",
-      title: "Owned role",
-      description: "Remote, 200k, TypeScript and Playwright.",
-      pipeline_steps: [
-        {
-          id: "intro",
-          goal: "Проверить опыт автоматизации",
-          done_when: "Кандидат описывает реальные кейсы с Playwright",
-          reject_when: "Нет опыта автотестов"
-        }
-      ]
-    }];
+    if (/FROM chatbot\.vacancies/.test(text) && /WHERE vacancy_id = \$1/.test(text)) {
+      assert.deepEqual(values, ["job-owned"]);
+      return [{
+        vacancy_id: "job-owned",
+        title: "Менеджер по продажам",
+        must_haves: ["B2B продажи", "CRM"],
+        nice_haves: ["Английский B2+"],
+        work_conditions: {
+          salary_range: { min: 180000, max: 250000 },
+          location: "Удаленно"
+        },
+        application_steps: [
+          { id: "intro", label: "Приветствие", owner: "agent" },
+          { id: "screen", label: "Скрининг", owner: "agent" },
+          { id: "sync", label: "Созвон", owner: "recruiter" }
+        ],
+        communication_plan: null,
+        communication_plan_draft: null,
+        communication_examples: [],
+        communication_examples_plan_hash: null
+      }];
+    }
+
+    if (/UPDATE chatbot\.vacancies/.test(text) && /communication_plan_draft/.test(text)) {
+      assert.equal(values.at(-1), "job-owned");
+      return [];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
   };
 
   const app = createHiringAgentApp({
@@ -858,7 +923,17 @@ test("hiring-agent: management-backed setup_communication uses chatbot.jobs and 
     llmAdapter: {
       async generate(prompt) {
         llmCalls.push(prompt);
-        return "## План коммуникации\n\n### Вариант 1\n\nГотово.";
+        return JSON.stringify({
+          scenario_title: "Базовый скрининг менеджера по продажам",
+          goal: "Договоренность о созвоне",
+          steps: [
+            { step: "Здравствуйте! Подскажите, что для вас важно в новой роли?", reminders_count: 1, comment: "Открываем диалог" },
+            { step: "Уточнить релевантный опыт B2B-продаж", reminders_count: 1, comment: "Проверяем базовый fit" },
+            { step: "Сверить ожидания по доходу и формату работы", reminders_count: 1, comment: "Снимаем риск по условиям" },
+            { step: "Кратко рассказать про роль и этапы отбора", reminders_count: 0, comment: "Формируем интерес" },
+            { step: "Предложить слот на собеседование/созвон", reminders_count: 2, comment: "Фиксируем следующий этап" }
+          ]
+        });
       }
     }
   });
@@ -906,12 +981,15 @@ test("hiring-agent: management-backed setup_communication uses chatbot.jobs and 
       vacancy_id: "job-owned"
     }, "session=sess-alpha");
     assert.equal(status, 200);
-    assert.equal(body.reply.kind, "llm_output");
-    assert.match(body.reply.content, /План коммуникации/);
+    assert.equal(body.reply.kind, "communication_plan");
+    assert.equal(body.reply.scenario_title, "Базовый скрининг менеджера по продажам");
+    assert.equal(body.reply.goal, "Договоренность о созвоне");
+    assert.equal(body.reply.steps.length, 5);
+    assert.equal(body.reply.is_configured, false);
     assert.equal(llmCalls.length, 1);
-    assert.match(llmCalls[0], /Описание вакансии:/);
-    assert.match(llmCalls[0], /Remote, 200k, TypeScript and Playwright\./);
-    assert.match(llmCalls[0], /Проверить опыт автоматизации/);
+    assert.match(llmCalls[0], /ДАННЫЕ ВАКАНСИИ/);
+    assert.match(llmCalls[0], /Менеджер по продажам/);
+    assert.match(llmCalls[0], /B2B продажи/);
   } finally {
     server.close();
   }
