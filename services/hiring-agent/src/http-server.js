@@ -1208,7 +1208,12 @@ const CHAT_HTML = `<!DOCTYPE html>
       msgInput.value = '';
       msgInput.style.height = 'auto';
 
-      ws.send(JSON.stringify({ type: 'message', text: text.trim(), vacancyId: selectedVacancyId }));
+      ws.send(JSON.stringify({
+        type: 'message',
+        text: text.trim(),
+        vacancyId: selectedVacancyId,
+        jobId: selectedVacancyJobId || selectedVacancyId || null
+      }));
     }
 
     // ── Vacancy selector ──────────────────────────────────────────────────────
@@ -1564,8 +1569,8 @@ async function handleChatWs(ws, msg, wsContext, app) {
     if (ws.readyState === 1) ws.send(JSON.stringify(obj));
   };
 
-  const { text, vacancyId } = msg;
-  console.log("[ws] message:", JSON.stringify({ text, vacancyId, tenantId: wsContext.tenantId }));
+  const { text, vacancyId, jobId } = msg;
+  console.log("[ws] message:", JSON.stringify({ text, vacancyId, jobId, tenantId: wsContext.tenantId }));
 
   try {
     send({ type: "progress", tool: "route_playbook", label: "Определяю плейбук" });
@@ -1576,6 +1581,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       tenantId: wsContext.tenantId,
       recruiterId: wsContext.recruiterId,
       vacancy_id: vacancyId,
+      job_id: jobId ?? vacancyId ?? null,
     });
 
     const reply = result.body?.reply ?? result.body;

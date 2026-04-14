@@ -1740,6 +1740,7 @@ test("hiring-agent: management-backed WebSocket forwards recruiterId to app", as
       assert.equal(input.recruiterId, "rec-alpha-001");
       assert.equal(input.tenantId, "tenant-alpha-001");
       assert.equal(input.vacancy_id, "job-ws-owned");
+      assert.equal(input.job_id, "job-ws-owned");
       return {
         status: 200,
         body: {
@@ -1810,6 +1811,101 @@ test("hiring-agent: management-backed WebSocket forwards recruiterId to app", as
           type: "message",
           text: "ping",
           vacancyId: "job-ws-owned"
+        }));
+      });
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data);
+        if (msg.type === "done") finish();
+      });
+      ws.on("error", finish);
+      setTimeout(() => finish(new Error("timeout")), 5000);
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed WebSocket forwards distinct job_id for synthetic vacancy selections", async () => {
+  const app = {
+    getHealth() {
+      return { status: 200, body: { status: "ok" } };
+    },
+    async postChatMessage(input) {
+      assert.equal(input.recruiterId, "rec-alpha-001");
+      assert.equal(input.tenantId, "tenant-alpha-001");
+      assert.equal(input.vacancy_id, "job-designer");
+      assert.equal(input.job_id, "job-designer");
+      return {
+        status: 200,
+        body: {
+          reply: {
+            kind: "fallback_text",
+            text: "ok"
+          }
+        }
+      };
+    }
+  };
+
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return async () => [];
+      }
+    }
+  }).listen(0);
+
+  const port = server.address().port;
+  try {
+    await new Promise((resolve, reject) => {
+      const ws = new WsClient(`ws://localhost:${port}/ws`, {
+        headers: { cookie: "session=sess-alpha" }
+      });
+      let settled = false;
+
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        ws.close();
+        if (err) reject(err);
+        else resolve();
+      };
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({
+          type: "message",
+          text: "настроить общение с кандидатами",
+          vacancyId: "job-designer",
+          jobId: "job-designer"
         }));
       });
       ws.on("message", (data) => {
