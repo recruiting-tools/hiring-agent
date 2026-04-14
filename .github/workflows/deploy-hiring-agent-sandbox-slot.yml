@@ -59,6 +59,14 @@ jobs:
           [ -n "${{ secrets.VM_SSH_KEY }}" ] || { echo "Missing secret: VM_SSH_KEY"; exit 1; }
           [ -n "${{ secrets.MANAGEMENT_DATABASE_URL }}" ] || { echo "Missing secret: MANAGEMENT_DATABASE_URL"; exit 1; }
           [ -n "${{ secrets.OPENROUTER_API_KEY }}" ] || { echo "Missing secret: OPENROUTER_API_KEY"; exit 1; }
+          [ "$VM_HOST" != "34.31.217.176" ] || {
+            echo "Refusing sandbox deploy: VM_HOST points to production VM (34.31.217.176)";
+            exit 1;
+          }
+          [ "${SANDBOX_PUBLIC_URL%/}" != "https://hiring-chat.recruiter-assistant.com" ] || {
+            echo "Refusing sandbox deploy: SANDBOX_PUBLIC_URL points to production URL";
+            exit 1;
+          }
 
       - name: Load SSH key
         run: |
