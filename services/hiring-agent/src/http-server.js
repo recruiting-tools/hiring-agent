@@ -880,9 +880,9 @@ const CHAT_HTML = `<!DOCTYPE html>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand-stack">
-        <div class="eyebrow">Playbook Workspace</div>
-        <h1>Hiring agent для работы с вакансией, а не fullscreen-чат.</h1>
-        <p>Нормальный desktop workflow для рекрутера: контекст слева, диалог в отдельной сцене, короткие маршруты под рукой и без ощущения, что UI растянули на весь монитор.</p>
+        <div class="eyebrow">Вакансия</div>
+        <h1>Работа с вакансией</h1>
+        <p>Контекст и чат.</p>
       </div>
       <div class="status-pill">
         <span id="status-dot" title="WebSocket"></span>
@@ -897,7 +897,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       <aside class="sidebar">
         <section class="sidebar-card panel">
           <h2>Контекст</h2>
-          <p id="workspace-copy">Держите вакансию и служебные действия отдельно от самого диалога. Так легче читать длинные ответы и быстрее переключаться между сценариями.</p>
+          <p id="workspace-copy">Выберите вакансию и действие.</p>
 
           <div class="meta-grid">
             <div class="meta-row">
@@ -926,30 +926,25 @@ const CHAT_HTML = `<!DOCTYPE html>
         </section>
 
         <section class="sidebar-card panel">
-          <h3>Быстрые сценарии</h3>
-          <p>Лучше направлять пользователя готовыми следующими шагами, чем заставлять каждый раз печатать с нуля.</p>
+          <h3>Действия</h3>
 
           <div class="shortcut-list">
             <button class="shortcut-btn" data-msg="настроить общение с кандидатами" data-requires-vacancy="true">
               <span class="shortcut-title">Настроить общение</span>
-              <span class="shortcut-copy">Собрать шаблоны и сценарий коммуникации</span>
             </button>
             <button class="shortcut-btn" data-msg="посмотри вакансию" data-requires-vacancy="true">
               <span class="shortcut-title">Посмотреть вакансию</span>
-              <span class="shortcut-copy">Подтянуть контекст по выбранной позиции</span>
             </button>
             <button class="shortcut-btn" data-msg="покажи воронку по кандидатам" data-requires-vacancy="true">
               <span class="shortcut-title">Открыть воронку</span>
-              <span class="shortcut-copy">Проверить этапы, зависания и конверсию</span>
             </button>
             <button class="shortcut-btn" data-msg="сделай рассылку" data-requires-vacancy="true">
               <span class="shortcut-title">Сделать рассылку</span>
-              <span class="shortcut-copy">Запустить следующий аутрич по кандидатам</span>
             </button>
           </div>
 
           <a href="#" class="ghost-btn" id="moderation-link" hidden target="_blank" rel="noopener">Сообщения на модерации</a>
-          <div class="moderation-copy" id="moderation-copy">Здесь будут запланированные сообщения кандидатам и очередь на ручную проверку.</div>
+          <div class="moderation-copy" id="moderation-copy">Очередь модерации.</div>
         </section>
       </aside>
 
@@ -957,15 +952,14 @@ const CHAT_HTML = `<!DOCTYPE html>
         <header class="chat-stage-header">
           <div class="chat-stage-copy">
             <h2 id="chat-stage-title">Рабочая зона агента</h2>
-            <p id="chat-stage-subtitle">Выберите вакансию, чтобы открыть нормальный контекстный чат вместо пустого полотна.</p>
+            <p id="chat-stage-subtitle">Выберите вакансию.</p>
           </div>
         </header>
 
         <div id="chat-log">
           <div id="empty-state" class="chat-lane">
-            <div class="empty-badge">Workspace-first UI</div>
-            <h2>Выберите вакансию и работайте с агентом в отдельной chat-scene.</h2>
-            <p>Лучший паттерн для desktop AI здесь не fullscreen-мессенджер, а центрированная зона диалога с ограниченной шириной, плюс постоянный блок контекста и быстрых действий рядом.</p>
+            <h2>Выберите вакансию</h2>
+            <p>Чат доступен после выбора вакансии.</p>
             <div class="empty-actions">
               <button class="primary-btn" id="empty-create-vacancy-btn">Создать вакансию</button>
             </div>
@@ -983,7 +977,7 @@ const CHAT_HTML = `<!DOCTYPE html>
                 </svg>
               </button>
             </div>
-            <div class="composer-meta" id="composer-meta">Можно писать свободно или выбирать быстрые сценарии слева.</div>
+            <div class="composer-meta" id="composer-meta">Enter: отправить. Shift+Enter: новая строка.</div>
           </div>
         </div>
       </section>
@@ -1044,7 +1038,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       ws.onopen = () => {
         statusDot.classList.add('connected');
         connectionLabel.textContent = 'Агент на связи';
-        connectionCopy.textContent = 'Можно отправлять сообщения и запускать playbook-сценарии.';
+        connectionCopy.textContent = 'Соединение установлено.';
         updateSendEnabled();
       };
 
@@ -1053,7 +1047,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         currentAssistant = null;
         statusDot.classList.remove('connected');
         connectionLabel.textContent = 'Подключение потеряно';
-        connectionCopy.textContent = 'Пробуем переподключиться автоматически…';
+        connectionCopy.textContent = 'Переподключение...';
         updateSendEnabled();
         if (ev.code === 4001) { window.location = LOGIN_PATH; return; }
         setTimeout(connect, 3000); // auto-reconnect
@@ -1062,7 +1056,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       ws.onerror = () => {
         statusDot.classList.remove('connected');
         connectionLabel.textContent = 'Ошибка соединения';
-        connectionCopy.textContent = 'WebSocket недоступен, пробуем восстановить сессию.';
+        connectionCopy.textContent = 'WebSocket недоступен.';
       };
 
       ws.onmessage = (ev) => {
@@ -1218,10 +1212,10 @@ const CHAT_HTML = `<!DOCTYPE html>
         if (jobs.length === 0) {
           vacancySelect.innerHTML = '<option value="">Нет вакансий</option>';
           contextVacancyTitle.textContent = 'Нет активных вакансий';
-          contextVacancyCopy.textContent = 'Создайте первую вакансию, чтобы агент мог работать с контекстом и кандидатами.';
+          contextVacancyCopy.textContent = 'Добавьте вакансию.';
           chatStageTitle.textContent = 'Пока нет вакансий';
-          chatStageSubtitle.textContent = 'Создайте первую вакансию, затем агент сможет строить воронку, коммуникацию и рассылки.';
-          composerMeta.textContent = 'Пока можно только создать новую вакансию.';
+          chatStageSubtitle.textContent = 'Добавьте вакансию для начала работы.';
+          composerMeta.textContent = 'Создайте вакансию.';
           syncShortcuts();
           return;
         }
@@ -1297,9 +1291,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     function showWelcome(vacancyId, title) {
-      const bubbleEl = addSystemMessage(
-        'Работаю с вакансией **' + escapeText(title) + '**. Что будем делать?'
-      );
+      const bubbleEl = addSystemMessage('Вакансия: **' + escapeText(title) + '**');
 
       // Add playbook chips
       const PLAYBOOKS = [
@@ -1343,33 +1335,33 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       contextVacancyTitle.textContent = hasVacancy ? selectedVacancyTitle : 'Вакансия не выбрана';
       contextVacancyCopy.textContent = hasVacancy
-        ? 'Контекст закреплён. Можно запускать playbook-сценарии, смотреть воронку и собирать коммуникацию.'
-        : 'Выберите вакансию или создайте новую, чтобы открыть рабочий сценарий.';
+        ? 'Выберите действие или напишите запрос.'
+        : 'Выберите вакансию.';
 
       chatStageTitle.textContent = hasVacancy
         ? selectedVacancyTitle
         : 'Рабочая зона агента';
       chatStageSubtitle.textContent = hasVacancy
-        ? 'Чат ограничен по ширине для нормальной читаемости, а контекст остаётся рядом.'
-        : 'Выберите вакансию, чтобы открыть нормальный контекстный чат вместо пустого полотна.';
+        ? 'Готов к работе.'
+        : 'Выберите вакансию.';
 
       composerMeta.textContent = hasVacancy
         ? 'Enter отправляет сообщение, Shift+Enter переносит строку.'
-        : 'Можно писать свободно или сначала выбрать вакансию слева.';
+        : 'Выберите вакансию.';
 
       if (CHATBOT_MODERATION_BASE) {
         if (hasVacancy && selectedVacancyJobId) {
           const titleParam = encodeURIComponent(selectedVacancyTitle || '');
           moderationLink.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(selectedVacancyJobId) + (titleParam ? '&title=' + titleParam : '');
-          moderationCopy.textContent = 'Откроет очередь сообщений по выбранной вакансии, включая запланированные отправки кандидатам.';
+          moderationCopy.textContent = 'Модерация по выбранной вакансии.';
         } else {
           moderationLink.href = CHATBOT_MODERATION_BASE;
-          moderationCopy.textContent = 'Откроет общую очередь сообщений на модерации по всем вакансиям.';
+          moderationCopy.textContent = 'Общая модерация.';
         }
         moderationLink.hidden = false;
       } else {
         moderationLink.hidden = true;
-        moderationCopy.textContent = 'Модерация сообщений появится здесь, когда будет доступен recruiter token.';
+        moderationCopy.textContent = 'Модерация недоступна.';
       }
 
       syncShortcuts();
