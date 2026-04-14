@@ -76,6 +76,11 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
   if [ ! -d "$DEPLOY_DIR/.git" ]; then
     echo "First deploy detected for $DEPLOY_DIR"
     mkdir -p "$(dirname "$DEPLOY_DIR")"
+    ENV_BACKUP=""
+    if [ -f "$DEPLOY_DIR/.env" ]; then
+      ENV_BACKUP=$(mktemp)
+      cp "$DEPLOY_DIR/.env" "$ENV_BACKUP"
+    fi
     rm -rf "$DEPLOY_DIR"
 
     # Reuse the already-provisioned production checkout when available.
@@ -86,6 +91,11 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
     else
       echo "Cloning repository into $DEPLOY_DIR"
       git clone "$REPO_URL" "$DEPLOY_DIR"
+    fi
+
+    if [ -n "$ENV_BACKUP" ] && [ -f "$ENV_BACKUP" ]; then
+      cp "$ENV_BACKUP" "$DEPLOY_DIR/.env"
+      rm -f "$ENV_BACKUP"
     fi
   fi
 
