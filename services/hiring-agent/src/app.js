@@ -130,6 +130,21 @@ export function createHiringAgentApp(options = {}) {
       }
 
       if (playbook.playbook_key === "setup_communication") {
+        if (tenantSql && tenantId && vacancyId) {
+          const tenantJob = await withTenantDbTimeout(
+            () => getTenantJobById(tenantSql, tenantId, vacancyId),
+            { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
+          );
+          if (!tenantJob) {
+            return {
+              status: 404,
+              body: {
+                error: "job_not_found"
+              }
+            };
+          }
+        }
+
         const result = await runCommunicationPlanPlaybook({
           tenantSql,
           vacancyId,

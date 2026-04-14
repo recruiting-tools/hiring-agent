@@ -214,153 +214,394 @@ const CHAT_HTML = `<!DOCTYPE html>
   <style>
     :root {
       --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      --bg:    #080a0f;
-      --bg2:   #0e1118;
-      --bg3:   #161b26;
-      --edge:  #1e2535;
-      --t1:    #e4e8f0;
-      --t2:    #8892a4;
-      --t3:    #4a5268;
-      --acc:   #4f8ff7;
-      --acc-d: rgba(79,143,247,0.12);
-      --green: #34c759;
-      --red:   #ef4444;
+      --bg: #09111f;
+      --bg2: #0d1627;
+      --bg3: #101b31;
+      --surface: rgba(13, 22, 39, 0.82);
+      --surface-strong: rgba(16, 27, 49, 0.94);
+      --surface-soft: rgba(255, 255, 255, 0.04);
+      --edge: rgba(157, 181, 224, 0.14);
+      --edge-strong: rgba(157, 181, 224, 0.24);
+      --t1: #edf3ff;
+      --t2: #9ca9c6;
+      --t3: #61708d;
+      --acc: #69a2ff;
+      --acc-strong: #8fb8ff;
+      --acc-d: rgba(105, 162, 255, 0.14);
+      --green: #3ddc97;
+      --red: #ff6b6b;
+      --shadow-lg: 0 28px 90px rgba(2, 8, 23, 0.45);
+      --shadow-md: 0 16px 50px rgba(2, 8, 23, 0.24);
+      --shell-width: 1440px;
+      --chat-width: 920px;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: var(--font);
-      background: var(--bg);
+      background:
+        radial-gradient(circle at top left, rgba(105, 162, 255, 0.2), transparent 30%),
+        radial-gradient(circle at top right, rgba(61, 220, 151, 0.12), transparent 24%),
+        linear-gradient(180deg, #08101d 0%, #09111f 35%, #0c1525 100%);
       color: var(--t1);
-      height: 100dvh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+      min-height: 100dvh;
+    }
+    a { color: inherit; }
+    button,
+    textarea,
+    select {
+      font: inherit;
     }
 
-    /* ── HEADER ────────────────────────────────────────────────── */
-    #header {
+    .app-shell {
+      width: min(calc(100% - 32px), var(--shell-width));
+      margin: 0 auto;
+      padding: 28px 0 32px;
+    }
+    .topbar {
       display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .brand-stack {
+      display: grid;
+      gap: 6px;
+    }
+    .eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--acc-strong);
+    }
+    .topbar h1 {
+      font-size: clamp(28px, 3vw, 40px);
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+    }
+    .topbar p {
+      max-width: 640px;
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--t2);
+    }
+    .status-pill {
+      display: inline-flex;
       align-items: center;
       gap: 10px;
-      padding: 0 16px;
-      height: 52px;
-      border-bottom: 1px solid var(--edge);
-      flex-shrink: 0;
+      padding: 12px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--edge);
+      background: rgba(8, 14, 26, 0.54);
+      color: var(--t2);
+      white-space: nowrap;
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow-md);
+    }
+    .status-pill strong {
+      color: var(--t1);
+      font-size: 13px;
+      font-weight: 600;
     }
     #status-dot {
-      width: 7px; height: 7px;
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
       background: var(--red);
-      flex-shrink: 0;
-      transition: background 0.3s;
+      box-shadow: 0 0 0 6px rgba(255, 107, 107, 0.12);
+      transition: background 0.3s, box-shadow 0.3s;
     }
-    #status-dot.connected { background: var(--green); }
-    .logo {
-      font-size: 14px;
+    #status-dot.connected {
+      background: var(--green);
+      box-shadow: 0 0 0 6px rgba(61, 220, 151, 0.12);
+    }
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+      gap: 20px;
+      align-items: stretch;
+      min-height: calc(100dvh - 170px);
+    }
+    .panel {
+      border: 1px solid var(--edge);
+      background: var(--surface);
+      border-radius: 28px;
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow-lg);
+    }
+    .sidebar {
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+    .sidebar-card {
+      padding: 20px;
+    }
+    .sidebar-card h2,
+    .sidebar-card h3 {
+      font-size: 15px;
       font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .sidebar-card p {
+      margin-top: 8px;
+      color: var(--t2);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .meta-grid {
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .meta-row {
+      display: grid;
+      gap: 6px;
+    }
+    .meta-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--t3);
+    }
+    .meta-value {
       color: var(--t1);
-      letter-spacing: -0.01em;
+      font-size: 14px;
+      line-height: 1.45;
+      word-break: break-word;
     }
     #vacancy-select {
-      flex: 1;
-      max-width: 320px;
-      margin-left: auto;
-      padding: 6px 10px;
-      background: var(--bg3);
+      width: 100%;
+      padding: 12px 14px;
+      background: var(--surface-strong);
       border: 1px solid var(--edge);
-      border-radius: 8px;
+      border-radius: 14px;
       color: var(--t1);
-      font-family: var(--font);
-      font-size: 13px;
+      font-size: 14px;
       cursor: pointer;
       outline: none;
+      appearance: none;
     }
     #vacancy-select:focus { border-color: var(--acc); }
     #vacancy-select option { background: var(--bg2); }
-    #logout-btn {
-      margin-left: 8px;
-      padding: 5px 12px;
-      font-size: 12px;
-      font-family: var(--font);
-      background: transparent;
-      border: 1px solid var(--edge);
-      border-radius: 7px;
-      color: var(--t2);
-      cursor: pointer;
-      text-decoration: none;
-      white-space: nowrap;
+    .primary-btn,
+    .ghost-btn,
+    .shortcut-btn,
+    .action-btn,
+    .playbook-chip,
+    #send-btn {
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, opacity 0.16s ease, color 0.16s ease;
     }
-    #logout-btn:hover { border-color: var(--t2); color: var(--t1); }
+    .primary-btn,
+    .ghost-btn,
+    .shortcut-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 42px;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      padding: 0 14px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .primary-btn {
+      color: #07101d;
+      background: linear-gradient(135deg, #8bb7ff 0%, #6ea7ff 100%);
+      box-shadow: 0 12px 32px rgba(105, 162, 255, 0.22);
+    }
+    .ghost-btn {
+      color: var(--t2);
+      border-color: var(--edge);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .primary-btn:hover,
+    .ghost-btn:hover,
+    .shortcut-btn:hover,
+    .action-btn:hover,
+    .playbook-chip:hover,
+    #send-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+    }
+    .shortcut-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .shortcut-btn {
+      justify-content: flex-start;
+      min-height: 48px;
+      padding: 0 14px;
+      border-radius: 16px;
+      border: 1px solid var(--edge);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--t1);
+      text-align: left;
+    }
+    .shortcut-btn[disabled] {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .shortcut-btn span {
+      display: block;
+    }
+    .shortcut-title {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .shortcut-copy {
+      margin-top: 2px;
+      font-size: 12px;
+      color: var(--t2);
+    }
+    #moderation-link {
+      margin-top: 10px;
+    }
+    #moderation-link[hidden] {
+      display: none;
+    }
 
-    /* ── CHAT LOG ──────────────────────────────────────────────── */
+    .chat-stage {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 12%),
+        rgba(10, 18, 33, 0.82);
+    }
+    .chat-stage-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--edge);
+      background: rgba(6, 12, 24, 0.42);
+      backdrop-filter: blur(18px);
+    }
+    .chat-stage-copy {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+    .chat-stage-copy h2 {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chat-stage-copy p {
+      font-size: 13px;
+      color: var(--t2);
+      line-height: 1.5;
+    }
+    #logout-btn {
+      flex-shrink: 0;
+      padding: 11px 14px;
+      border: 1px solid var(--edge);
+      border-radius: 14px;
+      color: var(--t2);
+      text-decoration: none;
+      background: rgba(255, 255, 255, 0.03);
+    }
+    #logout-btn:hover {
+      border-color: var(--edge-strong);
+      color: var(--t1);
+    }
+
     #chat-log {
       flex: 1;
       overflow-y: auto;
-      padding: 20px 16px;
+      padding: 26px 22px 18px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 14px;
       scroll-behavior: smooth;
     }
     #chat-log::-webkit-scrollbar { width: 4px; }
     #chat-log::-webkit-scrollbar-track { background: transparent; }
     #chat-log::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 2px; }
+    .chat-lane {
+      width: min(100%, var(--chat-width));
+      margin: 0 auto;
+    }
 
-    /* ── EMPTY STATE ───────────────────────────────────────────── */
     #empty-state {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 16px;
+      gap: 18px;
       flex: 1;
-      padding: 40px 20px;
+      padding: 48px 20px 56px;
       text-align: center;
       color: var(--t2);
     }
-    #empty-state .empty-icon { font-size: 40px; }
-    #empty-state h2 { font-size: 18px; font-weight: 600; color: var(--t1); }
-    #empty-state p { font-size: 14px; line-height: 1.5; max-width: 300px; }
-    .btn-primary {
-      padding: 9px 18px;
-      background: var(--acc);
-      color: white;
-      border: none;
-      border-radius: 9px;
-      font-family: var(--font);
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
+    #empty-state .empty-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--edge);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 12px;
+      color: var(--acc-strong);
     }
-    .btn-primary:hover { opacity: 0.88; }
-
-    /* ── MESSAGE ROWS ──────────────────────────────────────────── */
-    .msg-row { display: flex; }
+    #empty-state h2 {
+      font-size: clamp(28px, 3.8vw, 40px);
+      font-weight: 600;
+      letter-spacing: -0.05em;
+      color: var(--t1);
+      max-width: 560px;
+    }
+    #empty-state p {
+      font-size: 15px;
+      line-height: 1.75;
+      max-width: 560px;
+    }
+    .empty-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+    .msg-row {
+      display: flex;
+      width: min(100%, var(--chat-width));
+      margin: 0 auto;
+    }
     .msg-row.user { justify-content: flex-end; }
     .msg-row.assistant { justify-content: flex-start; }
-
     .bubble {
-      max-width: min(75%, 680px);
-      padding: 10px 14px;
+      max-width: min(82%, 760px);
+      padding: 14px 16px;
       font-size: 14px;
-      line-height: 1.55;
-      border-radius: 12px;
+      line-height: 1.65;
+      border-radius: 20px;
       word-break: break-word;
+      box-shadow: var(--shadow-md);
     }
     .user-bubble {
-      background: var(--acc);
-      color: white;
-      border-radius: 12px 12px 2px 12px;
+      background: linear-gradient(135deg, #79abff 0%, #5a97ff 100%);
+      color: #07101d;
+      border-radius: 20px 20px 6px 20px;
     }
     .assistant-bubble {
-      background: var(--bg2);
+      background: rgba(9, 17, 31, 0.78);
       border: 1px solid var(--edge);
       color: var(--t1);
-      border-radius: 12px 12px 12px 2px;
+      border-radius: 20px 20px 20px 6px;
       position: relative;
     }
-
-    /* Streaming cursor */
     .assistant-bubble.streaming .bubble-content:not(:empty)::after {
       content: '▋';
       display: inline;
@@ -370,12 +611,11 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 
-    /* ── PROGRESS STEPS ────────────────────────────────────────── */
     .progress-steps {
       display: flex;
       flex-direction: column;
       gap: 4px;
-      margin-bottom: 6px;
+      margin-bottom: 10px;
     }
     .progress-steps:empty { display: none; }
     .progress-step {
@@ -400,13 +640,11 @@ const CHAT_HTML = `<!DOCTYPE html>
       0%,100%{opacity:1;transform:scale(1)}
       50%{opacity:0.45;transform:scale(0.75)}
     }
-
-    /* ── BUBBLE CONTENT (markdown) ─────────────────────────────── */
     .bubble-content { overflow-x: auto; }
     .bubble-content p { margin: 0 0 8px; }
     .bubble-content p:last-child { margin-bottom: 0; }
     .bubble-content h1,.bubble-content h2,.bubble-content h3 {
-      font-size: 15px; font-weight: 600; margin: 12px 0 6px;
+      font-size: 15px; font-weight: 600; margin: 14px 0 6px;
       color: var(--t1);
     }
     .bubble-content h2 { font-size: 14px; }
@@ -460,28 +698,24 @@ const CHAT_HTML = `<!DOCTYPE html>
     .bubble-content strong { color: var(--t1); font-weight: 600; }
     .bubble-content a { color: var(--acc); text-decoration: none; }
     .bubble-content a:hover { text-decoration: underline; }
-
-    /* ── ACTION BUTTONS ────────────────────────────────────────── */
     .actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 10px;
-      padding-top: 10px;
+      gap: 8px;
+      margin-top: 14px;
+      padding-top: 12px;
       border-top: 1px solid var(--edge);
     }
     .actions:empty { display: none; }
     .action-btn {
-      padding: 5px 12px;
+      padding: 8px 12px;
       font-size: 12px;
-      font-family: var(--font);
       font-weight: 500;
-      border-radius: 7px;
+      border-radius: 999px;
       border: 1px solid var(--edge);
-      background: var(--bg3);
+      background: rgba(255, 255, 255, 0.04);
       color: var(--t2);
       cursor: pointer;
-      transition: all 0.12s;
       white-space: nowrap;
     }
     .action-btn:hover {
@@ -489,112 +723,269 @@ const CHAT_HTML = `<!DOCTYPE html>
       border-color: var(--acc);
       color: var(--t1);
     }
-
-    /* ── PLAYBOOK CHIPS (welcome message) ──────────────────────── */
     .playbook-chips {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 10px;
+      gap: 8px;
+      margin-top: 14px;
     }
     .playbook-chip {
-      padding: 5px 12px;
+      padding: 8px 12px;
       font-size: 12px;
-      font-family: var(--font);
       font-weight: 500;
-      border-radius: 7px;
+      border-radius: 999px;
       border: 1px solid var(--acc);
       background: var(--acc-d);
       color: var(--acc);
       cursor: pointer;
-      transition: all 0.12s;
     }
     .playbook-chip:hover { background: var(--acc); color: white; }
     a.playbook-chip { text-decoration: none; display: inline-block; }
-
-    /* ── INPUT AREA ────────────────────────────────────────────── */
     #input-area {
       display: flex;
       align-items: flex-end;
-      gap: 8px;
-      padding: 10px 16px 14px;
+      gap: 10px;
+      padding: 18px 22px 22px;
       border-top: 1px solid var(--edge);
       flex-shrink: 0;
+      background: rgba(6, 12, 24, 0.42);
+    }
+    .composer-shell {
+      width: min(100%, var(--chat-width));
+      margin: 0 auto;
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 20px;
+      border: 1px solid var(--edge);
+      background: rgba(7, 14, 26, 0.82);
+      box-shadow: var(--shadow-md);
     }
     #msg-input {
       flex: 1;
       resize: none;
-      background: var(--bg3);
-      border: 1px solid var(--edge);
-      border-radius: 10px;
-      padding: 9px 13px;
-      font-family: var(--font);
+      background: transparent;
+      border: 0;
+      border-radius: 14px;
+      padding: 10px 12px;
       font-size: 14px;
       color: var(--t1);
       max-height: 160px;
-      min-height: 38px;
+      min-height: 42px;
       overflow-y: hidden;
       outline: none;
-      transition: border-color 0.15s;
       line-height: 1.5;
     }
     #msg-input::placeholder { color: var(--t3); }
-    #msg-input:focus { border-color: var(--acc); }
+    .composer-meta {
+      width: min(100%, var(--chat-width));
+      margin: 8px auto 0;
+      padding: 0 4px;
+      font-size: 12px;
+      color: var(--t3);
+    }
     #send-btn {
-      width: 36px; height: 36px;
+      width: 42px;
+      height: 42px;
       flex-shrink: 0;
-      border-radius: 9px;
+      border-radius: 14px;
       border: none;
-      background: var(--acc);
-      color: white;
+      background: linear-gradient(135deg, #8bb7ff 0%, #6ea7ff 100%);
+      color: #07101d;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: opacity 0.12s;
     }
     #send-btn:disabled { opacity: 0.35; cursor: default; }
     #send-btn svg { width: 16px; height: 16px; }
+    @media (max-width: 980px) {
+      .app-shell {
+        width: min(calc(100% - 20px), var(--shell-width));
+        padding-top: 18px;
+      }
+      .topbar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .workspace {
+        grid-template-columns: 1fr;
+        min-height: auto;
+      }
+      .sidebar {
+        order: 2;
+      }
+      .chat-stage {
+        min-height: 70dvh;
+      }
+      .chat-stage-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .bubble {
+        max-width: 100%;
+      }
+    }
+    @media (max-width: 640px) {
+      .app-shell {
+        width: 100%;
+        padding: 0;
+      }
+      .topbar {
+        margin: 0;
+        padding: 18px 16px 14px;
+      }
+      .panel,
+      .chat-stage {
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+      }
+      .workspace {
+        gap: 0;
+      }
+      .sidebar {
+        gap: 0;
+      }
+      .sidebar-card {
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+      }
+      #chat-log,
+      #input-area,
+      .chat-stage-header {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+      .composer-shell {
+        padding: 8px;
+      }
+      #empty-state h2 {
+        font-size: 30px;
+      }
+    }
   </style>
 </head>
 <body>
-  <!-- Header -->
-  <header id="header">
-    <div id="status-dot" title="WebSocket"></div>
-    <div class="logo">Hiring Agent</div>
-    <select id="vacancy-select">
-      <option value="">Загрузка вакансий…</option>
-    </select>
-    <span id="recruiter-email" style="font-size:12px;color:var(--t3);margin-left:4px;">__RECRUITER_EMAIL__</span>
-    <a href="/logout" id="logout-btn">Выйти</a>
-  </header>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-stack">
+        <div class="eyebrow">Playbook Workspace</div>
+        <h1>Hiring agent для работы с вакансией, а не fullscreen-чат.</h1>
+        <p>Нормальный desktop workflow для рекрутера: контекст слева, диалог в отдельной сцене, короткие маршруты под рукой и без ощущения, что UI растянули на весь монитор.</p>
+      </div>
+      <div class="status-pill">
+        <span id="status-dot" title="WebSocket"></span>
+        <div>
+          <strong id="connection-label">Подключение</strong>
+          <div id="connection-copy">Соединяемся с агентом…</div>
+        </div>
+      </div>
+    </header>
 
-  <!-- Chat log -->
-  <div id="chat-log">
-    <!-- Empty state shown before vacancy selected / on load -->
-    <div id="empty-state">
-      <div class="empty-icon">📋</div>
-      <h2>Выберите вакансию</h2>
-      <p>Выберите вакансию в меню выше или создайте новую</p>
-      <button class="btn-primary" id="create-vacancy-btn">Создать вакансию</button>
-    </div>
-  </div>
+    <main class="workspace">
+      <aside class="sidebar">
+        <section class="sidebar-card panel">
+          <h2>Контекст</h2>
+          <p id="workspace-copy">Держите вакансию и служебные действия отдельно от самого диалога. Так легче читать длинные ответы и быстрее переключаться между сценариями.</p>
 
-  <!-- Input -->
-  <div id="input-area">
-    <textarea id="msg-input" placeholder="Напишите сообщение…" rows="1"></textarea>
-    <button id="send-btn" disabled title="Отправить">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13"></line>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-      </svg>
-    </button>
+          <div class="meta-grid">
+            <div class="meta-row">
+              <div class="meta-label">Рекрутер</div>
+              <div class="meta-value">__RECRUITER_EMAIL__</div>
+            </div>
+
+            <div class="meta-row">
+              <div class="meta-label">Вакансия</div>
+              <select id="vacancy-select">
+                <option value="">Загрузка вакансий…</option>
+              </select>
+            </div>
+
+            <div class="meta-row">
+              <div class="meta-label">Текущий фокус</div>
+              <div class="meta-value" id="context-vacancy-title">Вакансия не выбрана</div>
+              <div class="meta-value" id="context-vacancy-copy" style="color: var(--t2); font-size: 13px;">Выберите вакансию или создайте новую, чтобы открыть рабочий сценарий.</div>
+            </div>
+          </div>
+
+          <div style="display:grid; gap:10px; margin-top:18px;">
+            <button class="primary-btn" id="create-vacancy-btn">Создать вакансию</button>
+            <a href="/logout" class="ghost-btn" id="logout-btn">Выйти</a>
+          </div>
+        </section>
+
+        <section class="sidebar-card panel">
+          <h3>Быстрые сценарии</h3>
+          <p>Лучше направлять пользователя готовыми следующими шагами, чем заставлять каждый раз печатать с нуля.</p>
+
+          <div class="shortcut-list">
+            <button class="shortcut-btn" data-msg="настроить общение с кандидатами" data-requires-vacancy="true">
+              <span class="shortcut-title">Настроить общение</span>
+              <span class="shortcut-copy">Собрать шаблоны и сценарий коммуникации</span>
+            </button>
+            <button class="shortcut-btn" data-msg="посмотри вакансию" data-requires-vacancy="true">
+              <span class="shortcut-title">Посмотреть вакансию</span>
+              <span class="shortcut-copy">Подтянуть контекст по выбранной позиции</span>
+            </button>
+            <button class="shortcut-btn" data-msg="покажи воронку по кандидатам" data-requires-vacancy="true">
+              <span class="shortcut-title">Открыть воронку</span>
+              <span class="shortcut-copy">Проверить этапы, зависания и конверсию</span>
+            </button>
+            <button class="shortcut-btn" data-msg="сделай рассылку" data-requires-vacancy="true">
+              <span class="shortcut-title">Сделать рассылку</span>
+              <span class="shortcut-copy">Запустить следующий аутрич по кандидатам</span>
+            </button>
+          </div>
+
+          <a href="#" class="ghost-btn" id="moderation-link" hidden target="_blank" rel="noopener">Открыть модерацию кандидатов</a>
+        </section>
+      </aside>
+
+      <section class="chat-stage panel">
+        <header class="chat-stage-header">
+          <div class="chat-stage-copy">
+            <h2 id="chat-stage-title">Рабочая зона агента</h2>
+            <p id="chat-stage-subtitle">Выберите вакансию, чтобы открыть нормальный контекстный чат вместо пустого полотна.</p>
+          </div>
+        </header>
+
+        <div id="chat-log">
+          <div id="empty-state" class="chat-lane">
+            <div class="empty-badge">Workspace-first UI</div>
+            <h2>Выберите вакансию и работайте с агентом в отдельной chat-scene.</h2>
+            <p>Лучший паттерн для desktop AI здесь не fullscreen-мессенджер, а центрированная зона диалога с ограниченной шириной, плюс постоянный блок контекста и быстрых действий рядом.</p>
+            <div class="empty-actions">
+              <button class="primary-btn" id="empty-create-vacancy-btn">Создать вакансию</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="input-area">
+          <div style="width:100%;">
+            <div class="composer-shell">
+              <textarea id="msg-input" placeholder="Напишите, что нужно сделать по вакансии…" rows="1"></textarea>
+              <button id="send-btn" disabled title="Отправить">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
+            <div class="composer-meta" id="composer-meta">Можно писать свободно или выбирать быстрые сценарии слева.</div>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
 
   <script>
     // ── Config ────────────────────────────────────────────────────────────────
     const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws';
     const CHATBOT_MODERATION_BASE = '__CHATBOT_MODERATION_BASE__';
+    const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id';
     const STEP_LABELS = {
       auto_fetch:    'Загружаю данные вакансии',
       route_playbook:'Определяю плейбук',
@@ -609,6 +1000,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     let ws = null;
     let streaming = false;
     let selectedVacancyId = null;
+    let selectedVacancyTitle = '';
     let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
@@ -619,6 +1011,16 @@ const CHAT_HTML = `<!DOCTYPE html>
     const sendBtn        = document.getElementById('send-btn');
     const statusDot      = document.getElementById('status-dot');
     const createVacBtn   = document.getElementById('create-vacancy-btn');
+    const emptyCreateVacBtn = document.getElementById('empty-create-vacancy-btn');
+    const connectionLabel = document.getElementById('connection-label');
+    const connectionCopy = document.getElementById('connection-copy');
+    const contextVacancyTitle = document.getElementById('context-vacancy-title');
+    const contextVacancyCopy = document.getElementById('context-vacancy-copy');
+    const chatStageTitle = document.getElementById('chat-stage-title');
+    const chatStageSubtitle = document.getElementById('chat-stage-subtitle');
+    const composerMeta = document.getElementById('composer-meta');
+    const moderationLink = document.getElementById('moderation-link');
+    const shortcutButtons = Array.from(document.querySelectorAll('.shortcut-btn'));
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
     function connect() {
@@ -626,6 +1028,8 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       ws.onopen = () => {
         statusDot.classList.add('connected');
+        connectionLabel.textContent = 'Агент на связи';
+        connectionCopy.textContent = 'Можно отправлять сообщения и запускать playbook-сценарии.';
         updateSendEnabled();
       };
 
@@ -633,12 +1037,18 @@ const CHAT_HTML = `<!DOCTYPE html>
         streaming = false;
         currentAssistant = null;
         statusDot.classList.remove('connected');
+        connectionLabel.textContent = 'Подключение потеряно';
+        connectionCopy.textContent = 'Пробуем переподключиться автоматически…';
         updateSendEnabled();
         if (ev.code === 4001) { window.location = '/login'; return; }
         setTimeout(connect, 3000); // auto-reconnect
       };
 
-      ws.onerror = () => statusDot.classList.remove('connected');
+      ws.onerror = () => {
+        statusDot.classList.remove('connected');
+        connectionLabel.textContent = 'Ошибка соединения';
+        connectionCopy.textContent = 'WebSocket недоступен, пробуем восстановить сессию.';
+      };
 
       ws.onmessage = (ev) => {
         const data = JSON.parse(ev.data);
@@ -787,17 +1197,19 @@ const CHAT_HTML = `<!DOCTYPE html>
         if (res.status === 401) { window.location = '/login'; return; }
         const data = await res.json();
         const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+        const savedVacancyId = localStorage.getItem(LAST_VACANCY_KEY);
 
         if (jobs.length === 0) {
-          // No vacancies: hide dropdown, update empty state to "create first"
-          vacancySelect.style.display = 'none';
-          document.querySelector('#empty-state h2').textContent = 'Нет вакансий';
-          document.querySelector('#empty-state p').textContent = 'Создайте первую вакансию, чтобы начать работу с кандидатами';
+          vacancySelect.innerHTML = '<option value="">Нет вакансий</option>';
+          contextVacancyTitle.textContent = 'Нет активных вакансий';
+          contextVacancyCopy.textContent = 'Создайте первую вакансию, чтобы агент мог работать с контекстом и кандидатами.';
+          chatStageTitle.textContent = 'Пока нет вакансий';
+          chatStageSubtitle.textContent = 'Создайте первую вакансию, затем агент сможет строить воронку, коммуникацию и рассылки.';
+          composerMeta.textContent = 'Пока можно только создать новую вакансию.';
+          syncShortcuts();
           return;
         }
 
-        // Has vacancies: ensure dropdown is visible
-        vacancySelect.style.display = '';
         vacancySelect.innerHTML = '';
 
         const placeholder = document.createElement('option');
@@ -811,6 +1223,19 @@ const CHAT_HTML = `<!DOCTYPE html>
           opt.textContent = job.title;
           vacancySelect.appendChild(opt);
         });
+
+        // «+ Создать вакансию» at the end (only when other vacancies exist)
+        const createOpt = document.createElement('option');
+        createOpt.value = '__create__';
+        createOpt.textContent = '+ Создать вакансию';
+        vacancySelect.appendChild(createOpt);
+
+        const savedMatch = jobs.find((job) => String(job.job_id) === savedVacancyId);
+        if (savedMatch) {
+          vacancySelect.value = savedMatch.job_id;
+          onVacancySelected(savedMatch.job_id, savedMatch.title);
+          return;
+        }
 
         // Auto-select if only one
         if (jobs.length === 1) {
@@ -830,6 +1255,11 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     function onVacancySelected(vacancyId, title) {
       selectedVacancyId = vacancyId;
+      selectedVacancyTitle = title || '';
+      if (vacancyId) localStorage.setItem(LAST_VACANCY_KEY, String(vacancyId));
+      else localStorage.removeItem(LAST_VACANCY_KEY);
+
+      syncContext();
 
       // Clear chat
       chatLog.innerHTML = '';
@@ -840,7 +1270,6 @@ const CHAT_HTML = `<!DOCTYPE html>
         return;
       }
 
-      // Welcome message with playbook chips
       showWelcome(vacancyId, title);
       updateSendEnabled();
     }
@@ -865,26 +1294,64 @@ const CHAT_HTML = `<!DOCTYPE html>
         chip.addEventListener('click', () => sendMessage(msg));
         chipsEl.appendChild(chip);
       });
-      if (CHATBOT_MODERATION_BASE) {
-        const link = document.createElement('a');
-        const titleParam = encodeURIComponent(title || '');
-        link.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(vacancyId) + (titleParam ? '&title=' + titleParam : '');
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.className = 'playbook-chip';
-        link.textContent = 'Модерация';
-        chipsEl.appendChild(link);
-      }
       bubbleEl.appendChild(chipsEl);
     }
 
     function triggerCreateVacancy() {
-      addSystemMessage('> ⚠️ **Создание вакансии пока недоступно**\n\nЭтот playbook ещё не подключён в текущем окружении.');
+      selectedVacancyId = null;
+      selectedVacancyTitle = '';
+      vacancySelect.value = '';
+      syncContext();
+      chatLog.innerHTML = '';
+      updateSendEnabled();
+      sendMessage('создать вакансию');
     }
 
     createVacBtn.addEventListener('click', triggerCreateVacancy);
+    emptyCreateVacBtn.addEventListener('click', triggerCreateVacancy);
+    shortcutButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        if (!button.disabled) sendMessage(button.dataset.msg || '');
+      });
+    });
 
-    // ── Input handling ────────────────────────────────────────────────────────
+    function syncContext() {
+      const hasVacancy = Boolean(selectedVacancyId);
+
+      contextVacancyTitle.textContent = hasVacancy ? selectedVacancyTitle : 'Вакансия не выбрана';
+      contextVacancyCopy.textContent = hasVacancy
+        ? 'Контекст закреплён. Можно запускать playbook-сценарии, смотреть воронку и собирать коммуникацию.'
+        : 'Выберите вакансию или создайте новую, чтобы открыть рабочий сценарий.';
+
+      chatStageTitle.textContent = hasVacancy
+        ? selectedVacancyTitle
+        : 'Рабочая зона агента';
+      chatStageSubtitle.textContent = hasVacancy
+        ? 'Чат ограничен по ширине для нормальной читаемости, а контекст остаётся рядом.'
+        : 'Выберите вакансию, чтобы открыть нормальный контекстный чат вместо пустого полотна.';
+
+      composerMeta.textContent = hasVacancy
+        ? 'Enter отправляет сообщение, Shift+Enter переносит строку.'
+        : 'Можно писать свободно или сначала выбрать вакансию слева.';
+
+      if (CHATBOT_MODERATION_BASE && hasVacancy) {
+        const titleParam = encodeURIComponent(selectedVacancyTitle || '');
+        moderationLink.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(selectedVacancyId) + (titleParam ? '&title=' + titleParam : '');
+        moderationLink.hidden = false;
+      } else {
+        moderationLink.hidden = true;
+      }
+
+      syncShortcuts();
+    }
+
+    function syncShortcuts() {
+      shortcutButtons.forEach((button) => {
+        const requiresVacancy = button.dataset.requiresVacancy === 'true';
+        button.disabled = requiresVacancy && !selectedVacancyId;
+      });
+    }
+
     msgInput.addEventListener('input', () => {
       msgInput.style.height = 'auto';
       msgInput.style.height = Math.min(msgInput.scrollHeight, 160) + 'px';
@@ -934,6 +1401,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     // Show empty state initially
     chatLog.innerHTML = '';
     chatLog.appendChild(emptyState);
+    syncContext();
   </script>
 </body>
 </html>`;

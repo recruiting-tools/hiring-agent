@@ -84,7 +84,6 @@ MANAGEMENT_DATABASE_URL="$MANAGEMENT_DATABASE_URL" node scripts/seed-playbooks.j
 - production tenant binding
 
 If one of those is production, this is not a sandbox.
-
 ## Sandbox Fleet (3 slots)
 
 Чтобы параллелить задачи, используем 3 независимых slot-окружения:
