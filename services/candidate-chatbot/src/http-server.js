@@ -66,10 +66,12 @@ const MODERATION_HTML = `<!DOCTYPE html>
     .countdown { font-weight: bold; }
     .overdue { color: #c00; }
     button { margin: 0 0.25rem; padding: 0.3rem 0.75rem; cursor: pointer; }
+    .filter-badge { display: inline-block; margin-left: 0.5rem; padding: 2px 10px; background: #e8f0fe; color: #1a56db; border-radius: 12px; font-size: 0.85em; font-weight: 500; vertical-align: middle; }
+    .all-link { font-size: 0.85em; color: #666; margin-left: 0.75rem; }
   </style>
 </head>
 <body>
-  <h1>Очередь модерации</h1>
+  <h1>Очередь модерации <span id="filter-badge"></span></h1>
   <div id="status"></div>
   <table id="queue">
     <thead>
@@ -82,7 +84,18 @@ const MODERATION_HTML = `<!DOCTYPE html>
   </table>
   <script>
     const TOKEN = location.pathname.split('/')[2];
+    const params = new URLSearchParams(location.search);
+    const JOB_ID = params.get('job_id') || null;
+    const JOB_TITLE = params.get('title') || null;
     let items = [];
+
+    // Show filter badge
+    if (JOB_ID) {
+      const badge = document.getElementById('filter-badge');
+      badge.innerHTML =
+        '<span class="filter-badge">' + esc(JOB_TITLE || JOB_ID) + '</span>' +
+        '<a class="all-link" href="/recruiter/' + esc(TOKEN) + '">← все вакансии</a>';
+    }
 
     function esc(str) {
       return String(str)
@@ -94,7 +107,8 @@ const MODERATION_HTML = `<!DOCTYPE html>
     }
 
     async function fetchQueue() {
-      const r = await fetch('/recruiter/' + TOKEN + '/queue');
+      const url = '/recruiter/' + TOKEN + '/queue' + (JOB_ID ? '?job_id=' + encodeURIComponent(JOB_ID) : '');
+      const r = await fetch(url);
       if (!r.ok) { document.getElementById('status').textContent = 'Ошибка загрузки'; return; }
       const data = await r.json();
       items = data.items;
@@ -305,16 +319,17 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhIm
       }
 
       // Recruiter moderation queue (JSON)
-      const queueMatch = request.url.match(/^\/recruiter\/([^/]+)\/queue$/);
+      const queueMatch = requestUrl.pathname.match(/^\/recruiter\/([^/]+)\/queue$/);
       if (queueMatch && request.method === "GET") {
         const token = queueMatch[1];
-        const result = await app.getModerationQueue(token);
+        const jobId = requestUrl.searchParams.get("job_id") || undefined;
+        const result = await app.getModerationQueue(token, { jobId });
         writeJson(response, result.status, result.body);
         return;
       }
 
       // Block a message
-      const blockMatch = request.url.match(/^\/recruiter\/([^/]+)\/queue\/([^/]+)\/block$/);
+      const blockMatch = requestUrl.pathname.match(/^\/recruiter\/([^/]+)\/queue\/([^/]+)\/block$/);
       if (blockMatch && request.method === "POST") {
         const [, token, id] = blockMatch;
         const result = await app.blockMessage(token, id);
@@ -323,7 +338,7 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhIm
       }
 
       // Send now
-      const sendNowMatch = request.url.match(/^\/recruiter\/([^/]+)\/queue\/([^/]+)\/send-now$/);
+      const sendNowMatch = requestUrl.pathname.match(/^\/recruiter\/([^/]+)\/queue\/([^/]+)\/send-now$/);
       if (sendNowMatch && request.method === "POST") {
         const [, token, id] = sendNowMatch;
         const result = await app.sendMessageNow(token, id);
@@ -332,7 +347,7 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhIm
       }
 
       // HTML moderation page — requires valid session cookie when store is available
-      const htmlMatch = request.url.match(/^\/recruiter\/([^/]+)$/);
+      const htmlMatch = requestUrl.pathname.match(/^\/recruiter\/([^/]+)$/);
       if (htmlMatch && request.method === "GET") {
         if (store) {
           const cookies = parseCookies(request.headers.cookie);

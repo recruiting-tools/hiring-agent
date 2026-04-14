@@ -104,8 +104,8 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig, not
       };
     },
 
-    async getModerationQueue(recruiterToken) {
-      const items = await store.getQueueForRecruiter(recruiterToken);
+    async getModerationQueue(recruiterToken, { jobId } = {}) {
+      const items = await store.getQueueForRecruiter(recruiterToken, { jobId });
       if (items === null) {
         return { status: 404, body: { error: "recruiter_not_found" } };
       }
