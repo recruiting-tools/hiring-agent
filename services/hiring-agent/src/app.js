@@ -51,7 +51,8 @@ export function createHiringAgentApp(options = {}) {
       vacancy_id: vacancyId = null,
       managementSql: requestManagementSql = managementSql
     }) {
-      const effectiveVacancyId = vacancyId ?? jobId ?? null;
+      const requestedJobId = jobId ?? null;
+      const requestedVacancyId = vacancyId ?? null;
       let playbookKey = action === "start_playbook" && requestedPlaybookKey
         ? requestedPlaybookKey
         : await routePlaybook(message, requestManagementSql);
@@ -101,8 +102,37 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      if (!requestManagementSql && playbook.playbook_key === "candidate_funnel") {
-        if (tenantSql && !effectiveVacancyId) {
+      const identity = tenantSql && tenantId
+        ? await withTenantDbTimeout(
+          () => resolveTenantIdentity({
+            tenantSql,
+            tenantId,
+            jobId: requestedJobId,
+            vacancyId: requestedVacancyId,
+            seedFromJob: playbook.playbook_key !== "candidate_funnel" && playbook.playbook_key !== "create_vacancy"
+          }),
+          { operation: "resolveTenantIdentity", timeoutMs: tenantDbTimeoutMs }
+        )
+        : {
+          jobId: requestedJobId,
+          vacancyId: requestedVacancyId,
+          job: null,
+          vacancy: null,
+          requestedJobFound: requestedJobId == null,
+          requestedVacancyFound: requestedVacancyId == null
+        };
+
+      const effectiveJobId = identity.jobId ?? requestedJobId ?? null;
+      const effectiveVacancyId = identity.vacancyId ?? requestedVacancyId ?? null;
+      const explicitVacancyMissing = hasExplicitVacancyMiss({
+        requestedVacancyId,
+        effectiveJobId,
+        requestedVacancyFound: identity.requestedVacancyFound
+      });
+      const explicitJobMissing = Boolean(requestedJobId && !identity.requestedJobFound);
+
+      if (playbook.playbook_key === "candidate_funnel") {
+        if (tenantSql && !effectiveJobId) {
           return {
             status: 200,
             body: {
@@ -114,19 +144,22 @@ export function createHiringAgentApp(options = {}) {
           };
         }
 
-        if (tenantSql && tenantId && effectiveVacancyId) {
-          const tenantJob = await withTenantDbTimeout(
-            () => getTenantJobById(tenantSql, tenantId, effectiveVacancyId),
-            { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
-          );
-          if (!tenantJob) {
-            return {
-              status: 404,
-              body: {
-                error: "job_not_found"
-              }
-            };
-          }
+        if (explicitVacancyMissing) {
+          return {
+            status: 404,
+            body: {
+              error: "vacancy_not_found"
+            }
+          };
+        }
+
+        if (tenantSql && tenantId && explicitJobMissing) {
+          return {
+            status: 404,
+            body: {
+              error: "job_not_found"
+            }
+          };
         }
 
         return {
@@ -134,7 +167,7 @@ export function createHiringAgentApp(options = {}) {
           body: {
             reply: tenantSql
               ? await withTenantDbTimeout(
-                () => executeWithDb({ sql: tenantSql, tenantId, jobId: effectiveVacancyId }),
+                () => executeWithDb({ sql: tenantSql, tenantId, jobId: effectiveJobId }),
                 { operation: "executeWithDb", timeoutMs: tenantDbTimeoutMs }
               )
               : runCandidateFunnelPlaybook({ runtimeData: getDemoRuntimeData() })
@@ -143,48 +176,28 @@ export function createHiringAgentApp(options = {}) {
       }
 
       if (playbook.playbook_key === "setup_communication") {
-        if (tenantSql && tenantId) {
-          if (jobId) {
-            const tenantJob = await withTenantDbTimeout(
-              () => getTenantJobById(tenantSql, tenantId, jobId),
-              { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
-            );
-            if (!tenantJob) {
-              return {
-                status: 404,
-                body: {
-                  error: "job_not_found"
-                }
-              };
+        if (explicitVacancyMissing) {
+          return {
+            status: 404,
+            body: {
+              error: "vacancy_not_found"
             }
-          }
+          };
+        }
 
-          if (vacancyId && vacancyId !== jobId) {
-            const tenantVacancy = await withTenantDbTimeout(
-              () => getTenantVacancyById(tenantSql, vacancyId),
-              { operation: "getTenantVacancyById", timeoutMs: tenantDbTimeoutMs }
-            );
-            if (tenantVacancy?.job_id) {
-              const tenantVacancyJob = await withTenantDbTimeout(
-                () => getTenantJobById(tenantSql, tenantId, tenantVacancy.job_id),
-                { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
-              );
-              if (!tenantVacancyJob) {
-                return {
-                  status: 404,
-                  body: {
-                    error: "vacancy_not_found"
-                  }
-                };
-              }
+        if (explicitJobMissing) {
+          return {
+            status: 404,
+            body: {
+              error: "job_not_found"
             }
-          }
+          };
         }
 
         const result = await runCommunicationPlanPlaybook({
           tenantSql,
-          vacancyId,
-          jobId,
+          vacancyId: effectiveVacancyId,
+          jobId: effectiveJobId,
           llmAdapter,
           recruiterInput: message,
           llmConfig: communicationPlanLlmConfig
@@ -216,42 +229,23 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      if (playbook.playbook_key !== "create_vacancy" && tenantSql && effectiveVacancyId) {
-        let tenantVacancy = await withTenantDbTimeout(
-          () => getTenantVacancyById(tenantSql, effectiveVacancyId),
-          { operation: "getTenantVacancyById", timeoutMs: tenantDbTimeoutMs }
-        );
-        if (!tenantVacancy) {
-          const tenantJob = await withTenantDbTimeout(
-            () => getTenantJobById(tenantSql, tenantId, effectiveVacancyId),
-            { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
-          );
-          if (!tenantJob) {
-            return {
-              status: 404,
-              body: {
-                error: "vacancy_not_found"
-              }
-            };
-          }
+      if (playbook.playbook_key !== "create_vacancy") {
+        if (explicitVacancyMissing) {
+          return {
+            status: 404,
+            body: {
+              error: "vacancy_not_found"
+            }
+          };
+        }
 
-          await withTenantDbTimeout(
-            () => seedVacancyFromJob(tenantSql, tenantJob),
-            { operation: "seedVacancyFromJob", timeoutMs: tenantDbTimeoutMs }
-          );
-
-          tenantVacancy = await withTenantDbTimeout(
-            () => getTenantVacancyById(tenantSql, effectiveVacancyId),
-            { operation: "getTenantVacancyById", timeoutMs: tenantDbTimeoutMs }
-          );
-          if (!tenantVacancy) {
-            return {
-              status: 404,
-              body: {
-                error: "vacancy_not_found"
-              }
-            };
-          }
+        if (explicitJobMissing) {
+          return {
+            status: 404,
+            body: {
+              error: "job_not_found"
+            }
+          };
         }
       }
 
@@ -261,6 +255,7 @@ export function createHiringAgentApp(options = {}) {
         tenantId,
         recruiterId,
         vacancyId: effectiveVacancyId,
+        jobId: effectiveJobId,
         playbookKey,
         recruiterInput: message ?? null,
         llmAdapter,
@@ -274,7 +269,8 @@ export function createHiringAgentApp(options = {}) {
         body: {
           reply: runtimeResult.reply,
           session_id: runtimeResult.sessionId,
-          vacancy_id: runtimeResult.vacancyId ?? effectiveVacancyId ?? null
+          vacancy_id: runtimeResult.vacancyId ?? effectiveVacancyId ?? null,
+          job_id: runtimeResult.jobId ?? effectiveJobId ?? null
         }
       };
     },
@@ -389,6 +385,25 @@ async function getTenantVacancyById(tenantSql, vacancyId) {
   return rows[0] ?? null;
 }
 
+async function getTenantVacancyByJobId(tenantSql, jobId) {
+  const rows = await tenantSql`
+    SELECT vacancy_id, job_id, title, status, extraction_status
+    FROM chatbot.vacancies
+    WHERE job_id = ${jobId}
+    ORDER BY
+      CASE status
+        WHEN 'active' THEN 0
+        WHEN 'draft' THEN 1
+        ELSE 2
+      END ASC,
+      updated_at DESC NULLS LAST,
+      created_at DESC
+    LIMIT 1
+  `;
+
+  return rows[0] ?? null;
+}
+
 async function getTenantJobById(tenantSql, tenantId, jobId) {
   if (!tenantId) return null;
 
@@ -422,6 +437,83 @@ async function seedVacancyFromJob(tenantSql, job) {
     )
     ON CONFLICT (vacancy_id) DO NOTHING
   `;
+}
+
+async function resolveTenantIdentity({ tenantSql, tenantId, jobId = null, vacancyId = null, seedFromJob = false }) {
+  let job = null;
+  let vacancy = null;
+  let resolvedJobId = jobId ?? null;
+  let resolvedVacancyId = vacancyId ?? null;
+  let requestedVacancyFound = vacancyId == null;
+  let requestedJobFound = jobId == null;
+
+  if (vacancyId) {
+    vacancy = await getTenantVacancyById(tenantSql, vacancyId);
+    if (vacancy) {
+      requestedVacancyFound = true;
+      resolvedVacancyId = vacancy.vacancy_id;
+      if (!resolvedJobId && vacancy.job_id) {
+        resolvedJobId = vacancy.job_id;
+      }
+    }
+  }
+
+  if (!resolvedJobId && vacancyId) {
+    resolvedJobId = vacancyId;
+  }
+
+  if (resolvedJobId) {
+    job = await getTenantJobById(tenantSql, tenantId, resolvedJobId);
+    if (jobId) {
+      requestedJobFound = Boolean(job);
+    }
+  }
+
+  if (!job && vacancy?.job_id) {
+    job = await getTenantJobById(tenantSql, tenantId, vacancy.job_id);
+    if (job) {
+      resolvedJobId = job.job_id;
+    }
+  }
+
+  const shouldLookupVacancyByJob = Boolean(
+    !vacancy
+    && resolvedJobId
+    && (
+      job
+      || (vacancyId && vacancyId === resolvedJobId)
+    )
+  );
+
+  if (shouldLookupVacancyByJob) {
+    vacancy = await getTenantVacancyByJobId(tenantSql, resolvedJobId);
+    if (vacancy) {
+      resolvedVacancyId = vacancy.vacancy_id;
+    } else if (seedFromJob && job && (vacancyId == null || vacancyId === resolvedJobId)) {
+      await seedVacancyFromJob(tenantSql, job);
+      vacancy = await getTenantVacancyByJobId(tenantSql, resolvedJobId);
+      if (vacancy) {
+        resolvedVacancyId = vacancy.vacancy_id;
+      }
+    }
+  }
+
+  return {
+    jobId: job?.job_id ?? resolvedJobId ?? null,
+    vacancyId: vacancy?.vacancy_id ?? resolvedVacancyId ?? null,
+    job,
+    vacancy,
+    requestedJobFound,
+    requestedVacancyFound
+  };
+}
+
+function hasExplicitVacancyMiss({ requestedVacancyId, effectiveJobId, requestedVacancyFound }) {
+  return Boolean(
+    requestedVacancyId
+    && !requestedVacancyFound
+    && requestedVacancyId !== (effectiveJobId ?? null)
+  );
 }
 
 async function routePlaybookWithLlm({ message, playbooks, llmAdapter }) {

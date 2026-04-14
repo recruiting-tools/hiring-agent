@@ -24,12 +24,14 @@ export async function handleUserInputStep({ step, session, context, recruiterInp
       rawText: recruiterInput
     });
     nextContext.vacancy_id = vacancy.vacancy_id;
+    nextContext.job_id = vacancy.job_id ?? nextContext.job_id ?? null;
     nextContext.vacancy = vacancy;
   }
 
   return {
     context: nextContext,
     vacancyId: nextContext.vacancy_id ?? null,
+    jobId: nextContext.job_id ?? nextContext.vacancy?.job_id ?? null,
     nextStepOrder: step.next_step_order ?? null,
     reply: null
   };
