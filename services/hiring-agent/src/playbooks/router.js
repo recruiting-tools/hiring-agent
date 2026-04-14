@@ -19,20 +19,81 @@ const FALLBACK_ROUTES = [
   }
 ];
 
+const RUSSIAN_SUFFIXES = [
+  "ироваться",
+  "ирования",
+  "ирование",
+  "ировала",
+  "ировали",
+  "ируют",
+  "ирует",
+  "ировать",
+  "аться",
+  "яться",
+  "ются",
+  "ется",
+  "утся",
+  "ешь",
+  "ете",
+  "ите",
+  "ем",
+  "им",
+  "ут",
+  "ют",
+  "ого",
+  "его",
+  "ому",
+  "ему",
+  "ыми",
+  "ими",
+  "овать",
+  "ать",
+  "ять",
+  "еть",
+  "ить",
+  "ть",
+  "ти",
+  "ий",
+  "ый",
+  "ой",
+  "ая",
+  "яя",
+  "ое",
+  "ее",
+  "ые",
+  "ие",
+  "ов",
+  "ев",
+  "ом",
+  "ем",
+  "ам",
+  "ям",
+  "ах",
+  "ях",
+  "ию",
+  "ия",
+  "ью",
+  "ья",
+  "а",
+  "я",
+  "о",
+  "е",
+  "ы",
+  "и",
+  "у",
+  "ю",
+  "ь"
+];
+
 let cachedDefinitions = null;
 let cachedAt = 0;
 let cachePromise = null;
 
 export async function routePlaybook(message, managementSql = null) {
-  const normalized = String(message ?? "").trim();
+  const normalized = String(message ?? "").trim().toLowerCase();
   const routes = managementSql ? await getDbRoutes(managementSql) : FALLBACK_ROUTES;
 
-  for (const route of routes) {
-    if (route.keywords.some((keyword) => normalized.toLowerCase().includes(keyword.toLowerCase()))) {
-      return route.playbook_key;
-    }
-  }
-  return null;
+  return matchRoute(normalized, routes);
 }
 
 async function getDbRoutes(managementSql) {
@@ -71,4 +132,51 @@ async function getDbRoutes(managementSql) {
     playbook_key: row.playbook_key,
     keywords: row.keywords ?? []
   }));
+}
+
+function matchRoute(normalizedMessage, routes) {
+  const normalizedStemmedMessage = normalizeForKeywordSearch(normalizedMessage);
+
+  for (const route of routes) {
+    const keywords = Array.isArray(route?.keywords) ? route.keywords : [];
+    if (keywords.some((keyword) => matchesKeyword(normalizedMessage, normalizedStemmedMessage, keyword))) {
+      return route.playbook_key;
+    }
+  }
+  return null;
+}
+
+function matchesKeyword(normalizedMessage, normalizedStemmedMessage, keyword) {
+  const normalizedKeyword = String(keyword ?? "").trim().toLowerCase();
+  if (!normalizedKeyword) return false;
+
+  if (normalizedMessage.includes(normalizedKeyword)) {
+    return true;
+  }
+
+  const normalizedStemmedKeyword = normalizeForKeywordSearch(normalizedKeyword);
+  if (!normalizedStemmedKeyword) return false;
+
+  return normalizedStemmedMessage.includes(normalizedStemmedKeyword);
+}
+
+function normalizeForKeywordSearch(text) {
+  return String(text ?? "")
+    .toLowerCase()
+    .replaceAll("ё", "е")
+    .match(/[a-zа-я0-9]+/g)?.map((token) => stemToken(token)).join(" ") ?? "";
+}
+
+function stemToken(token) {
+  if (!/[а-я]/.test(token)) return token;
+
+  for (const suffix of RUSSIAN_SUFFIXES) {
+    if (!token.endsWith(suffix)) continue;
+    const stem = token.slice(0, -suffix.length);
+    if (stem.length >= 4) {
+      return stem;
+    }
+  }
+
+  return token;
 }
