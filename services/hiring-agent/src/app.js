@@ -184,17 +184,41 @@ export function createHiringAgentApp(options = {}) {
       }
 
       if (playbook.playbook_key !== "create_vacancy" && tenantSql && effectiveVacancyId) {
-        const tenantVacancy = await withTenantDbTimeout(
+        let tenantVacancy = await withTenantDbTimeout(
           () => getTenantVacancyById(tenantSql, effectiveVacancyId),
           { operation: "getTenantVacancyById", timeoutMs: tenantDbTimeoutMs }
         );
         if (!tenantVacancy) {
-          return {
-            status: 404,
-            body: {
-              error: "vacancy_not_found"
-            }
-          };
+          const tenantJob = await withTenantDbTimeout(
+            () => getTenantJobById(tenantSql, tenantId, effectiveVacancyId),
+            { operation: "getTenantJobById", timeoutMs: tenantDbTimeoutMs }
+          );
+          if (!tenantJob) {
+            return {
+              status: 404,
+              body: {
+                error: "vacancy_not_found"
+              }
+            };
+          }
+
+          await withTenantDbTimeout(
+            () => seedVacancyFromJob(tenantSql, tenantJob),
+            { operation: "seedVacancyFromJob", timeoutMs: tenantDbTimeoutMs }
+          );
+
+          tenantVacancy = await withTenantDbTimeout(
+            () => getTenantVacancyById(tenantSql, effectiveVacancyId),
+            { operation: "getTenantVacancyById", timeoutMs: tenantDbTimeoutMs }
+          );
+          if (!tenantVacancy) {
+            return {
+              status: 404,
+              body: {
+                error: "vacancy_not_found"
+              }
+            };
+          }
         }
       }
 
@@ -335,8 +359,10 @@ async function getTenantVacancyById(tenantSql, vacancyId) {
 }
 
 async function getTenantJobById(tenantSql, tenantId, jobId) {
+  if (!tenantId) return null;
+
   const rows = await tenantSql`
-    SELECT job_id, title
+    SELECT job_id, title, description
     FROM chatbot.jobs
     WHERE job_id = ${jobId}
       AND client_id = ${tenantId}
@@ -344,4 +370,25 @@ async function getTenantJobById(tenantSql, tenantId, jobId) {
   `;
 
   return rows[0] ?? null;
+}
+
+async function seedVacancyFromJob(tenantSql, job) {
+  await tenantSql`
+    INSERT INTO chatbot.vacancies (
+      vacancy_id,
+      job_id,
+      title,
+      raw_text,
+      status,
+      extraction_status
+    ) VALUES (
+      ${job.job_id},
+      ${job.job_id},
+      ${job.title ?? "Без названия"},
+      ${job.description ?? ""},
+      'active',
+      'pending'
+    )
+    ON CONFLICT (vacancy_id) DO NOTHING
+  `;
 }
