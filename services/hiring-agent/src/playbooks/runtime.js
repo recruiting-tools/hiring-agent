@@ -31,6 +31,7 @@ export async function dispatch({
   playbookKey,
   recruiterInput = null,
   llmAdapter,
+  llmConfig = {},
   conversationId = null
 }) {
   if (!managementStore) {
@@ -104,7 +105,8 @@ export async function dispatch({
         context,
         recruiterInput,
         tenantSql,
-        llmAdapter
+        llmAdapter,
+        llmConfig
       });
 
       context = result.context ?? context;

@@ -2,9 +2,10 @@ import { interpolate } from "../context-interpolation.js";
 
 export class PlaybookLlmError extends Error {}
 
-export async function handleLlmExtractStep({ step, context, tenantSql, llmAdapter }) {
+export async function handleLlmExtractStep({ step, context, tenantSql, llmAdapter, llmConfig = {} }) {
   const prompt = buildJsonPrompt(step.prompt_template, context);
-  const raw = await generateWithRetry(llmAdapter, prompt);
+  const model = resolveExtractModelOverride(step, llmConfig);
+  const raw = await generateWithRetry(llmAdapter, prompt, { model });
   const parsed = JSON.parse(raw);
   const nextContext = step.context_key
     ? { ...context, [step.context_key]: parsed }
@@ -35,20 +36,31 @@ export function buildJsonPrompt(template, context) {
   return `${interpolated}\n\nReturn valid JSON only, no markdown.`;
 }
 
-async function generateWithRetry(llmAdapter, prompt) {
+async function generateWithRetry(llmAdapter, prompt, { model = null } = {}) {
   if (!llmAdapter?.generate) {
     throw new PlaybookLlmError("llmAdapter.generate is required");
   }
 
   try {
-    return await llmAdapter.generate(prompt);
+    return await llmAdapter.generate(prompt, model ? { model } : undefined);
   } catch (firstError) {
     try {
-      return await llmAdapter.generate(prompt);
+      return await llmAdapter.generate(prompt, model ? { model } : undefined);
     } catch {
       throw new PlaybookLlmError(firstError instanceof Error ? firstError.message : "llm_generate_failed");
     }
   }
+}
+
+function resolveExtractModelOverride(step, llmConfig) {
+  if (
+    step?.playbook_key === "create_vacancy" &&
+    step?.db_save_column === "application_steps"
+  ) {
+    return llmConfig?.createVacancy?.applicationStepsExtractModel ?? null;
+  }
+
+  return null;
 }
 
 export async function saveVacancyField({ tenantSql, vacancyId, column, value }) {
