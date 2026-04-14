@@ -230,6 +230,7 @@ CREATE TABLE IF NOT EXISTS management.playbook_steps (
   db_save_column  TEXT,     -- для llm_extract: колонка в management.vacancies для UPDATE
   next_step_order INTEGER,  -- следующий шаг по умолчанию (NULL = конец)
   options         TEXT,     -- для buttons/display: варианты через ";"
+  routing         JSONB,    -- явное ветвление: {"Подтвердить": 4, "Изменить": 2}
   notes           TEXT,     -- внутренние заметки
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -361,7 +362,7 @@ CREATE TABLE IF NOT EXISTS management.tenant_playbook_access (
 
 2. **Скрипты в application_steps.** Поле `script` — это инструкция для LLM (что и как говорить), не готовый текст. Конкретные сообщения кандидату генерирует LLM в setup_communication шаг 3.
 
-3. **Роутинг из decision шага.** Условия описаны текстом в notes — этого достаточно для LLM-интерпретации. Формализовать в JSONB имеет смысл только если будет детерминированный роутер (не LLM).
+3. **Роутинг из decision/buttons/display.** Для детерминированного рантайма ветвление должно жить в `routing` JSONB, а не только в текстовых notes. `notes` можно оставить для описания условий, но не как единственный источник логики переходов.
 
 4. **FAQ и внешние источники.** В шите упомянуто «парсим сайт и другую публичную инфу» для FAQ. Это значит шаг 12 create_vacancy должен принять URL компании как опциональный input и парсить. Или это отдельный шаг?
 

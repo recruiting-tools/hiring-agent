@@ -1,5 +1,6 @@
 import { interpolate } from "../context-interpolation.js";
 import { parseOptions } from "./buttons.js";
+import { findMatchingOption, resolveNextStepOrder } from "./routing.js";
 
 export async function handleDisplayStep({ step, context, recruiterInput }) {
   const content = step.user_message
@@ -22,16 +23,31 @@ export async function handleDisplayStep({ step, context, recruiterInput }) {
   }
 
   if (options.length && recruiterInput) {
+    const selected = findMatchingOption(options, recruiterInput);
+    if (!selected) {
+      return {
+        context,
+        nextStepOrder: null,
+        awaitingInput: true,
+        reply: {
+          kind: "display",
+          content,
+          content_type: "text",
+          options
+        }
+      };
+    }
+
     return {
-      context,
-      nextStepOrder: step.next_step_order ?? null,
+      context: step.context_key ? { ...context, [step.context_key]: selected } : context,
+      nextStepOrder: resolveNextStepOrder(step, selected),
       reply: null
     };
   }
 
   return {
     context,
-    nextStepOrder: step.next_step_order ?? null,
+    nextStepOrder: resolveNextStepOrder(step),
     reply: {
       kind: "display",
       content,

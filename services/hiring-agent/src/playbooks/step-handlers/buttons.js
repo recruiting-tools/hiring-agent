@@ -1,4 +1,5 @@
 import { interpolate } from "../context-interpolation.js";
+import { findMatchingOption, resolveNextStepOrder } from "./routing.js";
 
 export async function handleButtonsStep({ step, context, recruiterInput }) {
   const options = parseOptions(step.options);
@@ -16,7 +17,7 @@ export async function handleButtonsStep({ step, context, recruiterInput }) {
     };
   }
 
-  const selected = options.find((option) => option.toLowerCase() === String(recruiterInput).trim().toLowerCase());
+  const selected = findMatchingOption(options, recruiterInput);
   if (!selected) {
     return {
       context,
@@ -33,7 +34,7 @@ export async function handleButtonsStep({ step, context, recruiterInput }) {
 
   return {
     context: step.context_key ? { ...context, [step.context_key]: selected } : context,
-    nextStepOrder: step.next_step_order ?? null,
+    nextStepOrder: resolveNextStepOrder(step, selected),
     reply: null
   };
 }

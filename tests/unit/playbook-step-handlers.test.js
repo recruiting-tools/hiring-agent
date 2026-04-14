@@ -84,6 +84,29 @@ test("playbook handler: buttons prompt and accept known option", async () => {
   assert.equal(result.context.next_action, "Готово");
 });
 
+test("playbook handler: buttons can route different options to different next steps", async () => {
+  const result = await handleButtonsStep({
+    step: {
+      step_key: "mass_broadcast.3",
+      user_message: "Что делаем дальше?",
+      context_key: "broadcast_action",
+      next_step_order: 4,
+      options: "Подтвердить;Изменить порог;Изменить критерий",
+      routing: {
+        "Подтвердить": 4,
+        "Изменить порог": 2,
+        "Изменить критерий": 1
+      }
+    },
+    context: {},
+    recruiterInput: "Изменить порог"
+  });
+
+  assert.equal(result.reply, null);
+  assert.equal(result.context.broadcast_action, "Изменить порог");
+  assert.equal(result.nextStepOrder, 2);
+});
+
 test("playbook handler: llm_extract retries once, appends JSON instruction, and saves vacancy column", async () => {
   let attempts = 0;
   const prompts = [];
@@ -171,6 +194,42 @@ test("playbook handler: display renders templated content and optional buttons",
   assert.equal(result.awaitingInput, true);
 });
 
+test("playbook handler: display captures selected option and uses explicit routing", async () => {
+  const result = await handleDisplayStep({
+    step: {
+      user_message: "Выберите вариант плана",
+      context_key: "approved_plan_variant",
+      options: "Вариант 1;Вариант 2;Уточнить",
+      next_step_order: 3,
+      routing: {
+        "Вариант 1": 3,
+        "Вариант 2": 3,
+        "Уточнить": 1
+      }
+    },
+    context: {},
+    recruiterInput: "Уточнить"
+  });
+
+  assert.equal(result.reply, null);
+  assert.equal(result.context.approved_plan_variant, "Уточнить");
+  assert.equal(result.nextStepOrder, 1);
+});
+
+test("playbook handler: display re-prompts on unknown option", async () => {
+  const result = await handleDisplayStep({
+    step: {
+      user_message: "Выберите вариант плана",
+      options: "Вариант 1;Вариант 2"
+    },
+    context: {},
+    recruiterInput: "Вариант 3"
+  });
+
+  assert.equal(result.awaitingInput, true);
+  assert.deepEqual(result.reply.options, ["Вариант 1", "Вариант 2"]);
+});
+
 test("playbook handler: decision evaluates JSON rules and can return a message", async () => {
   const result = await handleDecisionStep({
     step: {
@@ -183,6 +242,38 @@ test("playbook handler: decision evaluates JSON rules and can return a message",
             message: "Нашли много обязательных требований."
           },
           { default: true, next: 4 }
+        ]
+      })
+    },
+    context: {
+      must_haves: ["1", "2", "3", "4", "5"]
+    }
+  });
+
+  assert.equal(result.nextStepOrder, 2);
+  assert.deepEqual(result.reply, {
+    kind: "display",
+    content: "Нашли много обязательных требований.",
+    content_type: "text"
+  });
+});
+
+test("playbook handler: decision can resolve next step via routing map outcome", async () => {
+  const result = await handleDecisionStep({
+    step: {
+      next_step_order: 4,
+      routing: {
+        too_many: 2,
+        ok: 4
+      },
+      notes: JSON.stringify({
+        rules: [
+          {
+            condition: "context.must_haves.length >= 5",
+            outcome: "too_many",
+            message: "Нашли много обязательных требований."
+          },
+          { default: true, outcome: "ok" }
         ]
       })
     },
