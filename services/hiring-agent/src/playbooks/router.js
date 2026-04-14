@@ -6,8 +6,8 @@ const FALLBACK_ROUTES = [
     keywords: ["воронк", "статус кандидат", "funnel", "pipeline"]
   },
   {
-    playbook_key: "communication_plan",
-    keywords: ["план коммуникац", "скрининг", "communication plan"]
+    playbook_key: "setup_communication",
+    keywords: ["план коммуникац", "скрининг", "communication plan", "настроить общение", "настройте общение"]
   },
   {
     playbook_key: "candidate_broadcast",

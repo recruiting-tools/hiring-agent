@@ -1,5 +1,6 @@
 import { getDemoRuntimeData } from "./demo-runtime-data.js";
 import { executeWithDb, runCandidateFunnelPlaybook } from "./playbooks/candidate-funnel.js";
+import { runCommunicationPlanPlaybook } from "./playbooks/communication-plan.js";
 import { findPlaybook, getPlaybookRegistry } from "./playbooks/registry.js";
 import { dispatch } from "./playbooks/runtime.js";
 import { routePlaybook } from "./playbooks/router.js";
@@ -125,6 +126,18 @@ export function createHiringAgentApp(options = {}) {
               )
               : runCandidateFunnelPlaybook({ runtimeData: getDemoRuntimeData() })
           }
+        };
+      }
+
+      if (playbook.playbook_key === "setup_communication") {
+        const result = await runCommunicationPlanPlaybook({
+          tenantSql,
+          vacancyId,
+          llmAdapter
+        });
+        return {
+          status: 200,
+          body: { reply: result.reply }
         };
       }
 

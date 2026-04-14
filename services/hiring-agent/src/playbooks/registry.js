@@ -9,11 +9,11 @@ const FALLBACK_PLAYBOOKS = [
     status: "available"
   },
   {
-    playbook_key: "communication_plan",
-    title: "План коммуникации",
-    name: "План коммуникации",
-    enabled: false,
-    status: "coming_soon"
+    playbook_key: "setup_communication",
+    title: "Настроить общение с кандидатами",
+    name: "Настроить общение с кандидатами",
+    enabled: true,
+    status: "available"
   },
   {
     playbook_key: "candidate_broadcast",

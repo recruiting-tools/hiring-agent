@@ -102,16 +102,15 @@ test("hiring-agent: POST /api/chat returns funnel payload for funnel request", a
   }
 });
 
-test("hiring-agent: POST /api/chat returns locked payload for disabled playbook", async () => {
+test("hiring-agent: POST /api/chat returns fallback_text for setup_communication in demo mode (no DB)", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {
     const sessionCookie = await login(server);
     const { status, body } = await req(server, "POST", "/api/chat", {
-      message: "Подготовь план коммуникации по вакансии"
+      message: "настроить общение с кандидатами"
     }, sessionCookie);
     assert.equal(status, 200);
-    assert.equal(body.reply.kind, "playbook_locked");
-    assert.equal(body.reply.playbook_key, "communication_plan");
+    assert.equal(body.reply.kind, "fallback_text");
   } finally {
     server.close();
   }
