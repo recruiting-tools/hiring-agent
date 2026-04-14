@@ -52,9 +52,19 @@ export function createHiringAgentApp(options = {}) {
       managementSql: requestManagementSql = managementSql
     }) {
       const effectiveVacancyId = vacancyId ?? jobId ?? null;
-      const playbookKey = action === "start_playbook" && requestedPlaybookKey
+      let playbookKey = action === "start_playbook" && requestedPlaybookKey
         ? requestedPlaybookKey
         : await routePlaybook(message, requestManagementSql);
+
+      if (!playbookKey) {
+        const registry = await getPlaybookRegistry(requestManagementSql);
+        playbookKey = await routePlaybookWithLlm({
+          message,
+          playbooks: registry,
+          llmAdapter
+        });
+      }
+
       if (!playbookKey) {
         return {
           status: 200,
@@ -391,4 +401,65 @@ async function seedVacancyFromJob(tenantSql, job) {
     )
     ON CONFLICT (vacancy_id) DO NOTHING
   `;
+}
+
+async function routePlaybookWithLlm({ message, playbooks, llmAdapter }) {
+  if (!llmAdapter?.generate) return null;
+
+  const recruiterMessage = String(message ?? "").trim();
+  if (!recruiterMessage) return null;
+
+  const catalog = Array.isArray(playbooks)
+    ? playbooks.map((playbook) => ({
+      playbook_key: playbook.playbook_key,
+      name: playbook.name ?? playbook.title ?? playbook.playbook_key,
+      trigger_description: playbook.trigger_description ?? "",
+      enabled: Boolean(playbook.enabled)
+    }))
+    : [];
+
+  if (catalog.length === 0) return null;
+
+  const prompt = [
+    "Ты роутер recruiter-chat.",
+    "Выбери самый подходящий playbook по сообщению рекрутера.",
+    "Выбирай только из списка ниже. Если не уверен — верни null.",
+    "",
+    "Список playbook:",
+    JSON.stringify(catalog, null, 2),
+    "",
+    `Сообщение рекрутера: ${JSON.stringify(recruiterMessage)}`,
+    "",
+    "Верни JSON без markdown:",
+    "{\"playbook_key\": \"<key>\" | null}"
+  ].join("\n");
+
+  try {
+    const raw = await llmAdapter.generate(prompt);
+    const parsed = parseJsonResponse(raw);
+    const key = typeof parsed?.playbook_key === "string"
+      ? parsed.playbook_key.trim()
+      : null;
+
+    if (!key) return null;
+    return catalog.some((item) => item.playbook_key === key) ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonResponse(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+
+  const normalized = text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    return JSON.parse(normalized);
+  } catch {
+    return null;
+  }
 }
