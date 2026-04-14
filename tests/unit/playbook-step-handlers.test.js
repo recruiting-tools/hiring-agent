@@ -58,6 +58,40 @@ test("playbook handler: user_input prompts first and stores recruiter input on r
   assert.equal(result.context.raw_vacancy_text, "Нужен плиточник с опытом");
 });
 
+test("playbook handler: create_vacancy user_input inserts draft vacancy with explicit communication defaults", async () => {
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /INSERT INTO chatbot\.vacancies/);
+    assert.match(text, /communication_plan_draft/);
+    assert.match(text, /communication_examples/);
+    assert.match(text, /'pending',\s*NULL,\s*NULL,\s*'\[\]'::jsonb,\s*NULL/);
+    assert.deepEqual(values, ["rec-1", "Нужен менеджер по продажам", "Нужен менеджер по продажам"]);
+    return [{
+      vacancy_id: "vac-new-1",
+      title: "Нужен менеджер по продажам",
+      status: "draft"
+    }];
+  });
+
+  const result = await handleUserInputStep({
+    step: {
+      user_message: "Опишите вакансию",
+      context_key: "raw_vacancy_text",
+      next_step_order: 2
+    },
+    session: {
+      playbook_key: "create_vacancy",
+      recruiter_id: "rec-1"
+    },
+    context: {},
+    recruiterInput: "Нужен менеджер по продажам",
+    tenantSql
+  });
+
+  assert.equal(result.nextStepOrder, 2);
+  assert.equal(result.context.vacancy_id, "vac-new-1");
+  assert.equal(result.context.vacancy?.status, "draft");
+});
+
 test("playbook handler: buttons prompt and accept known option", async () => {
   const step = {
     step_key: "create_vacancy.14",

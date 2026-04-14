@@ -47,14 +47,22 @@ async function createDraftVacancy({ tenantSql, recruiterId, rawText }) {
       title,
       raw_text,
       status,
-      extraction_status
+      extraction_status,
+      communication_plan,
+      communication_plan_draft,
+      communication_examples,
+      communication_examples_plan_hash
     )
     VALUES (
       ${recruiterId},
       ${title},
       ${rawText},
       'draft',
-      'pending'
+      'pending',
+      NULL,
+      NULL,
+      '[]'::jsonb,
+      NULL
     )
     RETURNING *
   `;
