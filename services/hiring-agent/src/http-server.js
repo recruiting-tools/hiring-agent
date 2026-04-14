@@ -692,11 +692,11 @@ const CHAT_HTML = `<!DOCTYPE html>
       <div class="sidebar-block">
         <div class="sidebar-label">Сценарии</div>
         <div class="quick-actions">
-          <button class="quick-action" data-msg="настроить общение с кандидатами">Настроить общение</button>
-          <button class="quick-action" data-msg="покажи воронку по кандидатам">Показать воронку</button>
-          <button class="quick-action" data-msg="посмотри вакансию">Посмотреть вакансию</button>
-          <button class="quick-action" data-msg="сделай рассылку">Сделать рассылку</button>
-          <button class="quick-action" id="create-vacancy-btn">Создать вакансию</button>
+          <button type="button" class="quick-action" data-msg="настроить общение с кандидатами">Настроить общение</button>
+          <button type="button" class="quick-action" data-msg="покажи воронку по кандидатам">Отчет по воронке</button>
+          <button type="button" class="quick-action" data-msg="посмотри вакансию">Посмотреть вакансию</button>
+          <button type="button" class="quick-action" data-msg="сделай рассылку">Сделать рассылку</button>
+          <button type="button" class="quick-action" id="create-vacancy-btn">Создать вакансию</button>
         </div>
       </div>
     </aside>
@@ -714,7 +714,7 @@ const CHAT_HTML = `<!DOCTYPE html>
           <div class="empty-icon">📋</div>
           <h2>Выберите вакансию</h2>
           <p>Автоматизация рекрутинга здесь. Выберите вакансию слева или создайте новую.</p>
-          <button class="btn-primary" id="empty-create-vacancy-btn">Создать вакансию</button>
+          <button type="button" class="btn-primary" id="empty-create-vacancy-btn">Создать вакансию</button>
         </div>
       </div>
 
@@ -999,7 +999,13 @@ const CHAT_HTML = `<!DOCTYPE html>
     createVacBtn.addEventListener('click', triggerCreateVacancy);
     emptyCreateVacBtn.addEventListener('click', triggerCreateVacancy);
     quickActions.forEach((button) => {
-      button.addEventListener('click', () => sendMessage(button.dataset.msg || ''));
+      button.addEventListener('click', () => {
+        if (!selectedVacancyId) {
+          addSystemMessage('Сначала выберите вакансию слева.');
+          return;
+        }
+        sendMessage(button.dataset.msg || '');
+      });
     });
 
     // ── Input handling ────────────────────────────────────────────────────────
