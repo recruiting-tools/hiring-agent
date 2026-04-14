@@ -586,12 +586,14 @@ export class PostgresHiringStore {
     return rows[0] ?? null;
   }
 
-  async getHhNegotiationsDue() {
+  async getHhNegotiationsDue(limit = 100) {
     const rows = await this.sql`
       SELECT n.hh_negotiation_id, n.job_id, n.candidate_id, n.hh_vacancy_id, n.hh_collection, n.channel_thread_id
       FROM chatbot.hh_negotiations n
       LEFT JOIN chatbot.hh_poll_state ps ON ps.hh_negotiation_id = n.hh_negotiation_id
       WHERE ps.hh_negotiation_id IS NULL OR ps.next_poll_at <= now()
+      ORDER BY ps.next_poll_at ASC NULLS FIRST
+      LIMIT ${limit}
     `;
     return rows;
   }
