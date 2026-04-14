@@ -3,8 +3,8 @@
 # Usage: [VM_USER=username] [TARGET_PORT=3101] ./scripts/deploy-hiring-agent.sh
 set -euo pipefail
 
-VM_HOST="${VM_HOST:-34.31.217.176}"
-VM_USER="${VM_USER:-vladimir}"
+VM_HOST="${VM_HOST:-hiring-agent-vm}"
+VM_USER="${VM_USER:-vova}"
 TARGET_PORT="${TARGET_PORT:-3101}"
 DEPLOY_REF="${DEPLOY_REF:-main}"
 REPO_URL="${REPO_URL:-$(gh repo view --json sshUrl -q .sshUrl 2>/dev/null || git remote get-url origin)}"
@@ -12,7 +12,12 @@ SHA=$(git rev-parse HEAD)
 
 echo "Deploying hiring-agent @ $SHA → $VM_USER@$VM_HOST (port $TARGET_PORT)..."
 
-ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << REMOTE
+ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
+  TARGET_PORT="$TARGET_PORT" \
+  DEPLOY_REF="$DEPLOY_REF" \
+  REPO_URL="$REPO_URL" \
+  SHA="$SHA" \
+  bash -s <<'REMOTE'
   set -euo pipefail
 
   require_bin() {
