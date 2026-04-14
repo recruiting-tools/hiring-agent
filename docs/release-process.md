@@ -1,20 +1,29 @@
 # Release Process
 
+Короткий operational чеклист для агент-сессий держим в [`README.md`](../README.md) → раздел `PR From Session (Коротко)`.
+Этот документ оставляем как расширенную схему процесса.
+
+## Current CI/CD Map (2026-04-14)
+
+| Workflow | File | Trigger | Purpose |
+|---|---|---|---|
+| `Sandbox Release Gate` | `.github/workflows/sandbox-release-gate.yml` | push в non-main, PR в `main` | test gate + migration check + hiring-agent sandbox chat smoke + callback в сессию |
+| `PR Hygiene` | `.github/workflows/pr-hygiene.yml` | PR в `main` | блокирует merge если branch отстал от `main` |
+| `Single PR Owner` | `.github/workflows/pr-single-owner.yml` | PR в `main` | блокирует merge если в PR >1 commit author |
+| `PR Merge Bot` | `.github/workflows/pr-merge-bot.yml` | label/sync/schedule | auto-merge PR с label `automerge`, когда все required checks зелёные |
+| `Deploy to Production` | `.github/workflows/deploy-prod.yml` | push в `main` | deploy `candidate-chatbot` в Cloud Run + smoke |
+| `Deploy hiring-agent to VM` | `.github/workflows/deploy-hiring-agent.yml` | push в `main` (path-filter), manual dispatch | deploy `hiring-agent` на VM (prod) + VM/public smoke |
+| `Deploy hiring-agent to sandbox slot` | `.github/workflows/deploy-hiring-agent-sandbox-slot.yml` | manual dispatch | deploy выбранного ref в `sandbox-1/2/3` |
+
 ## Flow
 
-```
+```text
 feature branch
-  → pnpm gate:sandbox (локально, до PR)
-  → gh pr create (с ci-callback URL)
-  → CI: sandbox-gate (автоматически)
-      → impact-check (advisory)
-      → gate: pnpm test:sandbox + pnpm smoke:sandbox
-      → migration-check (ephemeral Neon branch если есть .sql)
-      → notify-session (POST ci-callback URL из PR body)
-  → merge в main
-  → CI: deploy-prod (автоматически)
-      → deploy к Cloud Run
-      → post-deploy smoke
+  -> pnpm gate:sandbox (локально)
+  -> PR в main (+ ci-callback при необходимости)
+  -> CI checks: gate + hygiene + single-owner
+  -> merge
+  -> main deploy workflows (Cloud Run / VM)
 ```
 
 ## Команды (локально, до PR)
@@ -28,21 +37,64 @@ pnpm gate:sandbox          # test:sandbox + smoke:sandbox — обязатель
 # удалить branch
 ```
 
-## CI checks (GitHub Actions)
+## Required Checks For Merge
 
-| Check | Trigger | Блокирует merge |
+| Check name | Source workflow | Блокирует merge |
 |-------|---------|-----------------|
-| `sandbox-gate / gate` | push + PR to main | да |
-| `sandbox-gate / migration-check` | push + PR to main | нет (advisory) |
-| `deploy-prod` | push to main | только post-deploy smoke |
+| `gate` | `Sandbox Release Gate` | да |
+| `up-to-date-with-main` | `PR Hygiene` | да |
+| `single-owner` | `Single PR Owner` | да |
 
-Branch protection rule: merge в main требует `sandbox-gate / gate: success`.
+Advisory checks:
+
+- `impact-check` (риск-анализ по изменённым зонам)
+- `migration-check` (ephemeral Neon branch при schema-change в `services/candidate-chatbot/migrations/`)
+
+## Sandbox Slots (`sandbox-1/2/3`)
+
+`Deploy hiring-agent to sandbox slot` использует **GitHub Environments**:
+
+- `sandbox-1`
+- `sandbox-2`
+- `sandbox-3`
+
+На уровне каждого environment заданы:
+
+- `SANDBOX_PUBLIC_URL`
+- `VM_HOST`
+- `VM_USER`
+
+Общие для всех слотов секреты берутся из repo secrets:
+
+- `VM_SSH_KEY`
+- `MANAGEMENT_DATABASE_URL`
+- `OPENROUTER_API_KEY`
+
+Текущая модель: слоты могут смотреть на одну и ту же sandbox DB/control-plane.
+Это допустимо для быстрых UI/Playwright прогонов, но для рискованных миграций
+используй отдельную ephemeral Neon branch.
+
+## QA Credentials Policy (Sessions + MCP Playwright)
+
+В git храним только шаблоны и имена env-переменных, не реальные пароли.
+
+- шаблон: `.env.sandbox.example`
+- рабочие значения: GitHub Secrets / локальный `.env.local` / shell env
+
+Минимальные env для автотест-сессии:
+
+- `SANDBOX_PUBLIC_URL` (или target URL конкретного слота)
+- `SANDBOX_DEMO_EMAIL`
+- `SANDBOX_DEMO_PASSWORD`
+
+Для MCP Playwright в сессии используем те же креды, что и для `smoke:sandbox`.
+Новый пароль публикуется только в секретах и в runtime env, не в repo.
 
 ## CI callback для сессий
 
 Чтобы сессия получила уведомление о результате CI, включи в тело PR:
 
-```
+```html
 <!-- ci-callback: https://RELAY_URL/api/sessions/SESSION_ID/reply -->
 ```
 
@@ -53,6 +105,26 @@ Branch protection rule: merge в main требует `sandbox-gate / gate: succe
 
 `RELAY_URL` — публичный endpoint session manager relay (настраивается отдельно).
 
+### Быстро добавить callback в существующий PR
+
+```bash
+PR_NUM=<номер_pr>
+RELAY_URL=<https://...>
+SESSION_ID=<session_id>
+
+BODY="$(gh pr view "$PR_NUM" --json body -q .body)"
+printf "%s\n\n<!-- ci-callback: %s/api/sessions/%s/reply -->\n" \
+  "$BODY" "$RELAY_URL" "$SESSION_ID" | gh pr edit "$PR_NUM" --body-file -
+```
+
+Проверка:
+1. Запусти/дождись `sandbox-gate`.
+2. Убедись, что в сессию пришло сообщение с `success|failure` и ссылкой на run.
+
+Ограничение:
+- Этот callback в текущем workflow отправляет CI-результаты.
+- Review comments/threads из GitHub требуют отдельного webhook relay (это не покрывается одним `ci-callback` маркером).
+
 ## Secrets (GitHub repo settings)
 
 | Secret | Описание |
@@ -60,8 +132,15 @@ Branch protection rule: merge в main требует `sandbox-gate / gate: succe
 | `SANDBOX_DATABASE_URL` | Neon sandbox branch connection string |
 | `SESSION_SECRET` | Demo session secret |
 | `NEON_API_KEY` | Neon API key для ephemeral branches |
-| `GOOGLE_CREDENTIALS` | GCP service account JSON для deploy |
+| `WORKLOAD_IDENTITY_PROVIDER` | OIDC provider для GitHub Actions |
+| `SERVICE_ACCOUNT` | GCP service account email для deploy |
 | `DEPLOY_PUBLIC_URL` | Prod Cloud Run URL для post-deploy smoke |
+| `MANAGEMENT_DATABASE_URL` | control-plane DB для `hiring-agent` |
+| `OPENROUTER_API_KEY` | LLM routing key для `hiring-agent` |
+| `VM_SSH_KEY` | SSH private key для VM deploy workflows |
+| `HIRING_AGENT_SANDBOX_URL` | Base URL sandbox-окружения hiring-agent для chat smoke (`https://...`) |
+| `HIRING_AGENT_SANDBOX_DEMO_EMAIL` | Demo login email для hiring-agent sandbox smoke |
+| `HIRING_AGENT_SANDBOX_DEMO_PASSWORD` | Demo login password для hiring-agent sandbox smoke |
 
 ## Impact check
 

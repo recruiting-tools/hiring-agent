@@ -27,6 +27,11 @@ V2_NEON_ORG_ID=org-bold-wave-46400152
 MANAGEMENT_DATABASE_URL=...   # management DB (shared, all tenants) — Neon project: orange-silence-65083641
 CHATBOT_DATABASE_URL=...      # demo tenant chatbot DB — Neon project: round-leaf-16031956
 GEMINI_API_KEY=...            # уже есть в shell
+OPENROUTER_API_KEY=...
+OPENROUTER_MODEL=google/gemini-2.5-flash
+OPENROUTER_SETUP_COMMUNICATION_PLAN_MODEL=openai/gpt-5.4-mini
+OPENROUTER_SETUP_COMMUNICATION_EXAMPLES_MODEL=google/gemini-2.5-flash
+OPENROUTER_CREATE_VACANCY_APPLICATION_STEPS_MODEL=openai/gpt-5.4-mini
 ```
 
 ## Архитектура — коротко
@@ -38,11 +43,44 @@ GEMINI_API_KEY=...            # уже есть в shell
 ## Release Process
 
 Каждая фича проходит через sandbox перед merge в main. Подробно: [`docs/release-process.md`](docs/release-process.md).
-Для параллельной работы агентов и чистых веток: [`AI-AGENT.md`](AI-AGENT.md).
+Для параллельной работы агентов, делегирования между сессиями и чистых веток: [`ai-agent.md`](ai-agent.md).
 
 **Локально перед PR:** `pnpm gate:sandbox`
 **CI gate (авто):** `sandbox-gate` workflow — должен быть зелёным для merge
 **Deploy (авто):** `deploy-prod` workflow запускается при merge в main
+
+### PR From Session (Коротко)
+
+1. Прогоняешь локальный gate:
+```bash
+pnpm gate:sandbox
+```
+2. Создаешь/обновляешь PR и добавляешь callback в body:
+```bash
+PR_NUM=<номер_pr>
+RELAY_URL=<https://...>
+SESSION_ID=<session_id>
+
+BODY="$(gh pr view "$PR_NUM" --json body -q .body)"
+printf "%s\n\n<!-- ci-callback: %s/api/sessions/%s/reply -->\n" \
+  "$BODY" "$RELAY_URL" "$SESSION_ID" | gh pr edit "$PR_NUM" --body-file -
+```
+3. Ждешь `sandbox-gate` и callback в сессию (`success|failure` + ссылка на run).
+4. Передаешь задачу deploy-сессии:
+```bash
+CORR_ID=$(uuidgen)
+scripts/pr-worker.sh send-pr-ready \
+  --to "<DEPLOY_SESSION_ID>" \
+  --corr "$CORR_ID" \
+  --branch "$(git rev-parse --abbrev-ref HEAD)" \
+  --commit "$(git rev-parse HEAD)" \
+  --pr-url "$(gh pr view "$PR_NUM" --json url -q .url)"
+```
+5. После merge проверяешь `deploy-prod` run и `/health`.
+
+Ограничение callback:
+- Маркер `ci-callback` в текущем pipeline отправляет только CI-статус.
+- Review comments/threads из GitHub прилетают только если отдельно настроен webhook relay на review events.
 
 ### CI/CD Observability
 
@@ -89,9 +127,67 @@ curl -sf http://127.0.0.1:3101/health | jq
 ss -tlnp | grep ':3101 '
 ```
 
-Для сессий с CI callback — включай в тело PR:
+### Live Monitoring (hiring-agent)
+
+Быстрый probe с локальной машины:
+
+```bash
+pnpm monitor:hiring-agent -- \
+  --base-url https://hiring-chat.recruiter-assistant.com \
+  --ssh-target vova@34.31.217.176
 ```
-<!-- ci-callback: https://RELAY_URL/api/sessions/SESSION_ID/reply -->
+
+Что проверяет скрипт `scripts/monitor-hiring-agent.js`:
+- `GET /health` (быстрый liveness: status/mode/app_env/port, без DB-lookup)
+- `GET /health?details=1` можно использовать вручную для расширенной диагностики playbook registry
+- `GET /login` (HTML 200)
+- websocket probe (`/ws`)
+- при `--ssh-target`: `pm2` состояние, local health (`127.0.0.1:3101`), счётчик upstream refused в `nginx error.log`
+
+Опционально для полноценной auth + ws проверки:
+
+```bash
+MONITOR_EMAIL='demo@hiring-agent.app' \
+MONITOR_PASSWORD='<password>' \
+pnpm monitor:hiring-agent -- --require-auth-ws --ssh-target vova@34.31.217.176
+```
+
+Непрерывный watch:
+
+```bash
+watch -n 30 'pnpm monitor:hiring-agent -- --ssh-target vova@34.31.217.176'
+```
+
+Пример cron (алерт в stderr/syslog по non-zero exit):
+
+```cron
+*/2 * * * * cd /opt/hiring-agent && /usr/bin/node scripts/monitor-hiring-agent.js --ssh-target vova@localhost >> /var/log/hiring-agent-monitor.log 2>&1
+```
+
+### Chat Smoke (2 levels)
+
+Быстрый smoke для `hiring-agent` чата:
+Подробный runbook для новых сессий: [`docs/hiring-agent-chat-smoke-runbook.md`](docs/hiring-agent-chat-smoke-runbook.md)
+
+1) Demo level (локальный `APP_MODE=demo`, проверка API-контракта и ошибок):
+```bash
+pnpm smoke:hiring-agent:demo
+```
+
+2) Sandbox level (реальная auth + tenant DB + playbook runtime):
+```bash
+SANDBOX_URL='https://<sandbox-host>' \
+SANDBOX_DEMO_EMAIL='<email>' \
+SANDBOX_DEMO_PASSWORD='<password>' \
+pnpm smoke:hiring-agent:sandbox
+```
+
+3) Оба уровня подряд:
+```bash
+SANDBOX_URL='https://<sandbox-host>' \
+SANDBOX_DEMO_EMAIL='<email>' \
+SANDBOX_DEMO_PASSWORD='<password>' \
+pnpm smoke:hiring-agent:both
 ```
 
 ---
