@@ -9,7 +9,8 @@ export class OpenRouterAdapter {
     this.model = model;
   }
 
-  async generate(prompt) {
+  async generate(prompt, options = {}) {
+    const model = options?.model ?? this.model;
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -17,7 +18,7 @@ export class OpenRouterAdapter {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: this.model,
+        model,
         messages: [{ role: "user", content: prompt }]
       })
     });

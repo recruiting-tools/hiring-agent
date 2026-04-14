@@ -1,20 +1,24 @@
 #!/bin/bash
-# Deploy hiring-agent to GCP VM (34.31.217.176) via SSH.
-# Usage: [VM_USER=username] [TARGET_PORT=3101] ./scripts/deploy-hiring-agent.sh
+# Deploy hiring-agent to GCP VM via SSH.
+# Usage: [VM_USER=username] [TARGET_PORT=3101] [DEPLOY_DIR=/opt/hiring-agent] ./scripts/deploy-hiring-agent.sh
 set -euo pipefail
 
 VM_HOST="${VM_HOST:-hiring-agent-vm}"
 VM_USER="${VM_USER:-vova}"
 TARGET_PORT="${TARGET_PORT:-3101}"
 DEPLOY_REF="${DEPLOY_REF:-main}"
+DEPLOY_DIR="${DEPLOY_DIR:-/opt/hiring-agent}"
+PM2_APP_NAME="${PM2_APP_NAME:-hiring-agent}"
 REPO_URL="${REPO_URL:-$(gh repo view --json sshUrl -q .sshUrl 2>/dev/null || git remote get-url origin)}"
 SHA=$(git rev-parse HEAD)
 
-echo "Deploying hiring-agent @ $SHA → $VM_USER@$VM_HOST (port $TARGET_PORT)..."
+echo "Deploying $PM2_APP_NAME @ $SHA → $VM_USER@$VM_HOST (port $TARGET_PORT, dir $DEPLOY_DIR)..."
 
 ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
   TARGET_PORT="$TARGET_PORT" \
   DEPLOY_REF="$DEPLOY_REF" \
+  DEPLOY_DIR="$DEPLOY_DIR" \
+  PM2_APP_NAME="$PM2_APP_NAME" \
   REPO_URL="$REPO_URL" \
   SHA="$SHA" \
   bash -s <<'REMOTE'
@@ -52,7 +56,7 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
   if ss -tlnp 2>/dev/null | grep -q ":$PORT "; then
     PORT_LINE=$(ss -tlnp | grep ":$PORT ")
     PORT_PID=$(echo "$PORT_LINE" | grep -oP 'pid=\K[0-9]+' | head -1)
-    PM2_PID=$(pm2 pid hiring-agent 2>/dev/null | tr -d ' \n' || echo "")
+    PM2_PID=$(pm2 pid "$PM2_APP_NAME" 2>/dev/null | tr -d ' \n' || echo "")
     if [ -z "$PM2_PID" ] || [ "$PORT_PID" != "$PM2_PID" ]; then
       echo "ERROR: Port $PORT is already in use by another process (PID=$PORT_PID):"
       echo "$PORT_LINE"
@@ -63,20 +67,39 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
       echo "Fix: set TARGET_PORT=<free_port> or stop the conflicting process first."
       exit 1
     fi
-    echo "Port $PORT is held by hiring-agent PM2 (PID=$PM2_PID) — will restart."
+    echo "Port $PORT is held by PM2 app '$PM2_APP_NAME' (PID=$PM2_PID) — will restart."
   else
     echo "Port $PORT is free."
   fi
 
   # ── Deploy ─────────────────────────────────────────────────────────────────
-  if [ ! -d /opt/hiring-agent/.git ]; then
-    echo "First deploy detected: cloning repository into /opt/hiring-agent"
-    mkdir -p /opt
-    rm -rf /opt/hiring-agent
-    git clone "$REPO_URL" /opt/hiring-agent
+  if [ ! -d "$DEPLOY_DIR/.git" ]; then
+    echo "First deploy detected for $DEPLOY_DIR"
+    mkdir -p "$(dirname "$DEPLOY_DIR")"
+    ENV_BACKUP=""
+    if [ -f "$DEPLOY_DIR/.env" ]; then
+      ENV_BACKUP=$(mktemp)
+      cp "$DEPLOY_DIR/.env" "$ENV_BACKUP"
+    fi
+    rm -rf "$DEPLOY_DIR"
+
+    # Reuse the already-provisioned production checkout when available.
+    # This avoids bootstrapping auth on VM for additional sandbox directories.
+    if [ -d /opt/hiring-agent/.git ] && [ "$DEPLOY_DIR" != "/opt/hiring-agent" ]; then
+      echo "Bootstrapping from /opt/hiring-agent"
+      cp -a /opt/hiring-agent "$DEPLOY_DIR"
+    else
+      echo "Cloning repository into $DEPLOY_DIR"
+      git clone "$REPO_URL" "$DEPLOY_DIR"
+    fi
+
+    if [ -n "$ENV_BACKUP" ] && [ -f "$ENV_BACKUP" ]; then
+      cp "$ENV_BACKUP" "$DEPLOY_DIR/.env"
+      rm -f "$ENV_BACKUP"
+    fi
   fi
 
-  cd /opt/hiring-agent
+  cd "$DEPLOY_DIR"
 
   git fetch origin "$DEPLOY_REF"
   git checkout "$DEPLOY_REF"
@@ -115,12 +138,14 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
   # Override port from env if passed
   export PORT=$PORT
   export DEPLOY_SHA="$SHA"
+  export PM2_APP_NAME="$PM2_APP_NAME"
+  export APP_CWD="$DEPLOY_DIR/services/hiring-agent"
 
-  pm2 delete hiring-agent >/dev/null 2>&1 || true
+  pm2 delete "$PM2_APP_NAME" >/dev/null 2>&1 || true
   pm2 start services/hiring-agent/ecosystem.config.cjs --env production --update-env
   pm2 save
 
-  PM2_JSON=$(pm2 jlist | jq -r '.[] | select(.name=="hiring-agent")')
+  PM2_JSON=$(pm2 jlist | jq -r --arg app "$PM2_APP_NAME" '.[] | select(.name==$app)')
   PM2_APP_ENV=$(printf '%s' "$PM2_JSON" | jq -r '(.pm2_env.APP_ENV // .pm2_env.env.APP_ENV // "")')
   PM2_DEPLOY_SHA=$(printf '%s' "$PM2_JSON" | jq -r '(.pm2_env.DEPLOY_SHA // .pm2_env.env.DEPLOY_SHA // "")')
   PM2_MANAGEMENT_DB=$(printf '%s' "$PM2_JSON" | jq -r 'if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end')
@@ -153,7 +178,7 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
       env | egrep '^(PORT|NODE_ENV|APP_MODE|APP_ENV|MANAGEMENT_DATABASE_URL)=' \
         | sed 's/^MANAGEMENT_DATABASE_URL=.*/MANAGEMENT_DATABASE_URL=[set]/'
       echo "--- pm2 jlist ---"
-      pm2 jlist | jq -r '.[] | select(.name=="hiring-agent") | {
+      pm2 jlist | jq -r --arg app "$PM2_APP_NAME" '.[] | select(.name==$app) | {
         name,
         pid,
         pm_exec_path: .pm2_env.pm_exec_path,
@@ -170,7 +195,7 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
       echo "--- local health body ---"
       printf '%s\n' "${HEALTH_BODY:-}"
       echo "--- pm2 logs ---"
-      pm2 logs hiring-agent --lines 80 --nostream || true
+      pm2 logs "$PM2_APP_NAME" --lines 80 --nostream || true
       exit 1
     }
   done

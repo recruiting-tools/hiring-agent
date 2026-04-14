@@ -17,9 +17,9 @@ if (process.env.MANAGEMENT_DATABASE_URL) {
 
 module.exports = {
   apps: [{
-    name: "hiring-agent",
+    name: process.env.PM2_APP_NAME || "hiring-agent",
     script: "./src/cli.js",
-    cwd: "/opt/hiring-agent/services/hiring-agent",
+    cwd: process.env.APP_CWD || "/opt/hiring-agent/services/hiring-agent",
     listen_timeout: 15000,
     kill_timeout: 5000,
     env_production: envProduction
