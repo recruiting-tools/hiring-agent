@@ -33,6 +33,38 @@ test("playbook handler: auto_fetch loads vacancy and raw text into context", asy
   assert.equal(result.context.vacancy.title, "Sales manager");
 });
 
+test("playbook handler: auto_fetch falls back to job_id when vacancy_id is synthetic", async () => {
+  let queryCount = 0;
+  const tenantSql = createMockSql(({ text, values }) => {
+    queryCount += 1;
+    if (queryCount === 1) {
+      assert.match(text, /WHERE vacancy_id = \$1/);
+      assert.deepEqual(values, ["job-1"]);
+      return [];
+    }
+
+    assert.match(text, /WHERE job_id = \$1/);
+    assert.deepEqual(values, ["job-1"]);
+    return [{
+      vacancy_id: "vac-1",
+      job_id: "job-1",
+      raw_text: "Текст вакансии",
+      title: "Sales manager"
+    }];
+  });
+
+  const result = await handleAutoFetchStep({
+    step: { next_step_order: 1 },
+    context: { vacancy_id: "job-1", job_id: "job-1" },
+    tenantSql
+  });
+
+  assert.equal(result.nextStepOrder, 1);
+  assert.equal(result.context.vacancy_id, "vac-1");
+  assert.equal(result.context.job_id, "job-1");
+  assert.equal(result.context.vacancy.title, "Sales manager");
+});
+
 test("playbook handler: user_input prompts first and stores recruiter input on resume", async () => {
   const step = {
     user_message: "Опишите вакансию",
@@ -539,7 +571,7 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
   const tenantSql = createMockSql(({ text, values }) => {
     assert.match(text, /FROM chatbot\.vacancies/);
     assert.deepEqual(values, ["vac-7"]);
-    return [{ vacancy_id: "vac-7", raw_text: "raw text", title: "Ops manager" }];
+    return [{ vacancy_id: "vac-7", job_id: "job-7", raw_text: "raw text", title: "Ops manager" }];
   });
 
   const result = await dispatch({
@@ -548,6 +580,7 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
     tenantId: "tenant-1",
     recruiterId: "rec-1",
     vacancyId: "vac-7",
+    jobId: "job-7",
     playbookKey: "setup_communication",
     recruiterInput: null,
     llmAdapter: { async generate() { throw new Error("unused"); } }
@@ -560,6 +593,10 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
   });
   assert.deepEqual(calls[0][0], "abort");
   assert.deepEqual(calls[1][0], "create");
+  assert.deepEqual(calls[1][1].context, {
+    vacancy_id: "vac-7",
+    job_id: "job-7"
+  });
   assert.deepEqual(calls.at(-1), [
     "update",
     "sess-1",
@@ -567,7 +604,8 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
       currentStepOrder: 1,
       context: {
         vacancy_id: "vac-7",
-        vacancy: { vacancy_id: "vac-7", raw_text: "raw text", title: "Ops manager" },
+        job_id: "job-7",
+        vacancy: { vacancy_id: "vac-7", job_id: "job-7", raw_text: "raw text", title: "Ops manager" },
         raw_vacancy_text: "raw text"
       },
       vacancyId: "vac-7"

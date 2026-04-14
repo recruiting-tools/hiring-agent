@@ -1002,6 +1002,13 @@ test("hiring-agent: management-backed chat accepts owned job_id and returns funn
       return [{ job_id: "job-owned", title: "Owned role" }];
     }
 
+    if (callIndex === 2) {
+      assert.match(text, /FROM chatbot\.vacancies/);
+      assert.match(text, /WHERE job_id = \$1/);
+      assert.deepEqual(values, ["job-owned"]);
+      return [];
+    }
+
     if (text === "and pipeline_runs.job_id = $1") {
       assert.deepEqual(values, ["job-owned"]);
       return { fragment: true };
@@ -1066,6 +1073,103 @@ test("hiring-agent: management-backed chat accepts owned job_id and returns funn
     assert.equal(status, 200);
     assert.equal(body.reply.kind, "render_funnel");
     assert.equal(body.reply.summary.total, 3);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed chat resolves job_id from vacancy_id for funnel", async () => {
+  let callIndex = 0;
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+    callIndex += 1;
+
+    if (callIndex === 1) {
+      assert.match(text, /FROM chatbot\.vacancies/);
+      assert.match(text, /WHERE vacancy_id = \$1/);
+      assert.deepEqual(values, ["vac-123"]);
+      return [{
+        vacancy_id: "vac-123",
+        job_id: "job-owned",
+        title: "Owned role",
+        status: "active",
+        extraction_status: "complete"
+      }];
+    }
+
+    if (callIndex === 2) {
+      assert.match(text, /FROM chatbot\.jobs/);
+      assert.match(text, /WHERE job_id = \$1\s+AND client_id = \$2/);
+      assert.deepEqual(values, ["job-owned", "tenant-alpha-001"]);
+      return [{ job_id: "job-owned", title: "Owned role" }];
+    }
+
+    if (text === "and pipeline_runs.job_id = $1") {
+      assert.deepEqual(values, ["job-owned"]);
+      return { fragment: true };
+    }
+
+    assert.match(text, /with scoped_runs as/);
+    return [{
+      step_name: "Screening",
+      step_id: "screening",
+      step_index: 0,
+      total: 4,
+      in_progress: 1,
+      completed: 2,
+      stuck: 0,
+      rejected: 1
+    }];
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "Визуализируй воронку по кандидатам",
+      vacancy_id: "vac-123"
+    }, "session=sess-alpha");
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "render_funnel");
+    assert.equal(body.reply.summary.total, 4);
   } finally {
     server.close();
   }
@@ -1352,12 +1456,29 @@ test("hiring-agent: management-backed setup_communication supports vacancy_id di
 });
 
 test("hiring-agent: management-backed setup_communication rejects foreign job_id before llm call", async () => {
+  let callIndex = 0;
   const tenantSql = async (strings, ...values) => {
     const text = strings.reduce((result, chunk, index) => (
       result + chunk + (index < values.length ? `$${index + 1}` : "")
     ), "");
+
+    callIndex += 1;
+    if (callIndex === 1) {
+      assert.match(text, /FROM chatbot\.vacancies/);
+      assert.match(text, /WHERE vacancy_id = \$1/);
+      assert.deepEqual(values, ["job-foreign"]);
+      return [];
+    }
+
+    if (callIndex === 2) {
+      assert.match(text, /WHERE job_id = \$1/);
+      assert.deepEqual(values, ["job-foreign", "tenant-alpha-001"]);
+      return [];
+    }
+
+    assert.match(text, /FROM chatbot\.vacancies/);
     assert.match(text, /WHERE job_id = \$1/);
-    assert.deepEqual(values, ["job-foreign", "tenant-alpha-001"]);
+    assert.deepEqual(values, ["job-foreign"]);
     return [];
   };
 
@@ -1621,9 +1742,23 @@ test("hiring-agent: management-backed WebSocket uses tenant sql resolved at conn
     callIndex += 1;
 
     if (callIndex === 1) {
+      assert.match(text, /FROM chatbot\.vacancies/);
+      assert.match(text, /WHERE vacancy_id = \$1/);
+      assert.deepEqual(values, ["job-ws-owned"]);
+      return [];
+    }
+
+    if (callIndex === 2) {
       assert.match(text, /WHERE job_id = \$1/);
       assert.deepEqual(values, ["job-ws-owned", "tenant-alpha-001"]);
       return [{ job_id: "job-ws-owned", title: "WS test role" }];
+    }
+
+    if (callIndex === 3) {
+      assert.match(text, /FROM chatbot\.vacancies/);
+      assert.match(text, /WHERE job_id = \$1/);
+      assert.deepEqual(values, ["job-ws-owned"]);
+      return [];
     }
 
     if (text === "and pipeline_runs.job_id = $1") {

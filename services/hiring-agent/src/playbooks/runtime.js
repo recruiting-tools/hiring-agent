@@ -28,6 +28,7 @@ export async function dispatch({
   tenantId,
   recruiterId,
   vacancyId = null,
+  jobId = null,
   playbookKey,
   recruiterInput = null,
   llmAdapter,
@@ -69,7 +70,7 @@ export async function dispatch({
       playbookKey,
       currentStepOrder: initialStep.step_order,
       vacancyId,
-      context: vacancyId ? { vacancy_id: vacancyId } : {},
+      context: buildInitialContext({ vacancyId, jobId }),
       callStack: []
     });
     session = normalizeSession(session);
@@ -81,22 +82,23 @@ export async function dispatch({
 
   const stepMap = new Map(steps.map((step) => [step.step_order, step]));
   let currentStepOrder = session.current_step_order ?? steps[0].step_order;
-  let context = normalizeSessionContext(session.context);
-  if (vacancyId && !context.vacancy_id) {
-    context.vacancy_id = vacancyId;
-  }
+  let context = mergeIdentityIntoContext(normalizeSessionContext(session.context), {
+    vacancyId: vacancyId ?? session.vacancy_id ?? null,
+    jobId
+  });
 
   while (true) {
     const step = stepMap.get(currentStepOrder);
       if (!step) {
-        const finalVacancyId = context.vacancy_id ?? vacancyId ?? session.vacancy_id ?? null;
+        const identity = deriveIdentity(context, { vacancyId, jobId, session });
         await managementStore.completeSession(session.session_id, {
           context,
-          vacancyId: finalVacancyId
+          vacancyId: identity.vacancyId
         });
         return {
           sessionId: session.session_id,
-          vacancyId: finalVacancyId,
+          vacancyId: identity.vacancyId,
+          jobId: identity.jobId,
           reply: { kind: "completed", message: "Playbook completed." }
         };
       }
@@ -118,18 +120,22 @@ export async function dispatch({
         llmConfig
       });
 
-      context = result.context ?? context;
-      const effectiveVacancyId = result.vacancyId ?? context.vacancy_id ?? vacancyId ?? session.vacancy_id ?? null;
+      context = mergeIdentityIntoContext(result.context ?? context, {
+        vacancyId: result.vacancyId ?? vacancyId ?? session.vacancy_id ?? null,
+        jobId: result.jobId ?? jobId ?? null
+      });
+      const identity = deriveIdentity(context, { vacancyId, jobId, session });
 
       if (result.awaitingInput) {
         await managementStore.updateSession(session.session_id, {
           currentStepOrder: step.step_order,
           context,
-          vacancyId: effectiveVacancyId
+          vacancyId: identity.vacancyId
         });
         return {
           sessionId: session.session_id,
-          vacancyId: effectiveVacancyId,
+          vacancyId: identity.vacancyId,
+          jobId: identity.jobId,
           reply: result.reply
         };
       }
@@ -137,11 +143,12 @@ export async function dispatch({
       if (result.nextStepOrder == null) {
         await managementStore.completeSession(session.session_id, {
           context,
-          vacancyId: effectiveVacancyId
+          vacancyId: identity.vacancyId
         });
         return {
           sessionId: session.session_id,
-          vacancyId: effectiveVacancyId,
+          vacancyId: identity.vacancyId,
+          jobId: identity.jobId,
           reply: result.reply ?? { kind: "completed", message: "Playbook completed." }
         };
       }
@@ -152,26 +159,29 @@ export async function dispatch({
       await managementStore.updateSession(session.session_id, {
         currentStepOrder,
         context,
-        vacancyId: effectiveVacancyId
+        vacancyId: identity.vacancyId
       });
 
       if (result.reply) {
         return {
           sessionId: session.session_id,
-          vacancyId: effectiveVacancyId,
+          vacancyId: identity.vacancyId,
+          jobId: identity.jobId,
           reply: result.reply
         };
       }
     } catch (error) {
       if (error instanceof PlaybookLlmError) {
+        const identity = deriveIdentity(context, { vacancyId, jobId, session });
         await managementStore.updateSession(session.session_id, {
           context,
-          vacancyId: context.vacancy_id ?? vacancyId ?? null,
+          vacancyId: identity.vacancyId,
           status: "error"
         });
         return {
           sessionId: session.session_id,
-          vacancyId: context.vacancy_id ?? vacancyId ?? session.vacancy_id ?? null,
+          vacancyId: identity.vacancyId,
+          jobId: identity.jobId,
           reply: {
             kind: "fallback_text",
             text: "Не удалось выполнить LLM-шаг. Попробуйте ещё раз позже."
@@ -241,4 +251,43 @@ function normalizeSessionContext(value) {
   }
 
   return {};
+}
+
+function buildInitialContext({ vacancyId, jobId }) {
+  const context = {};
+  if (vacancyId) context.vacancy_id = vacancyId;
+  if (jobId) context.job_id = jobId;
+  return context;
+}
+
+function mergeIdentityIntoContext(context, { vacancyId = null, jobId = null } = {}) {
+  const nextContext = context && typeof context === "object" && !Array.isArray(context)
+    ? { ...context }
+    : {};
+
+  if (vacancyId && !nextContext.vacancy_id) {
+    nextContext.vacancy_id = vacancyId;
+  }
+  if (jobId && !nextContext.job_id) {
+    nextContext.job_id = jobId;
+  }
+
+  if (nextContext.vacancy?.vacancy_id && !nextContext.vacancy_id) {
+    nextContext.vacancy_id = nextContext.vacancy.vacancy_id;
+  }
+  if (nextContext.vacancy?.job_id && !nextContext.job_id) {
+    nextContext.job_id = nextContext.vacancy.job_id;
+  }
+
+  return nextContext;
+}
+
+function deriveIdentity(context, { vacancyId = null, jobId = null, session = null } = {}) {
+  const contextVacancyId = context?.vacancy?.vacancy_id ?? context?.vacancy_id ?? null;
+  const contextJobId = context?.vacancy?.job_id ?? context?.job_id ?? null;
+
+  return {
+    vacancyId: contextVacancyId ?? vacancyId ?? session?.vacancy_id ?? null,
+    jobId: contextJobId ?? jobId ?? null
+  };
 }
