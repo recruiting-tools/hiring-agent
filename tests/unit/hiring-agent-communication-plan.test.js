@@ -79,6 +79,45 @@ test("communication plan: creates draft on initial generation", async () => {
   assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
 });
 
+test("communication plan: returns non-500 reply when draft save hits draft constraint", async () => {
+  const store = createVacancySql({
+    vacancy_id: "vac-2b",
+    title: "Менеджер по продажам",
+    must_haves: ["B2B продажи"],
+    nice_haves: ["CRM"],
+    work_conditions: { schedule: "5/2" },
+    application_steps: [{ name: "Первичный скрининг", in_our_scope: true, script: "Привет + вопрос" }],
+    communication_plan: null,
+    communication_plan_draft: null,
+    communication_examples: [],
+    failOnDraftUpdateConstraint: true
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-2b",
+    recruiterInput: "настроить общение с кандидатами",
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify({
+          scenario_title: "Фокус на мотивации",
+          goal: "Назначить интервью",
+          steps: [
+            { step: "Приветствие + вопрос", reminders_count: 1, comment: "Открыть разговор" },
+            { step: "Проверка релевантного опыта", reminders_count: 1, comment: "Короткий скрининг" },
+            { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП/графику" },
+            { step: "Приглашение на интервью", reminders_count: 2, comment: "Фиксируем слот" }
+          ]
+        });
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.is_configured, false);
+  assert.match(result.reply.note, /черновик не сохранился/i);
+});
+
 test("communication plan: save command moves draft to saved plan", async () => {
   const draft = {
     scenario_title: "Черновик",
@@ -345,6 +384,7 @@ function createVacancySql(initialVacancy) {
   const {
     jobRecord = null,
     noInitialVacancy = false,
+    failOnDraftUpdateConstraint = false,
     ...initialVacancyData
   } = structuredClone(initialVacancy ?? {});
 
@@ -419,6 +459,9 @@ function createVacancySql(initialVacancy) {
       }
 
       if (text.includes("SET") && text.includes("communication_plan_draft") && text.includes("WHERE vacancy_id")) {
+        if (failOnDraftUpdateConstraint) {
+          throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_plan_draft_contract"');
+        }
         if (!vacancy) throw new Error("No vacancy to update");
         vacancy.communication_plan_draft = values[0] ? JSON.parse(values[0]) : null;
         return [];
