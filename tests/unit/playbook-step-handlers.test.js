@@ -547,23 +547,23 @@ test("playbook runtime: parses stringified session context before injecting vaca
     async getPlaybookSteps(playbookKey) {
       assert.equal(playbookKey, "setup_communication");
       return [{
-        step_key: "setup_communication.0",
-        step_order: 0,
-        step_type: "user_input",
-        user_message: "Что уточнить по вакансии?",
-        context_key: "question",
-        next_step_order: 1
+        stepKey: "setup_communication.0",
+        stepOrder: 0,
+        stepType: "user_input",
+        userMessage: "Что уточнить по вакансии?",
+        contextKey: "question",
+        nextStepOrder: 1
       }];
     },
     async getActiveSession(params) {
       calls.push(["getActiveSession", params]);
       return {
-        session_id: "sess-existing",
-        playbook_key: "setup_communication",
-        vacancy_id: "job-prod-004",
-        current_step_order: 0,
+        sessionId: "sess-existing",
+        playbookKey: "setup_communication",
+        vacancyId: "job-prod-004",
+        currentStepOrder: 0,
         context: "{\"vacancy_id\":\"job-prod-004\"}",
-        call_stack: [],
+        callStack: [],
         status: "active"
       };
     },
