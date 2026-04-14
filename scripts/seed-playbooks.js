@@ -23,11 +23,6 @@ const seedPath = join(__dir, "../data/playbooks-seed.json");
 const MANAGEMENT_URL = process.env.MANAGEMENT_DATABASE_URL;
 const DRY_RUN = process.argv.includes("--dry-run");
 
-if (!MANAGEMENT_URL) {
-  console.error("ERROR: MANAGEMENT_DATABASE_URL environment variable is required");
-  process.exit(1);
-}
-
 // JSON5-style: strip // comments before parsing
 const raw = readFileSync(seedPath, "utf-8").replace(/\/\/[^\n]*/g, "");
 const seed = JSON.parse(raw);
@@ -37,6 +32,11 @@ if (DRY_RUN) {
   console.log(`  ${seed.definitions.length} playbook definitions`);
   console.log(`  ${seed.steps.length} playbook steps`);
   process.exit(0);
+}
+
+if (!MANAGEMENT_URL) {
+  console.error("ERROR: MANAGEMENT_DATABASE_URL environment variable is required");
+  process.exit(1);
 }
 
 const db = new pg.Client({ connectionString: MANAGEMENT_URL });

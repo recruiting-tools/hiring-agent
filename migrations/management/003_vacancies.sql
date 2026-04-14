@@ -1,6 +1,10 @@
 -- migration: 003_vacancies.sql
 -- Vacancy metadata and playbook runtime session state.
 
+-- gen_random_uuid() is built-in since PostgreSQL 13 (Neon uses PG16).
+-- pgcrypto is enabled here as a safety net for older environments.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- ── Vacancies ────────────────────────────────────────────────────────────────
 
 -- Vacancies live in the management DB (not per-tenant DB) because:
