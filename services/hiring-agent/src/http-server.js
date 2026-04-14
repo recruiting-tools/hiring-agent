@@ -626,9 +626,10 @@ const CHAT_HTML = `<!DOCTYPE html>
         updateSendEnabled();
       };
 
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         statusDot.classList.remove('connected');
         updateSendEnabled();
+        if (ev.code === 4001) { window.location = '/login'; return; }
         setTimeout(connect, 3000); // auto-reconnect
       };
 
@@ -983,7 +984,7 @@ function replyToMarkdown(reply) {
   };
 }
 
-async function handleChatWs(ws, msg, wsContext, app, options) {
+async function handleChatWs(ws, msg, wsContext, app) {
   const send = (obj) => {
     if (ws.readyState === 1) ws.send(JSON.stringify(obj));
   };
@@ -993,23 +994,10 @@ async function handleChatWs(ws, msg, wsContext, app, options) {
   try {
     send({ type: "progress", tool: "route_playbook", label: "Определяю плейбук" });
 
-    let tenantSql = null;
-    if (options.poolRegistry) {
-      try {
-        const ctx = await resolveAccessContext({
-          managementStore: options.managementStore,
-          poolRegistry: options.poolRegistry,
-          appEnv: options.appEnv ?? "local",
-          sessionToken: null,
-          tenantId: wsContext.tenantId,
-        });
-        tenantSql = ctx?.tenantSql ?? null;
-      } catch { /* local dev fallback */ }
-    }
-
+    // tenantSql is resolved once at connection time and stored in wsContext
     const result = await app.postChatMessage({
       message: text,
-      tenantSql,
+      tenantSql: wsContext.tenantSql,
       tenantId: wsContext.tenantId,
       job_id: vacancyId,
     });
