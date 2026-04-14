@@ -1,8 +1,5 @@
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
-  "candidate_funnel",
-  "setup_communication"
-]);
+const ALWAYS_RUNNABLE_PLAYBOOKS = new Set();
 
 const FALLBACK_PLAYBOOKS = [
   {
@@ -20,11 +17,18 @@ const FALLBACK_PLAYBOOKS = [
     status: "available"
   },
   {
-    playbook_key: "candidate_broadcast",
-    title: "Выборочная рассылка кандидатам",
-    name: "Выборочная рассылка кандидатам",
-    enabled: false,
-    status: "coming_soon"
+    playbook_key: "view_vacancy",
+    title: "Карточка вакансии",
+    name: "Карточка вакансии",
+    enabled: true,
+    status: "available"
+  },
+  {
+    playbook_key: "mass_broadcast",
+    title: "Массовая рассылка кандидатам",
+    name: "Массовая рассылка кандидатам",
+    enabled: true,
+    status: "available"
   }
 ];
 

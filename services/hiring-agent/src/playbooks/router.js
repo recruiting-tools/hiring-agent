@@ -1,8 +1,5 @@
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
-  "candidate_funnel",
-  "setup_communication"
-]);
+const ALWAYS_RUNNABLE_PLAYBOOKS = new Set();
 
 const FALLBACK_ROUTES = [
   {
@@ -14,8 +11,12 @@ const FALLBACK_ROUTES = [
     keywords: ["план коммуникац", "скрининг", "communication plan", "настроить общение", "настройте общение"]
   },
   {
-    playbook_key: "candidate_broadcast",
-    keywords: ["всем кандидатам", "бродкаст", "массовое сообщение", "broadcast", "календарь"]
+    playbook_key: "mass_broadcast",
+    keywords: ["всем кандидатам", "бродкаст", "массовое сообщение", "broadcast", "календарь", "рассылк"]
+  },
+  {
+    playbook_key: "view_vacancy",
+    keywords: ["покажи вакансию", "карточка вакансии", "информация по вакансии", "посмотри вакансию"]
   }
 ];
 
