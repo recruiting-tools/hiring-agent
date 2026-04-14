@@ -67,8 +67,9 @@ jobs:
       - name: Write .env on VM
         env:
           MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          ENV_B64=$(printf 'NODE_ENV=production\nAPP_ENV=prod\nDEPLOY_SHA=%s\nMANAGEMENT_DATABASE_URL=%s\n' "${{ github.sha }}" "$MANAGEMENT_DATABASE_URL" | base64 -w0)
+          ENV_B64=$(printf 'NODE_ENV=production\nAPP_ENV=prod\nDEPLOY_SHA=%s\nMANAGEMENT_DATABASE_URL=%s\nOPENROUTER_API_KEY=%s\n' "${{ github.sha }}" "$MANAGEMENT_DATABASE_URL" "$OPENROUTER_API_KEY" | base64 -w0)
           ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST \
             "echo '$ENV_B64' | base64 -d > /opt/hiring-agent/.env && echo '.env written'"
 
