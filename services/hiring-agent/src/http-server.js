@@ -628,6 +628,8 @@ const CHAT_HTML = `<!DOCTYPE html>
       };
 
       ws.onclose = (ev) => {
+        streaming = false;
+        currentAssistant = null;
         statusDot.classList.remove('connected');
         updateSendEnabled();
         if (ev.code === 4001) { window.location = '/login'; return; }
@@ -1011,6 +1013,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       tenantId: wsContext.tenantId,
       recruiterId: wsContext.recruiterId,
       job_id: vacancyId,
+      vacancy_id: vacancyId,
     });
 
     const reply = result.body?.reply ?? result.body;
