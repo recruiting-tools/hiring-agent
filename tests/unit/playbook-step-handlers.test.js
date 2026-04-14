@@ -308,7 +308,7 @@ test("playbook handler: decision can resolve next step via routing map outcome",
 test("playbook handler: data_fetch loads funnel data into context", async () => {
   const tenantSql = createMockSql(({ text, values }) => {
     assert.match(text, /with scoped_runs as/i);
-    assert.deepEqual(values, ["vac-1", "tenant-1"]);
+    assert.deepEqual(values, ["job-1", "tenant-1"]);
     return [{
       step_name: "qualification",
       step_id: "qualification",
@@ -326,9 +326,13 @@ test("playbook handler: data_fetch loads funnel data into context", async () => 
       playbook_key: "candidate_funnel",
       step_key: "candidate_funnel.1",
       context_key: "funnel_data",
+      notes: JSON.stringify({ source: "candidate_funnel" }),
       next_step_order: 2
     },
-    context: { vacancy_id: "vac-1" },
+    context: {
+      vacancy_id: "vac-1",
+      vacancy: { vacancy_id: "vac-1", job_id: "job-1" }
+    },
     tenantSql,
     tenantId: "tenant-1"
   });
@@ -343,6 +347,55 @@ test("playbook handler: data_fetch loads funnel data into context", async () => 
     completed: 2,
     stuck: 1,
     rejected: 0
+  }]);
+});
+
+test("playbook handler: data_fetch loads mass broadcast candidates into context", async () => {
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /with scoped_runs as/i);
+    assert.deepEqual(values, ["job-1", "tenant-1"]);
+    return [{
+      candidate_id: "cand-1",
+      display_name: "Иван",
+      resume_text: "Опыт Java и backend интеграций",
+      status: "active",
+      current_step: "Интервью",
+      current_step_updated_at: new Date(Date.now() - 48 * 36e5).toISOString(),
+      awaiting_reply: true,
+      last_message_at: new Date(Date.now() - 30 * 36e5).toISOString()
+    }];
+  });
+
+  const result = await handleDataFetchStep({
+    step: {
+      playbook_key: "mass_broadcast",
+      step_key: "mass_broadcast.4",
+      context_key: "candidates",
+      notes: JSON.stringify({ source: "mass_broadcast_candidates", limit: 25 }),
+      next_step_order: 5
+    },
+    context: {
+      vacancy: { vacancy_id: "vac-1", job_id: "job-1" },
+      selection_query: {
+        type: "exact",
+        exact_filter: {
+          current_step: "Интервью",
+          last_message_older_than_hours: 24
+        }
+      }
+    },
+    tenantSql,
+    tenantId: "tenant-1"
+  });
+
+  assert.equal(result.nextStepOrder, 5);
+  assert.deepEqual(result.context.candidates, [{
+    candidate_id: "cand-1",
+    name: "Иван",
+    current_step: "Интервью",
+    status: "active",
+    hours_on_step: 48,
+    last_message_at: result.context.candidates[0].last_message_at
   }]);
 });
 
