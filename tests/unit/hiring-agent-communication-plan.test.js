@@ -79,6 +79,61 @@ test("communication plan: creates draft on initial generation", async () => {
   assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
 });
 
+test("communication plan: retries once when first LLM draft is invalid", async () => {
+  const store = createVacancySql({
+    vacancy_id: "vac-2a",
+    title: "Менеджер по продажам",
+    must_haves: ["B2B продажи"],
+    nice_haves: ["CRM"],
+    work_conditions: { schedule: "5/2" },
+    application_steps: [{ name: "Первичный скрининг", in_our_scope: true, script: "Привет + вопрос" }],
+    communication_plan: null,
+    communication_plan_draft: null,
+    communication_examples: []
+  });
+
+  const prompts = [];
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-2a",
+    recruiterInput: "настроить общение с кандидатами",
+    llmAdapter: {
+      async generate(prompt) {
+        prompts.push(String(prompt));
+        if (prompts.length === 1) {
+          return JSON.stringify({
+            scenario_title: "Сломанный сценарий",
+            goal: "Назначить интервью",
+            steps: [
+              { step: "Проверка релевантного опыта", reminders_count: 1, comment: "Без приветствия" },
+              { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП/графику" },
+              { step: "Финальное уточнение", reminders_count: 1, comment: "Без следующего этапа" },
+              { step: "Завершение разговора", reminders_count: 0, comment: "Просто закрыть диалог" }
+            ]
+          });
+        }
+
+        return JSON.stringify({
+          scenario_title: "Фокус на мотивации",
+          goal: "Назначить интервью",
+          steps: [
+            { step: "Здравствуйте! Подскажите, вам сейчас интересны новые предложения?", reminders_count: 1, comment: "Открыть разговор и проверить интерес" },
+            { step: "Проверка релевантного опыта", reminders_count: 1, comment: "Короткий скрининг" },
+            { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП/графику" },
+            { step: "Приглашение на интервью", reminders_count: 2, comment: "Фиксируем слот" }
+          ]
+        });
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.scenario_title, "Фокус на мотивации");
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1], /Предыдущий ответ не прошел валидацию/i);
+  assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
+});
+
 test("communication plan: returns non-500 reply when draft save hits draft constraint", async () => {
   const store = createVacancySql({
     vacancy_id: "vac-2b",
