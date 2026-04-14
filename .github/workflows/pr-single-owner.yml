@@ -1,0 +1,49 @@
+name: Single PR Owner
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  single-owner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure one commit author in PR branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = context.payload.pull_request.number;
+
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner,
+              repo,
+              pull_number: prNumber,
+              per_page: 100
+            });
+
+            if (commits.length === 0) {
+              core.setFailed("PR has no commits.");
+              return;
+            }
+
+            const authorIds = new Set();
+            for (const commit of commits) {
+              const name = commit.commit?.author?.name ?? "unknown";
+              const email = commit.commit?.author?.email ?? "unknown";
+              authorIds.add(`${name} <${email}>`);
+            }
+
+            core.info(`commit_count=${commits.length}`);
+            core.info(`authors=${Array.from(authorIds).join(", ")}`);
+
+            if (authorIds.size > 1) {
+              core.setFailed(
+                `PR contains commits from multiple authors (${authorIds.size}). Keep 1 PR = 1 owner = 1 branch.`
+              );
+            }

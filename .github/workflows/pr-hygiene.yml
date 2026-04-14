@@ -1,0 +1,48 @@
+name: PR Hygiene
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  up-to-date-with-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure PR head includes latest main
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const baseRef = pr.base.ref;
+            const headSha = pr.head.sha;
+
+            const baseBranch = await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: baseRef
+            });
+
+            const baseSha = baseBranch.data.commit.sha;
+            const compare = await github.rest.repos.compareCommits({
+              owner,
+              repo,
+              base: baseSha,
+              head: headSha
+            });
+
+            const behindBy = compare.data.behind_by ?? 0;
+            core.info(`base=${baseRef}@${baseSha}`);
+            core.info(`head=${headSha}`);
+            core.info(`compare.status=${compare.data.status} behind_by=${behindBy} ahead_by=${compare.data.ahead_by}`);
+
+            if (behindBy > 0) {
+              core.setFailed(
+                `Branch is behind ${baseRef} by ${behindBy} commit(s). Merge/rebase latest ${baseRef} before merge.`
+              );
+            }
