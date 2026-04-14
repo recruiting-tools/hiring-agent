@@ -105,6 +105,7 @@ export async function dispatch({
         context,
         recruiterInput,
         tenantSql,
+        tenantId,
         llmAdapter,
         llmConfig
       });

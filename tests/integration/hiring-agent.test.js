@@ -123,7 +123,7 @@ test("hiring-agent: management-backed routing ignores available playbooks with z
     if (text.includes("FROM management.playbook_definitions d") && text.includes("d.keywords")) {
       return [
         {
-          playbook_key: "candidate_broadcast",
+          playbook_key: "mass_broadcast",
           keywords: ["рассылка"],
           step_count: 0
         },
@@ -138,7 +138,7 @@ test("hiring-agent: management-backed routing ignores available playbooks with z
     if (text.includes("FROM management.playbook_definitions d") && text.includes("d.trigger_description")) {
       return [
         {
-          playbook_key: "candidate_broadcast",
+          playbook_key: "mass_broadcast",
           name: "Выборочная рассылка кандидатам",
           trigger_description: "broadcast",
           status: "available",
@@ -171,7 +171,7 @@ test("hiring-agent: management-backed routing ignores available playbooks with z
 
   assert.equal(result.status, 200);
   assert.equal(result.body.reply.kind, "fallback_text");
-  assert.match(result.body.reply.text, /поддерживаю только/i);
+  assert.match(result.body.reply.text, /доступны сценарии/i);
 });
 
 test("hiring-agent: GET / serves HTML shell after auth", async () => {
@@ -183,6 +183,60 @@ test("hiring-agent: GET / serves HTML shell after auth", async () => {
     assert.ok(contentType?.includes("text/html"));
     assert.ok(body.includes("Hiring Agent"));
     assert.ok(body.includes("vacancy-select"));
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: base path mode isolates auth/app routes under /sandbox-001", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp(), {
+    appBasePath: "/sandbox-001",
+    sessionCookieName: "session_sandbox_001"
+  }).listen(0);
+
+  try {
+    const port = server.address().port;
+    const loginResponse = await fetch(`http://localhost:${port}/sandbox-001/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "demo@local",
+        password: "demo"
+      })
+    });
+    const setCookie = loginResponse.headers.get("set-cookie") ?? "";
+    assert.equal(loginResponse.status, 200);
+    assert.match(setCookie, /^session_sandbox_001=/);
+    assert.match(setCookie, /Path=\/sandbox-001/);
+
+    const shellResponse = await fetch(`http://localhost:${port}/sandbox-001/`, {
+      headers: { cookie: setCookie }
+    });
+    const shellHtml = await shellResponse.text();
+    assert.equal(shellResponse.status, 200);
+    assert.match(shellHtml, /const APP_BASE_PATH = '\/sandbox-001';/);
+    assert.match(shellHtml, /href="\/sandbox-001\/logout"/);
+
+    const wsUrl = `ws://localhost:${port}/sandbox-001/ws`;
+    await new Promise((resolve, reject) => {
+      const ws = new WsClient(wsUrl, { headers: { cookie: setCookie } });
+      const timeout = setTimeout(() => reject(new Error("ws timeout")), 2_000);
+      ws.on("open", () => {
+        clearTimeout(timeout);
+        ws.close();
+        resolve();
+      });
+      ws.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+
+    const noPrefixResponse = await fetch(`http://localhost:${port}/`, {
+      headers: { cookie: setCookie },
+      redirect: "manual"
+    });
+    assert.equal(noPrefixResponse.status, 404);
   } finally {
     server.close();
   }
@@ -245,14 +299,14 @@ test("hiring-agent: invalid JSON request body returns 400", async () => {
   }
 });
 
-test("hiring-agent: management-backed GET /api/jobs resolves tenant sql via access context", async () => {
+test("hiring-agent: management-backed GET /api/vacancies resolves tenant sql via access context", async () => {
   const tenantSql = async (strings, ...values) => {
     const text = strings.reduce((result, chunk, index) => (
       result + chunk + (index < values.length ? `$${index + 1}` : "")
     ), "");
-    assert.match(text, /FROM chatbot\.jobs/);
-    assert.deepEqual(values, ["tenant-alpha-001"]);
-    return [{ job_id: "job-1", title: "Alpha role" }];
+    assert.match(text, /FROM chatbot\.vacancies/);
+    assert.deepEqual(values, []);
+    return [{ vacancy_id: "vac-1", job_id: "job-1", title: "Alpha role", status: "active", extraction_status: "complete" }];
   };
 
   const app = createHiringAgentApp({ demoMode: false });
@@ -294,15 +348,15 @@ test("hiring-agent: management-backed GET /api/jobs resolves tenant sql via acce
   }).listen(0);
 
   try {
-    const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
+    const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
     assert.equal(status, 200);
-    assert.deepEqual(body.jobs, [{ job_id: "job-1", title: "Alpha role" }]);
+    assert.deepEqual(body.vacancies, [{ vacancy_id: "vac-1", job_id: "job-1", title: "Alpha role", status: "active", extraction_status: "complete" }]);
   } finally {
     server.close();
   }
 });
 
-test("hiring-agent: management-backed GET /api/jobs keeps two recruiter sessions isolated", async () => {
+test("hiring-agent: management-backed GET /api/vacancies keeps two recruiter sessions isolated", async () => {
   const app = createHiringAgentApp({ demoMode: false });
   const server = createHiringAgentServer(app, {
     appEnv: "sandbox",
@@ -356,34 +410,34 @@ test("hiring-agent: management-backed GET /api/jobs keeps two recruiter sessions
           const text = strings.reduce((result, chunk, index) => (
             result + chunk + (index < values.length ? `$${index + 1}` : "")
           ), "");
-          assert.match(text, /FROM chatbot\.jobs/);
+          assert.match(text, /FROM chatbot\.vacancies/);
 
           if (dbAlias === "db-tenant-alpha-001") {
-            assert.deepEqual(values, ["tenant-alpha-001"]);
-            return [{ job_id: "job-alpha-1", title: "Alpha role" }];
+            assert.deepEqual(values, []);
+            return [{ vacancy_id: "vac-alpha-1", job_id: "job-alpha-1", title: "Alpha role", status: "active", extraction_status: "complete" }];
           }
 
-          assert.deepEqual(values, ["tenant-beta-001"]);
-          return [{ job_id: "job-beta-1", title: "Beta role" }];
+          assert.deepEqual(values, []);
+          return [{ vacancy_id: "vac-beta-1", job_id: "job-beta-1", title: "Beta role", status: "active", extraction_status: "complete" }];
         };
       }
     }
   }).listen(0);
 
   try {
-    const alpha = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
-    const beta = await req(server, "GET", "/api/jobs", undefined, "session=sess-beta");
+    const alpha = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
+    const beta = await req(server, "GET", "/api/vacancies", undefined, "session=sess-beta");
 
     assert.equal(alpha.status, 200);
-    assert.deepEqual(alpha.body.jobs, [{ job_id: "job-alpha-1", title: "Alpha role" }]);
+    assert.deepEqual(alpha.body.vacancies, [{ vacancy_id: "vac-alpha-1", job_id: "job-alpha-1", title: "Alpha role", status: "active", extraction_status: "complete" }]);
     assert.equal(beta.status, 200);
-    assert.deepEqual(beta.body.jobs, [{ job_id: "job-beta-1", title: "Beta role" }]);
+    assert.deepEqual(beta.body.vacancies, [{ vacancy_id: "vac-beta-1", job_id: "job-beta-1", title: "Beta role", status: "active", extraction_status: "complete" }]);
   } finally {
     server.close();
   }
 });
 
-test("hiring-agent: management-backed GET /api/jobs returns explicit timeout error for stuck tenant db", async () => {
+test("hiring-agent: management-backed GET /api/vacancies returns explicit timeout error for stuck tenant db", async () => {
   const app = createHiringAgentApp({ demoMode: false, tenantDbTimeoutMs: 20 });
   const server = createHiringAgentServer(app, {
     appEnv: "prod",
@@ -423,10 +477,10 @@ test("hiring-agent: management-backed GET /api/jobs returns explicit timeout err
   }).listen(0);
 
   try {
-    const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
+    const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
     assert.equal(status, 503);
     assert.equal(body.error, "tenant_db_timeout");
-    assert.equal(body.operation, "getJobs");
+    assert.equal(body.operation, "getVacancies");
   } finally {
     server.close();
   }
@@ -457,7 +511,7 @@ test("hiring-agent: management-backed access denies suspended recruiter", async 
   }).listen(0);
 
   try {
-    const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
+    const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
     assert.equal(status, 403);
     assert.equal(body.error, "ERROR_RECRUITER_SUSPENDED");
   } finally {
@@ -490,7 +544,7 @@ test("hiring-agent: management-backed access denies archived tenant", async () =
   }).listen(0);
 
   try {
-    const { status, body } = await req(server, "GET", "/api/jobs", undefined, "session=sess-alpha");
+    const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
     assert.equal(status, 403);
     assert.equal(body.error, "ERROR_TENANT_SUSPENDED");
   } finally {
@@ -502,7 +556,7 @@ test("hiring-agent: demo mode missing session returns 401 explicitly", async () 
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
 
   try {
-    const { status, body } = await req(server, "GET", "/api/jobs");
+    const { status, body } = await req(server, "GET", "/api/vacancies");
     assert.equal(status, 401);
     assert.equal(body.error, "unauthorized");
   } finally {
@@ -820,6 +874,195 @@ test("hiring-agent: management-backed chat accepts owned job_id and returns funn
   }
 });
 
+test("hiring-agent: management-backed setup_communication returns structured communication_plan reply", async () => {
+  const llmCalls = [];
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (/FROM chatbot\.jobs/.test(text) && /WHERE job_id = \$1\s+AND client_id = \$2/.test(text)) {
+      assert.match(text, /FROM chatbot\.jobs/);
+      assert.deepEqual(values, ["job-owned", "tenant-alpha-001"]);
+      return [{ job_id: "job-owned", title: "Owned role" }];
+    }
+
+    if (/FROM chatbot\.vacancies/.test(text) && /WHERE vacancy_id = \$1/.test(text)) {
+      assert.deepEqual(values, ["job-owned"]);
+      return [{
+        vacancy_id: "job-owned",
+        title: "Менеджер по продажам",
+        must_haves: ["B2B продажи", "CRM"],
+        nice_haves: ["Английский B2+"],
+        work_conditions: {
+          salary_range: { min: 180000, max: 250000 },
+          location: "Удаленно"
+        },
+        application_steps: [
+          { id: "intro", label: "Приветствие", owner: "agent" },
+          { id: "screen", label: "Скрининг", owner: "agent" },
+          { id: "sync", label: "Созвон", owner: "recruiter" }
+        ],
+        communication_plan: null,
+        communication_plan_draft: null,
+        communication_examples: [],
+        communication_examples_plan_hash: null
+      }];
+    }
+
+    if (/UPDATE chatbot\.vacancies/.test(text) && /communication_plan_draft/.test(text)) {
+      assert.equal(values.at(-1), "job-owned");
+      return [];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    llmAdapter: {
+      async generate(prompt) {
+        llmCalls.push(prompt);
+        return JSON.stringify({
+          scenario_title: "Базовый скрининг менеджера по продажам",
+          goal: "Договоренность о созвоне",
+          steps: [
+            { step: "Здравствуйте! Подскажите, что для вас важно в новой роли?", reminders_count: 1, comment: "Открываем диалог" },
+            { step: "Уточнить релевантный опыт B2B-продаж", reminders_count: 1, comment: "Проверяем базовый fit" },
+            { step: "Сверить ожидания по доходу и формату работы", reminders_count: 1, comment: "Снимаем риск по условиям" },
+            { step: "Кратко рассказать про роль и этапы отбора", reminders_count: 0, comment: "Формируем интерес" },
+            { step: "Предложить слот на собеседование/созвон", reminders_count: 2, comment: "Фиксируем следующий этап" }
+          ]
+        });
+      }
+    }
+  });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "настроить общение с кандидатами",
+      job_id: "job-owned",
+      vacancy_id: "job-owned"
+    }, "session=sess-alpha");
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "communication_plan");
+    assert.equal(body.reply.scenario_title, "Базовый скрининг менеджера по продажам");
+    assert.equal(body.reply.goal, "Договоренность о созвоне");
+    assert.equal(body.reply.steps.length, 5);
+    assert.equal(body.reply.is_configured, false);
+    assert.equal(llmCalls.length, 1);
+    assert.match(llmCalls[0], /ДАННЫЕ ВАКАНСИИ/);
+    assert.match(llmCalls[0], /Менеджер по продажам/);
+    assert.match(llmCalls[0], /B2B продажи/);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed setup_communication rejects foreign job_id before llm call", async () => {
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+    assert.match(text, /WHERE job_id = \$1/);
+    assert.deepEqual(values, ["job-foreign", "tenant-alpha-001"]);
+    return [];
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    llmAdapter: {
+      async generate() {
+        throw new Error("llm must not be called");
+      }
+    }
+  });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "настроить общение с кандидатами",
+      job_id: "job-foreign",
+      vacancy_id: "job-foreign"
+    }, "session=sess-alpha");
+    assert.equal(status, 404);
+    assert.equal(body.error, "job_not_found");
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: WebSocket returns funnel chunks for authenticated session", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   const port = server.address().port;
@@ -1009,7 +1252,7 @@ test("hiring-agent: management-backed WebSocket forwards recruiterId to app", as
     async postChatMessage(input) {
       assert.equal(input.recruiterId, "rec-alpha-001");
       assert.equal(input.tenantId, "tenant-alpha-001");
-      assert.equal(input.job_id, "job-ws-owned");
+      assert.equal(input.vacancy_id, "job-ws-owned");
       return {
         status: 200,
         body: {

@@ -106,8 +106,8 @@ This checklist describes the minimum rollout sequence required to turn on manage
     - `GET /health` returns `mode=management-auth`
     - `GET /login` loads
     - valid recruiter credentials produce a session cookie
-    - `GET /api/jobs` returns only tenant-owned jobs
-    - `POST /api/chat` with a foreign `job_id` returns `404 job_not_found`
+    - `GET /api/vacancies` returns only tenant-owned vacancies (`/api/jobs` may remain as alias)
+    - `POST /api/chat` with a foreign `vacancy_id` returns `404 vacancy_not_found` in management-runtime mode
 
 ## Rollback
 

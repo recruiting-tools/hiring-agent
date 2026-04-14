@@ -17,3 +17,16 @@ export function getModerationAutoSendDelayHours() {
 export function getModerationAutoSendDelayMs() {
   return getModerationAutoSendDelayHours() * 60 * 60 * 1000;
 }
+
+/**
+ * Resolve moderation delay in ms.
+ * Uses vacancy-level override when available, falls back to global env.
+ * @param {object} [moderationSettings] - vacancy.moderation_settings JSONB
+ */
+export function resolveModerationDelayMs(moderationSettings) {
+  const vacancyMinutes = moderationSettings?.auto_send_delay_minutes;
+  if (Number.isFinite(vacancyMinutes) && vacancyMinutes > 0) {
+    return vacancyMinutes * 60 * 1000;
+  }
+  return getModerationAutoSendDelayMs();
+}
