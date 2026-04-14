@@ -325,9 +325,19 @@ test("hiring-agent: management-backed GET /api/vacancies resolves tenant sql via
     const text = strings.reduce((result, chunk, index) => (
       result + chunk + (index < values.length ? `$${index + 1}` : "")
     ), "");
-    assert.match(text, /FROM chatbot\.vacancies/);
-    assert.deepEqual(values, []);
-    return [{ vacancy_id: "vac-1", job_id: "job-1", title: "Alpha role", status: "active", extraction_status: "complete" }];
+
+    if (/FROM chatbot\.vacancies/.test(text)) {
+      assert.deepEqual(values, []);
+      return [{ vacancy_id: "vac-1", job_id: "job-1", title: "Alpha role", status: "active", extraction_status: "complete" }];
+    }
+
+    if (/FROM chatbot\.jobs/.test(text)) {
+      assert.match(text, /WHERE client_id = \$1/);
+      assert.deepEqual(values, ["tenant-alpha-001"]);
+      return [{ job_id: "job-1", title: "Alpha role" }];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
   };
 
   const app = createHiringAgentApp({ demoMode: false });
@@ -450,6 +460,86 @@ test("hiring-agent: management-backed GET /api/vacancies falls back to chatbot.j
   }
 });
 
+test("hiring-agent: management-backed GET /api/vacancies merges jobs without vacancy rows", async () => {
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (/FROM chatbot\.vacancies/.test(text)) {
+      assert.deepEqual(values, []);
+      return [{
+        vacancy_id: "vac-1",
+        job_id: "job-1",
+        title: "Alpha role",
+        status: "active",
+        extraction_status: "complete"
+      }];
+    }
+
+    if (/FROM chatbot\.jobs/.test(text)) {
+      assert.match(text, /WHERE client_id = \$1/);
+      assert.deepEqual(values, ["tenant-alpha-001"]);
+      return [
+        { job_id: "job-1", title: "Alpha role" },
+        { job_id: "job-2", title: "Beta role" }
+      ];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
+    assert.equal(status, 200);
+    assert.deepEqual(body.vacancies, [
+      { vacancy_id: "vac-1", job_id: "job-1", title: "Alpha role", status: "active", extraction_status: "complete" },
+      { vacancy_id: "job-2", job_id: "job-2", title: "Beta role", status: "active", extraction_status: "pending" }
+    ]);
+    assert.deepEqual(body.jobs, body.vacancies);
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: management-backed GET /api/vacancies keeps two recruiter sessions isolated", async () => {
   const app = createHiringAgentApp({ demoMode: false });
   const server = createHiringAgentServer(app, {
@@ -504,15 +594,28 @@ test("hiring-agent: management-backed GET /api/vacancies keeps two recruiter ses
           const text = strings.reduce((result, chunk, index) => (
             result + chunk + (index < values.length ? `$${index + 1}` : "")
           ), "");
-          assert.match(text, /FROM chatbot\.vacancies/);
 
-          if (dbAlias === "db-tenant-alpha-001") {
+          if (/FROM chatbot\.vacancies/.test(text)) {
             assert.deepEqual(values, []);
-            return [{ vacancy_id: "vac-alpha-1", job_id: "job-alpha-1", title: "Alpha role", status: "active", extraction_status: "complete" }];
+            if (dbAlias === "db-tenant-alpha-001") {
+              return [{ vacancy_id: "vac-alpha-1", job_id: "job-alpha-1", title: "Alpha role", status: "active", extraction_status: "complete" }];
+            }
+
+            return [{ vacancy_id: "vac-beta-1", job_id: "job-beta-1", title: "Beta role", status: "active", extraction_status: "complete" }];
           }
 
-          assert.deepEqual(values, []);
-          return [{ vacancy_id: "vac-beta-1", job_id: "job-beta-1", title: "Beta role", status: "active", extraction_status: "complete" }];
+          if (/FROM chatbot\.jobs/.test(text)) {
+            assert.match(text, /WHERE client_id = \$1/);
+            if (dbAlias === "db-tenant-alpha-001") {
+              assert.deepEqual(values, ["tenant-alpha-001"]);
+              return [{ job_id: "job-alpha-1", title: "Alpha role" }];
+            }
+
+            assert.deepEqual(values, ["tenant-beta-001"]);
+            return [{ job_id: "job-beta-1", title: "Beta role" }];
+          }
+
+          throw new Error(`Unexpected query: ${text}`);
         };
       }
     }
