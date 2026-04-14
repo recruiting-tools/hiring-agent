@@ -510,6 +510,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       transition: all 0.12s;
     }
     .playbook-chip:hover { background: var(--acc); color: white; }
+    a.playbook-chip { text-decoration: none; display: inline-block; }
 
     /* ── INPUT AREA ────────────────────────────────────────────── */
     #input-area {
@@ -593,6 +594,7 @@ const CHAT_HTML = `<!DOCTYPE html>
   <script>
     // ── Config ────────────────────────────────────────────────────────────────
     const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws';
+    const CHATBOT_MODERATION_BASE = '__CHATBOT_MODERATION_BASE__';
     const STEP_LABELS = {
       auto_fetch:    'Загружаю данные вакансии',
       route_playbook:'Определяю плейбук',
@@ -876,6 +878,16 @@ const CHAT_HTML = `<!DOCTYPE html>
         chip.addEventListener('click', () => sendMessage(msg));
         chipsEl.appendChild(chip);
       });
+      if (CHATBOT_MODERATION_BASE) {
+        const link = document.createElement('a');
+        const titleParam = encodeURIComponent(title || '');
+        link.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(vacancyId) + (titleParam ? '&title=' + titleParam : '');
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.className = 'playbook-chip';
+        link.textContent = 'Модерация';
+        chipsEl.appendChild(link);
+      }
       bubbleEl.appendChild(chipsEl);
     }
 
@@ -1111,8 +1123,16 @@ export function createHiringAgentServer(app, options = {}) {
         });
         if (!accessContext) return;
 
+        const chatbotBaseUrl = process.env.CHATBOT_BASE_URL || "https://candidate-chatbot.recruiter-assistant.com";
+        const recruiterToken = await getChatbotRecruiterToken(accessContext.tenantSql, accessContext.recruiterId);
+        const chatbotModerationBase = recruiterToken ? `${chatbotBaseUrl}/recruiter/${recruiterToken}` : "";
+
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end(CHAT_HTML.replace("__RECRUITER_EMAIL__", escapeHtml(accessContext.recruiterEmail)));
+        response.end(
+          CHAT_HTML
+            .replace("__RECRUITER_EMAIL__", escapeHtml(accessContext.recruiterEmail))
+            .replace("__CHATBOT_MODERATION_BASE__", escapeHtml(chatbotModerationBase))
+        );
         return;
       }
 
@@ -1336,5 +1356,17 @@ class InvalidJsonError extends Error {
   constructor() {
     super("Request body is not valid JSON");
     this.name = "InvalidJsonError";
+  }
+}
+
+async function getChatbotRecruiterToken(tenantSql, recruiterId) {
+  if (!tenantSql || !recruiterId) return null;
+  try {
+    const rows = await tenantSql`
+      SELECT recruiter_token FROM chatbot.recruiters WHERE recruiter_id = ${recruiterId} LIMIT 1
+    `;
+    return rows[0]?.recruiter_token ?? null;
+  } catch {
+    return null;
   }
 }

@@ -814,7 +814,7 @@ export class PostgresHiringStore {
     return rows[0] ?? null;
   }
 
-  async getQueueForRecruiter(recruiterToken) {
+  async getQueueForRecruiter(recruiterToken, { jobId } = {}) {
     const recruiter = await this.getRecruiterByToken(recruiterToken);
     if (!recruiter) return null;
 
@@ -840,6 +840,7 @@ export class PostgresHiringStore {
       JOIN chatbot.recruiters r       ON r.recruiter_token = ${recruiterToken}
       WHERE pm.review_status IN ('pending', 'approved')
         AND (j.client_id IS NULL OR j.client_id = r.client_id)
+        ${jobId ? this.sql`AND c.job_id = ${jobId}` : this.sql``}
       ORDER BY pm.auto_send_after ASC
     `;
     return rows.map((row) => {
