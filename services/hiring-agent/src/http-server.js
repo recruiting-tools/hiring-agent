@@ -1619,7 +1619,10 @@ export function createHiringAgentServer(app, options = {}) {
 
       // Health stays available both with and without base path to keep VM-local probes simple.
       if (request.method === "GET" && (requestUrl.pathname === "/health" || normalizedPath === "/health")) {
-        const result = await app.getHealth();
+        const includePlaybooks =
+          requestUrl.searchParams.get("details") === "1"
+          || requestUrl.searchParams.get("include_playbooks") === "1";
+        const result = await app.getHealth({ includePlaybooks });
         writeJson(response, result.status, result.body);
         return;
       }

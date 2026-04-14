@@ -22,21 +22,33 @@ export function createHiringAgentApp(options = {}) {
   };
 
   return {
-    async getHealth() {
-      const playbooks = await getPlaybookRegistry(managementSql);
-      return {
-        status: 200,
-        body: {
-          service: "hiring-agent",
-          status: "ok",
-          mode: demoMode ? "stateless-demo" : "management-auth",
-          ...healthMetadata,
-          playbooks: playbooks.map((playbook) => ({
+    async getHealth({ includePlaybooks = false } = {}) {
+      const body = {
+        service: "hiring-agent",
+        status: "ok",
+        mode: demoMode ? "stateless-demo" : "management-auth",
+        ...healthMetadata
+      };
+
+      if (includePlaybooks) {
+        try {
+          const playbooks = await getPlaybookRegistry(managementSql);
+          body.playbooks = playbooks.map((playbook) => ({
             playbook_key: playbook.playbook_key,
             enabled: playbook.enabled,
             status: playbook.status
-          }))
+          }));
+          body.playbook_registry_status = "ok";
+        } catch (error) {
+          body.playbooks = [];
+          body.playbook_registry_status = "error";
+          body.playbook_registry_error = error instanceof Error ? error.message : String(error);
         }
+      }
+
+      return {
+        status: 200,
+        body
       };
     },
 
