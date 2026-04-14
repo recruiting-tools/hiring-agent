@@ -70,3 +70,30 @@ test("interpolate: missing values resolve to empty strings", () => {
   const result = interpolate("{{context.missing.value}}", {});
   assert.equal(result, "");
 });
+
+test("interpolate: supports seeded html, funnel_table, and vacancy_card filters", () => {
+  const context = {
+    generated_messages: "<div class=\"message-variant\"><p>Привет</p></div>",
+    funnel_data: [
+      { step_name: "Первый контакт", total: 5, in_progress: 2, completed: 2, stuck: 1, rejected: 0 }
+    ],
+    vacancy: {
+      title: "Оператор склада",
+      must_haves: ["Опыт от 1 года"],
+      application_steps: [{ name: "Созвон", type: "screening", in_our_scope: true, is_target: false }]
+    }
+  };
+
+  assert.equal(
+    interpolate("{{context.generated_messages | html}}", context),
+    "<div class=\"message-variant\"><p>Привет</p></div>"
+  );
+  assert.match(
+    interpolate("{{context.funnel_data | funnel_table}}", context),
+    /\| Этап \| Всего \| В работе \| Завершено \| Зависли \| Отказ \|/
+  );
+  assert.match(
+    interpolate("{{context.vacancy | vacancy_card}}", context),
+    /# Оператор склада/
+  );
+});

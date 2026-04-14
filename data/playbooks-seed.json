@@ -267,7 +267,7 @@
       "name": "Составить варианты плана коммуникации",
       "step_type": "llm_generate",
       "user_message": null,
-      "prompt_template": "Ты помогаешь рекрутеру выстроить сценарий переписки с кандидатами по вакансии.\n\nНа основе данных вакансии составь 3–4 варианта плана коммуникации — последовательность шагов от первого контакта с кандидатом до финального целевого действия.\n\nТребования к плану:\n- Включай только шаги в нашей зоне (in_our_scope=true из application_steps)\n- Первый шаг всегда начинается с тёплого приветствия + одного вопроса\n- Последний шаг — целевое действие (is_target=true)\n- Типичный порядок: проверка must haves → подтверждение условий → договорённость о следующем шаге\n- Варианты могут отличаться: группировкой вопросов в одном сообщении, порядком тем, уровнем детализации\n\nДанные вакансии:\nДолжность: {{context.vacancy.title}}\nМаст-хэвы: {{context.vacancy.must_haves | bullet_list}}\nНайс-хэвы: {{context.vacancy.nice_haves | bullet_list}}\nУсловия работы: {{context.vacancy.work_conditions | formatted}}\nШаги найма (in_our_scope): {{context.vacancy.application_steps | in_scope_only}}\n\nВерни JSON-массив из 3–4 объектов:\n[{\n  \"variant\": \"Вариант 1 — краткое название\",\n  \"steps\": [\"шаг 1 — что делаем и говорим\", \"шаг 2 — ...\"],\n  \"rationale\": \"в 1–2 предложениях: почему такой порядок и для кого подходит\"\n}]",
+      "prompt_template": "Ты помогаешь рекрутеру выстроить сценарий переписки с кандидатами по вакансии.\n\nНа основе данных вакансии составь ровно 4 варианта плана коммуникации — последовательность шагов от первого контакта с кандидатом до финального целевого действия.\n\nТребования к плану:\n- Включай только шаги в нашей зоне (in_our_scope=true из application_steps)\n- Первый шаг всегда начинается с тёплого приветствия + одного вопроса\n- Последний шаг — целевое действие (is_target=true)\n- Типичный порядок: проверка must haves → подтверждение условий → договорённость о следующем шаге\n- Варианты должны заметно отличаться: группировкой вопросов в одном сообщении, порядком тем, уровнем детализации\n- Названия вариантов делай в формате «Вариант N — ...», где N это 1, 2, 3 или 4\n\nДанные вакансии:\nДолжность: {{context.vacancy.title}}\nМаст-хэвы: {{context.vacancy.must_haves | bullet_list}}\nНайс-хэвы: {{context.vacancy.nice_haves | bullet_list}}\nУсловия работы: {{context.vacancy.work_conditions | formatted}}\nШаги найма (in_our_scope): {{context.vacancy.application_steps | in_scope_only}}\n\nВерни JSON-массив из 4 объектов:\n[{\n  \"variant\": \"Вариант 1 — краткое название\",\n  \"steps\": [\"шаг 1 — что делаем и говорим\", \"шаг 2 — ...\"],\n  \"rationale\": \"в 1–2 предложениях: почему такой порядок и для кого подходит\"\n}]",
       "context_key": "communication_plan_options",
       "db_save_column": null,
       "next_step_order": 2,
@@ -282,11 +282,18 @@
       "step_type": "display",
       "user_message": "На основании данных вакансии подготовил несколько вариантов плана коммуникации с кандидатами:\n{{context.communication_plan_options | table}}\n\nВыберите вариант или уточните.",
       "prompt_template": null,
-      "context_key": "approved_plan",
+      "context_key": "approved_plan_variant",
       "db_save_column": null,
       "next_step_order": 3,
-      "options": "Утвердить;Уточнить",
-      "notes": null
+      "options": "Вариант 1;Вариант 2;Вариант 3;Вариант 4;Уточнить",
+      "routing": {
+        "Вариант 1": 3,
+        "Вариант 2": 3,
+        "Вариант 3": 3,
+        "Вариант 4": 3,
+        "Уточнить": 1
+      },
+      "notes": "Сохраняет выбранный ярлык варианта в approved_plan_variant."
     },
     {
       "step_key": "setup_communication.3",
@@ -295,12 +302,12 @@
       "name": "Сгенерировать примеры первых сообщений",
       "step_type": "llm_generate",
       "user_message": null,
-      "prompt_template": "Напиши 3 варианта первого сообщения агента кандидату по этой вакансии.\n\nСтиль: тёплый, человечный, без канцелярита и шаблонных фраз. Кандидат должен почувствовать живой интерес к его опыту, а не скрипт.\n\nСтруктура первого сообщения:\n1. Короткое приветствие — можно упомянуть что-то конкретное из резюме кандидата (если доступно — используй {{candidate.summary}}, иначе общее приветствие)\n2. Один ключевой вопрос — первый шаг из утверждённого плана\n3. Не перегружать — один вопрос за раз, не анкета\n\nТри варианта должны отличаться:\n- Вариант 1: деловой и лаконичный, сразу к делу\n- Вариант 2: чуть теплее, с коротким контекстом о вакансии\n- Вариант 3: максимально персонализированный, с упоминанием конкретного опыта кандидата\n\nДанные:\nДолжность: {{context.vacancy.title}}\nПервый шаг плана: {{context.approved_plan.steps[0]}}\nСкрипт первого шага: {{context.vacancy.application_steps[0].script}}\nМаст-хэвы: {{context.vacancy.must_haves | bullet_list}}\n\nВерни HTML. Каждый вариант в отдельном <div class=\"message-variant\"> с заголовком <h3>Вариант N</h3> и текстом сообщения в <p>.",
+      "prompt_template": "Напиши 3 варианта первого сообщения агента кандидату по этой вакансии.\n\nСтиль: тёплый, человечный, без канцелярита и шаблонных фраз. Кандидат должен почувствовать живой интерес к его опыту, а не скрипт.\n\nСначала найди в JSON выбранный рекрутером вариант плана коммуникации.\n- Выбранный ярлык: {{context.approved_plan_variant}}\n- Все варианты плана: {{context.communication_plan_options | json}}\n\nИспользуй первый шаг именно выбранного варианта.\n\nСтруктура первого сообщения:\n1. Короткое приветствие — можно упомянуть что-то конкретное из резюме кандидата (если доступно — используй {{candidate.summary}}, иначе общее приветствие)\n2. Один ключевой вопрос — первый шаг из выбранного плана\n3. Не перегружать — один вопрос за раз, не анкета\n\nТри варианта должны отличаться:\n- Вариант 1: деловой и лаконичный, сразу к делу\n- Вариант 2: чуть теплее, с коротким контекстом о вакансии\n- Вариант 3: максимально персонализированный, с упоминанием конкретного опыта кандидата\n\nДанные:\nДолжность: {{context.vacancy.title}}\nСкрипт первого шага: {{context.vacancy.application_steps[0].script}}\nМаст-хэвы: {{context.vacancy.must_haves | bullet_list}}\n\nВерни HTML. Каждый вариант в отдельном <div class=\"message-variant\"> с заголовком <h3>Вариант N</h3> и текстом сообщения в <p>.",
       "context_key": "generated_messages",
       "db_save_column": null,
       "next_step_order": 4,
       "options": null,
-      "notes": "Input: approved_plan, application_steps[].script, must_haves. Output: 3 примера первых сообщений HTML."
+      "notes": "Input: approved_plan_variant, communication_plan_options, application_steps[].script, must_haves. Output: 3 примера первых сообщений HTML."
     },
     {
       "step_key": "setup_communication.4",
@@ -399,31 +406,50 @@
       "name": "Обработать критерий выборки",
       "step_type": "llm_extract",
       "user_message": null,
-      "prompt_template": "Рекрутер хочет выбрать группу кандидатов для рассылки по вакансии «{{context.vacancy.title}}».\n\nКритерий от рекрутера: «{{context.selection_criteria}}»\n\nОпредели как именно выбрать кандидатов:\n- Если критерий чёткий и однозначный (конкретный шаг воронки, временной интервал, статус) → type: \"exact\"\n- Если критерий нечёткий, требует интерпретации или смыслового поиска → type: \"fuzzy\"\n\nДоступные поля в базе данных для фильтрации:\n- current_step: текущий шаг кандидата (имена из application_steps вакансии)\n- last_message_at: время последнего сообщения в переписке\n- status: active | rejected | completed\n- hours_on_step: сколько часов кандидат находится на текущем шаге\n\nВерни JSON:\n{\n  \"type\": \"exact\" | \"fuzzy\",\n  \"description\": строка — как мы выберем кандидатов (для показа рекрутеру, 1–2 предложения),\n  \"sql_filter\": строка или null — WHERE-условие если type=exact (только перечисленные поля),\n  \"threshold\": число или null — порог совпадения в % если type=fuzzy\n}",
+      "prompt_template": "Рекрутер хочет выбрать группу кандидатов для рассылки по вакансии «{{context.vacancy.title}}».\n\nКритерий от рекрутера: «{{context.selection_criteria}}»\n\nОпредели как именно выбрать кандидатов:\n- Если критерий чёткий и однозначный (конкретный шаг воронки, временной интервал, статус) → type: \"exact\"\n- Если критерий нечёткий, требует интерпретации или смыслового поиска → type: \"fuzzy\"\n\nДоступные поля в базе данных для фильтрации:\n- current_step: текущий шаг кандидата (имя активного шага)\n- last_message_at: время последнего сообщения в переписке\n- status: active | rejected | completed\n- hours_on_step: сколько часов кандидат находится на текущем шаге\n\nВерни JSON:\n{\n  \"type\": \"exact\" | \"fuzzy\",\n  \"description\": строка — как мы выберем кандидатов (для показа рекрутеру, 1–2 предложения),\n  \"review_summary\": строка — готовый текст для показа рекрутеру; если type=fuzzy, включи туда и порог совпадения,\n  \"exact_filter\": {\n    \"current_step\": строка или null,\n    \"status\": \"active\" | \"rejected\" | \"completed\" | null,\n    \"min_hours_on_step\": число или null,\n    \"last_message_older_than_hours\": число или null\n  } или null,\n  \"fuzzy_query\": строка или null,\n  \"threshold\": число или null\n}",
       "context_key": "selection_query",
       "db_save_column": null,
       "next_step_order": 3,
       "options": null,
-      "notes": "Output: {type: 'exact'|'fuzzy', description, sql_filter?, threshold?}."
+      "notes": "Output: {type: 'exact'|'fuzzy', description, review_summary, exact_filter?, fuzzy_query?, threshold?}."
     },
     {
       "step_key": "mass_broadcast.3",
       "playbook_key": "mass_broadcast",
       "step_order": 3,
       "name": "Уточнить логику выборки у рекрутера",
-      "step_type": "decision",
-      "user_message": "Вот как я планирую выбрать кандидатов: {{context.selection_query.description}}. Порог совпадения: {{context.selection_query.threshold}}%.",
+      "step_type": "display",
+      "user_message": "{{context.selection_query.review_summary}}",
       "prompt_template": null,
-      "context_key": null,
+      "context_key": "selection_action",
       "db_save_column": null,
       "next_step_order": 4,
       "options": "Подтвердить;Изменить порог;Изменить критерий",
-      "notes": "If type=exact → skip threshold mention. If recruiter changes threshold → loop back to step 2."
+      "routing": {
+        "Подтвердить": 4,
+        "Изменить порог": 2,
+        "Изменить критерий": 1
+      },
+      "notes": "Подтверждение выбора сохраняется в selection_action."
     },
     {
       "step_key": "mass_broadcast.4",
       "playbook_key": "mass_broadcast",
       "step_order": 4,
+      "name": "Получить кандидатов для рассылки",
+      "step_type": "data_fetch",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": "candidates",
+      "db_save_column": null,
+      "next_step_order": 5,
+      "options": null,
+      "notes": "{\"source\":\"mass_broadcast_candidates\",\"limit\":25}"
+    },
+    {
+      "step_key": "mass_broadcast.5",
+      "playbook_key": "mass_broadcast",
+      "step_order": 5,
       "name": "Сгенерировать сообщения и показать репорт",
       "step_type": "llm_generate",
       "user_message": null,
@@ -463,7 +489,7 @@
       "db_save_column": null,
       "next_step_order": 2,
       "options": null,
-      "notes": "CTE query over pipeline_runs + pipeline_step_state filtered by tenant_id + vacancy_id. Returns per-step counts."
+      "notes": "{\"source\":\"candidate_funnel\"}"
     },
     {
       "step_key": "candidate_funnel.2",
