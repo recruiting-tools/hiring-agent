@@ -234,16 +234,18 @@ const CHAT_HTML = `<!DOCTYPE html>
       height: 100dvh;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: hidden;
     }
 
     /* ── HEADER ────────────────────────────────────────────────── */
     #header {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 10px;
-      padding: 0 16px;
-      height: 52px;
+      padding: 10px 16px;
+      min-height: 52px;
       border-bottom: 1px solid var(--edge);
       flex-shrink: 0;
     }
@@ -262,8 +264,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       letter-spacing: -0.01em;
     }
     #vacancy-select {
-      flex: 1;
-      max-width: 320px;
+      flex: 1 1 280px;
+      min-width: 0;
+      max-width: 420px;
       margin-left: auto;
       padding: 6px 10px;
       background: var(--bg3);
@@ -291,11 +294,23 @@ const CHAT_HTML = `<!DOCTYPE html>
       white-space: nowrap;
     }
     #logout-btn:hover { border-color: var(--t2); color: var(--t1); }
+    #recruiter-email {
+      font-size: 12px;
+      color: var(--t3);
+      margin-left: 4px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
     /* ── CHAT LOG ──────────────────────────────────────────────── */
     #chat-log {
       flex: 1;
       overflow-y: auto;
+      overflow-x: hidden;
+      width: min(100%, 980px);
+      margin: 0 auto;
       padding: 20px 16px;
       display: flex;
       flex-direction: column;
@@ -335,17 +350,22 @@ const CHAT_HTML = `<!DOCTYPE html>
     .btn-primary:hover { opacity: 0.88; }
 
     /* ── MESSAGE ROWS ──────────────────────────────────────────── */
-    .msg-row { display: flex; }
+    .msg-row {
+      display: flex;
+      width: 100%;
+      min-width: 0;
+    }
     .msg-row.user { justify-content: flex-end; }
     .msg-row.assistant { justify-content: flex-start; }
 
     .bubble {
-      max-width: min(75%, 680px);
+      max-width: min(100%, 680px);
       padding: 10px 14px;
       font-size: 14px;
       line-height: 1.55;
       border-radius: 12px;
       word-break: break-word;
+      overflow-wrap: anywhere;
     }
     .user-bubble {
       background: var(--acc);
@@ -514,15 +534,19 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     /* ── INPUT AREA ────────────────────────────────────────────── */
     #input-area {
+      width: min(100%, 980px);
+      margin: 0 auto;
       display: flex;
       align-items: flex-end;
       gap: 8px;
       padding: 10px 16px 14px;
       border-top: 1px solid var(--edge);
       flex-shrink: 0;
+      min-width: 0;
     }
     #msg-input {
       flex: 1;
+      min-width: 0;
       resize: none;
       background: var(--bg3);
       border: 1px solid var(--edge);
@@ -555,6 +579,20 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
     #send-btn:disabled { opacity: 0.35; cursor: default; }
     #send-btn svg { width: 16px; height: 16px; }
+    @media (max-width: 900px) {
+      #header {
+        align-items: stretch;
+      }
+      #vacancy-select {
+        order: 10;
+        flex-basis: 100%;
+        max-width: none;
+        margin-left: 0;
+      }
+      #recruiter-email {
+        flex: 1 1 auto;
+      }
+    }
   </style>
 </head>
 <body>
@@ -565,7 +603,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     <select id="vacancy-select">
       <option value="">Загрузка вакансий…</option>
     </select>
-    <span id="recruiter-email" style="font-size:12px;color:var(--t3);margin-left:4px;">__RECRUITER_EMAIL__</span>
+    <span id="recruiter-email">__RECRUITER_EMAIL__</span>
     <a href="/logout" id="logout-btn">Выйти</a>
   </header>
 
