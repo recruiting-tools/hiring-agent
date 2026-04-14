@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import bcrypt from "bcryptjs";
+import { WebSocketServer } from "ws";
 import { createSession, getRecruiterByEmail, parseCookies, resolveSession } from "./auth.js";
 import {
   AccessContextError,
@@ -583,13 +584,109 @@ const CHAT_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+function replyToMarkdown(reply) {
+  if (!reply || typeof reply !== "object") {
+    return { markdown: String(reply ?? "…"), actions: [] };
+  }
+
+  if (reply.kind === "render_funnel") {
+    const rows = (reply.rows ?? []).map(r =>
+      `| ${r.step_name} | ${r.total} | ${r.completed} | ${r.in_progress} | ${r.stuck} | ${r.rejected} |`
+    ).join("\n");
+
+    const branches = (reply.branches ?? []).map(b => `- **${b.title}:** ${b.count}`).join("\n");
+
+    const md = [
+      `## ${reply.title ?? "Воронка кандидатов"}`,
+      "",
+      `> Всего: **${reply.summary?.total ?? "—"}** | Квалифицированы: **${reply.summary?.qualified ?? "—"}** | Ждут движения: **${reply.summary?.waiting ?? "—"}**`,
+      "",
+      branches ? `${branches}\n` : "",
+      "| Этап | Всего | Завершили | В работе | Зависли | Отсечены |",
+      "|------|-------|-----------|----------|---------|----------|",
+      rows,
+    ].filter(Boolean).join("\n");
+
+    return {
+      markdown: md,
+      actions: [
+        { label: "Обновить", message: "обнови воронку" },
+        { label: "Детали кандидата", message: "расскажи подробнее о кандидатах" },
+      ],
+    };
+  }
+
+  if (reply.kind === "playbook_locked") {
+    return {
+      markdown: `> ⚠️ **${reply.title ?? "Плейбук недоступен"}**\n\n${reply.message ?? ""}`,
+      actions: [],
+    };
+  }
+
+  if (reply.kind === "fallback_text") {
+    return {
+      markdown: reply.text ?? "…",
+      actions: [],
+    };
+  }
+
+  // Unknown — dump as code block
+  return {
+    markdown: "```json\n" + JSON.stringify(reply, null, 2) + "\n```",
+    actions: [],
+  };
+}
+
+async function handleChatWs(ws, msg, wsContext, app, options) {
+  const send = (obj) => {
+    if (ws.readyState === 1) ws.send(JSON.stringify(obj));
+  };
+
+  const { text, vacancyId } = msg;
+
+  try {
+    send({ type: "progress", tool: "route_playbook", label: "Определяю плейбук" });
+
+    let tenantSql = null;
+    if (options.poolRegistry) {
+      try {
+        const ctx = await resolveAccessContext({
+          managementStore: options.managementStore,
+          poolRegistry: options.poolRegistry,
+          appEnv: options.appEnv ?? "local",
+          sessionToken: null,
+          tenantId: wsContext.tenantId,
+        });
+        tenantSql = ctx?.tenantSql ?? null;
+      } catch { /* local dev fallback */ }
+    }
+
+    const result = await app.postChatMessage({
+      message: text,
+      tenantSql,
+      tenantId: wsContext.tenantId,
+      job_id: vacancyId,
+    });
+
+    const reply = result.body?.reply ?? result.body;
+
+    send({ type: "progress", tool: "render", label: "Генерирую ответ" });
+    const { markdown, actions } = replyToMarkdown(reply);
+    send({ type: "chunk", text: markdown });
+    send({ type: "done", actions });
+
+  } catch (err) {
+    send({ type: "error", message: err?.message ?? "Ошибка сервера" });
+  }
+}
+
 export function createHiringAgentServer(app, options = {}) {
   const managementSql = options.managementSql ?? options.sql ?? null;
   const managementStore = options.managementStore ?? null;
   const poolRegistry = options.poolRegistry ?? null;
   const appEnv = options.appEnv ?? "local";
 
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? "/", "http://localhost");
 
@@ -710,6 +807,47 @@ export function createHiringAgentServer(app, options = {}) {
       });
     }
   });
+
+  // ── WebSocket server ─────────────────────────────────────────────────────────
+  const wss = new WebSocketServer({ server });
+
+  wss.on("connection", async (ws, req) => {
+    const cookies = parseCookies(req.headers.cookie ?? "");
+    const recruiter = await resolveSession(managementSql, cookies.session).catch(() => null);
+    if (!recruiter) {
+      ws.close(4001, "Unauthorized");
+      return;
+    }
+
+    const wsContext = {
+      recruiterId: recruiter.recruiter_id,
+      tenantId: recruiter.tenant_id,
+      recruiterEmail: recruiter.email,
+    };
+
+    let alive = true;
+    ws.on("pong", () => { alive = true; });
+
+    const heartbeat = setInterval(() => {
+      if (!alive) { clearInterval(heartbeat); ws.terminate(); return; }
+      alive = false;
+      ws.ping();
+    }, 30_000);
+
+    ws.on("close", () => clearInterval(heartbeat));
+    ws.on("error", () => clearInterval(heartbeat));
+
+    ws.on("message", async (raw) => {
+      let msg;
+      try { msg = JSON.parse(raw.toString()); } catch { return; }
+      if (msg.type === "message") {
+        await handleChatWs(ws, msg, wsContext, app, { managementSql, poolRegistry, appEnv });
+      }
+    });
+  });
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  return server;
 }
 
 async function requireAccessContext(request, response, options = {}) {
