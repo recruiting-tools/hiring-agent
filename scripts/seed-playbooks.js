@@ -7,9 +7,14 @@
  *   - definitions: ON CONFLICT DO UPDATE
  *   - steps: DELETE + INSERT per playbook_key (full replace)
  *
+ * Safety: aborts if there are active playbook sessions for the affected
+ * playbooks, because step replacement would corrupt in-flight sessions.
+ * Use --force to override (e.g. in dev/CI with no real users).
+ *
  * Usage:
  *   MANAGEMENT_DATABASE_URL=<url> node scripts/seed-playbooks.js
  *   MANAGEMENT_DATABASE_URL=<url> node scripts/seed-playbooks.js --dry-run
+ *   MANAGEMENT_DATABASE_URL=<url> node scripts/seed-playbooks.js --force
  */
 
 import pg from "pg";
@@ -22,6 +27,7 @@ const seedPath = join(__dir, "../data/playbooks-seed.json");
 
 const MANAGEMENT_URL = process.env.MANAGEMENT_DATABASE_URL;
 const DRY_RUN = process.argv.includes("--dry-run");
+const FORCE = process.argv.includes("--force");
 
 // JSON5-style: strip // comments before parsing
 const raw = readFileSync(seedPath, "utf-8").replace(/\/\/[^\n]*/g, "");
@@ -70,9 +76,31 @@ try {
     console.log(`  upserted definition: ${def.playbook_key}`);
   }
 
-  // ── 2. Replace steps per playbook ────────────────────────────────────────
+  // ── 2. Guard: abort if active sessions exist (--force to override) ──────
 
   const playbookKeys = [...new Set(seed.steps.map((s) => s.playbook_key))];
+
+  const { rows: activeSessions } = await db.query(
+    `SELECT playbook_key, COUNT(*) AS n
+     FROM management.playbook_sessions
+     WHERE playbook_key = ANY($1) AND status = 'active'
+     GROUP BY playbook_key`,
+    [playbookKeys]
+  );
+
+  if (activeSessions.length > 0 && !FORCE) {
+    const summary = activeSessions.map((r) => `  ${r.playbook_key}: ${r.n} active`).join("\n");
+    console.error(`ERROR: active playbook sessions exist for affected playbooks:\n${summary}`);
+    console.error("Step replacement would corrupt in-flight sessions.");
+    console.error("Use --force to override (dev/CI only, no real users).");
+    process.exit(1);
+  }
+
+  if (activeSessions.length > 0 && FORCE) {
+    console.warn(`WARNING: --force override, replacing steps despite active sessions.`);
+  }
+
+  // ── 3. Replace steps per playbook ────────────────────────────────────────
 
   await db.query(
     `DELETE FROM management.playbook_steps WHERE playbook_key = ANY($1)`,
