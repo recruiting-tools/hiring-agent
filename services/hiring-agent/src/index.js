@@ -16,6 +16,7 @@ export function resolveHiringAgentRuntime(env = process.env) {
   const openRouterModel = env.OPENROUTER_MODEL ?? "google/gemini-2.5-flash";
   const setupCommunicationPlanModel = env.OPENROUTER_SETUP_COMMUNICATION_PLAN_MODEL ?? "openai/gpt-5.4-mini";
   const setupCommunicationExamplesModel = env.OPENROUTER_SETUP_COMMUNICATION_EXAMPLES_MODEL ?? "google/gemini-2.5-flash";
+  const createVacancyApplicationStepsExtractModel = env.OPENROUTER_CREATE_VACANCY_APPLICATION_STEPS_MODEL ?? "openai/gpt-5.4-mini";
   const deploySha = env.DEPLOY_SHA ?? env.GITHUB_SHA ?? "unknown";
   const startedAt = new Date().toISOString();
 
@@ -32,6 +33,9 @@ export function resolveHiringAgentRuntime(env = process.env) {
       communicationPlanLlmConfig: {
         planModel: setupCommunicationPlanModel,
         examplesModel: setupCommunicationExamplesModel
+      },
+      createVacancyLlmConfig: {
+        applicationStepsExtractModel: createVacancyApplicationStepsExtractModel
       },
       poolRegistry: createPoolRegistry(),
       startupMode: "demo"
@@ -60,6 +64,9 @@ export function resolveHiringAgentRuntime(env = process.env) {
       planModel: setupCommunicationPlanModel,
       examplesModel: setupCommunicationExamplesModel
     },
+    createVacancyLlmConfig: {
+      applicationStepsExtractModel: createVacancyApplicationStepsExtractModel
+    },
     poolRegistry: createPoolRegistry(),
     startupMode: "management-auth"
   };
@@ -75,7 +82,8 @@ export function startHiringAgent(env = process.env) {
     port: runtime.port,
     managementSql: runtime.managementSql,
     llmAdapter: runtime.llmAdapter,
-    communicationPlanLlmConfig: runtime.communicationPlanLlmConfig
+    communicationPlanLlmConfig: runtime.communicationPlanLlmConfig,
+    createVacancyLlmConfig: runtime.createVacancyLlmConfig
   });
   const server = createHiringAgentServer(app, {
     managementSql: runtime.managementSql,

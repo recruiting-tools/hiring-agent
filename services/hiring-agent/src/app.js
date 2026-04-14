@@ -13,6 +13,7 @@ export function createHiringAgentApp(options = {}) {
   const managementSql = options.managementSql ?? null;
   const llmAdapter = options.llmAdapter ?? null;
   const communicationPlanLlmConfig = options.communicationPlanLlmConfig ?? {};
+  const createVacancyLlmConfig = options.createVacancyLlmConfig ?? {};
   const healthMetadata = {
     app_env: options.appEnv ?? "local",
     deploy_sha: options.deploySha ?? "unknown",
@@ -188,7 +189,10 @@ export function createHiringAgentApp(options = {}) {
         vacancyId,
         playbookKey,
         recruiterInput: message ?? null,
-        llmAdapter
+        llmAdapter,
+        llmConfig: {
+          createVacancy: createVacancyLlmConfig
+        }
       });
 
       return {

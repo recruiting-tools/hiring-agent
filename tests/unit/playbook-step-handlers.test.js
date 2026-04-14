@@ -148,6 +148,66 @@ test("playbook handler: llm_extract retries once, appends JSON instruction, and 
   assert.match(prompts[0], /Return valid JSON only, no markdown\./);
 });
 
+test("playbook handler: llm_extract uses model override for create_vacancy application_steps", async () => {
+  const models = [];
+  const result = await handleLlmExtractStep({
+    step: {
+      playbook_key: "create_vacancy",
+      prompt_template: "Извлеки шаги из {{context.raw_vacancy_text}}",
+      context_key: "application_steps",
+      db_save_column: "application_steps",
+      next_step_order: 9
+    },
+    context: {
+      vacancy_id: "vac-99",
+      raw_vacancy_text: "Нужен продажник с B2B опытом"
+    },
+    tenantSql: createMockSql(({ text }) => {
+      assert.match(text, /UPDATE chatbot\.vacancies/);
+      return [];
+    }),
+    llmConfig: {
+      createVacancy: {
+        applicationStepsExtractModel: "openai/gpt-5.4-mini"
+      }
+    },
+    llmAdapter: {
+      async generate(_prompt, options) {
+        models.push(options?.model ?? null);
+        return JSON.stringify([
+          {
+            name: "Проверка опыта продаж",
+            type: "must_have_check",
+            what: "Проверить релевантный опыт",
+            script: "Уточнить кейсы",
+            in_our_scope: true,
+            is_target: false
+          },
+          {
+            name: "Сверка условий",
+            type: "condition_check",
+            what: "Уточнить зарплату и формат",
+            script: "Снять риски",
+            in_our_scope: true,
+            is_target: false
+          },
+          {
+            name: "Приглашение на интервью",
+            type: "target_action",
+            what: "Предложить следующий шаг",
+            script: "Согласовать слот",
+            in_our_scope: true,
+            is_target: true
+          }
+        ]);
+      }
+    }
+  });
+
+  assert.equal(result.nextStepOrder, 9);
+  assert.equal(models[0], "openai/gpt-5.4-mini");
+});
+
 test("playbook handler: llm_generate stores parsed JSON and returns UI payload", async () => {
   const result = await handleLlmGenerateStep({
     step: {
