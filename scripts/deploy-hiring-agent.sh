@@ -21,8 +21,8 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
   set -euo pipefail
 
   require_bin() {
-    if ! command -v "\$1" >/dev/null 2>&1; then
-      echo "ERROR: required binary '\$1' is missing on VM"
+    if ! command -v "$1" >/dev/null 2>&1; then
+      echo "ERROR: required binary '$1' is missing on VM"
       exit 1
     fi
   }
@@ -36,12 +36,12 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
     echo "ERROR: neither pnpm nor corepack is available on VM"
     exit 1
   fi
-  echo "node: \$(node --version)"
-  echo "pm2: \$(pm2 --version | tail -1)"
-  echo "git: \$(git --version)"
-  echo "jq: \$(jq --version)"
+  echo "node: $(node --version)"
+  echo "pm2: $(pm2 --version | tail -1)"
+  echo "git: $(git --version)"
+  echo "jq: $(jq --version)"
   if command -v pnpm >/dev/null 2>&1; then
-    echo "pnpm: \$(pnpm --version)"
+    echo "pnpm: $(pnpm --version)"
   else
     echo "pnpm: unavailable, will use corepack pnpm"
   fi
@@ -49,13 +49,13 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
   # ── Port conflict check ────────────────────────────────────────────────────
   # Fail fast if another process (not our own PM2 hiring-agent) owns the port.
   PORT=$TARGET_PORT
-  if ss -tlnp 2>/dev/null | grep -q ":\$PORT "; then
-    PORT_LINE=\$(ss -tlnp | grep ":\$PORT ")
-    PORT_PID=\$(echo "\$PORT_LINE" | grep -oP 'pid=\K[0-9]+' | head -1)
-    PM2_PID=\$(pm2 pid hiring-agent 2>/dev/null | tr -d ' \n' || echo "")
-    if [ -z "\$PM2_PID" ] || [ "\$PORT_PID" != "\$PM2_PID" ]; then
-      echo "ERROR: Port \$PORT is already in use by another process (PID=\$PORT_PID):"
-      echo "\$PORT_LINE"
+  if ss -tlnp 2>/dev/null | grep -q ":$PORT "; then
+    PORT_LINE=$(ss -tlnp | grep ":$PORT ")
+    PORT_PID=$(echo "$PORT_LINE" | grep -oP 'pid=\K[0-9]+' | head -1)
+    PM2_PID=$(pm2 pid hiring-agent 2>/dev/null | tr -d ' \n' || echo "")
+    if [ -z "$PM2_PID" ] || [ "$PORT_PID" != "$PM2_PID" ]; then
+      echo "ERROR: Port $PORT is already in use by another process (PID=$PORT_PID):"
+      echo "$PORT_LINE"
       echo ""
       echo "Running services on this VM:"
       ss -tlnp | awk 'NR==1 || /LISTEN/' | head -20
@@ -63,9 +63,9 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
       echo "Fix: set TARGET_PORT=<free_port> or stop the conflicting process first."
       exit 1
     fi
-    echo "Port \$PORT is held by hiring-agent PM2 (PID=\$PM2_PID) — will restart."
+    echo "Port $PORT is held by hiring-agent PM2 (PID=$PM2_PID) — will restart."
   else
-    echo "Port \$PORT is free."
+    echo "Port $PORT is free."
   fi
 
   # ── Deploy ─────────────────────────────────────────────────────────────────
@@ -84,13 +84,13 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
 
   run_pnpm() {
     if command -v pnpm >/dev/null 2>&1; then
-      pnpm "\$@"
+      pnpm "$@"
       return
     fi
 
     if command -v corepack >/dev/null 2>&1; then
       corepack enable >/dev/null 2>&1 || true
-      corepack pnpm "\$@"
+      corepack pnpm "$@"
       return
     fi
 
@@ -103,49 +103,49 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
   # PM2 does not auto-read .env. Load key=value lines without shell-evaluating values,
   # because connection strings may contain characters like '&' that break `source .env`.
   if [ -f .env ]; then
-    while IFS= read -r line || [ -n "\$line" ]; do
-      [ -z "\$line" ] && continue
-      case "\$line" in
+    while IFS= read -r line || [ -n "$line" ]; do
+      [ -z "$line" ] && continue
+      case "$line" in
         \#*) continue ;;
       esac
-      export "\$line"
+      export "$line"
     done < .env
   fi
 
   # Override port from env if passed
-  export PORT=\$PORT
+  export PORT=$PORT
   export DEPLOY_SHA="$SHA"
 
   pm2 delete hiring-agent >/dev/null 2>&1 || true
   pm2 start services/hiring-agent/ecosystem.config.cjs --env production --update-env
   pm2 save
 
-  PM2_JSON=\$(pm2 jlist | jq -r '.[] | select(.name=="hiring-agent")')
-  PM2_APP_ENV=\$(printf '%s' "\$PM2_JSON" | jq -r '(.pm2_env.APP_ENV // .pm2_env.env.APP_ENV // "")')
-  PM2_DEPLOY_SHA=\$(printf '%s' "\$PM2_JSON" | jq -r '(.pm2_env.DEPLOY_SHA // .pm2_env.env.DEPLOY_SHA // "")')
-  PM2_MANAGEMENT_DB=\$(printf '%s' "\$PM2_JSON" | jq -r 'if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end')
+  PM2_JSON=$(pm2 jlist | jq -r '.[] | select(.name=="hiring-agent")')
+  PM2_APP_ENV=$(printf '%s' "$PM2_JSON" | jq -r '(.pm2_env.APP_ENV // .pm2_env.env.APP_ENV // "")')
+  PM2_DEPLOY_SHA=$(printf '%s' "$PM2_JSON" | jq -r '(.pm2_env.DEPLOY_SHA // .pm2_env.env.DEPLOY_SHA // "")')
+  PM2_MANAGEMENT_DB=$(printf '%s' "$PM2_JSON" | jq -r 'if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end')
 
-  [ "\$PM2_APP_ENV" = "\${APP_ENV:-}" ] || {
-    echo "ERROR: PM2 runtime APP_ENV mismatch: expected='\${APP_ENV:-}' actual='\${PM2_APP_ENV:-}'"
+  [ "$PM2_APP_ENV" = "${APP_ENV:-}" ] || {
+    echo "ERROR: PM2 runtime APP_ENV mismatch: expected='${APP_ENV:-}' actual='${PM2_APP_ENV:-}'"
     exit 1
   }
-  [ "\$PM2_DEPLOY_SHA" = "\$DEPLOY_SHA" ] || {
-    echo "ERROR: PM2 runtime DEPLOY_SHA mismatch: expected='\$DEPLOY_SHA' actual='\${PM2_DEPLOY_SHA:-}'"
+  [ "$PM2_DEPLOY_SHA" = "$DEPLOY_SHA" ] || {
+    echo "ERROR: PM2 runtime DEPLOY_SHA mismatch: expected='$DEPLOY_SHA' actual='${PM2_DEPLOY_SHA:-}'"
     exit 1
   }
-  [ "\$PM2_MANAGEMENT_DB" = "present" ] || {
+  [ "$PM2_MANAGEMENT_DB" = "present" ] || {
     echo "ERROR: PM2 runtime MANAGEMENT_DATABASE_URL is missing"
     exit 1
   }
 
   echo "Waiting for service to become healthy..."
-  for i in \$(seq 1 10); do
-    HEALTH_BODY=\$(curl -sf http://localhost:\$PORT/health 2>/dev/null || echo "")
-    STATUS=\$(printf '%s' "\$HEALTH_BODY" | jq -r '.status' 2>/dev/null || echo "")
-    [ "\$STATUS" = "ok" ] && { echo "Health check passed (attempt \$i)"; break; }
-    echo "Attempt \$i/10: not ready (status=\${STATUS:-no-response}), waiting..."
+  for i in $(seq 1 10); do
+    HEALTH_BODY=$(curl -sf http://localhost:$PORT/health 2>/dev/null || echo "")
+    STATUS=$(printf '%s' "$HEALTH_BODY" | jq -r '.status' 2>/dev/null || echo "")
+    [ "$STATUS" = "ok" ] && { echo "Health check passed (attempt $i)"; break; }
+    echo "Attempt $i/10: not ready (status=${STATUS:-no-response}), waiting..."
     sleep 2
-    [ "\$i" = "10" ] && {
+    [ "$i" = "10" ] && {
       echo "HEALTH CHECK FAILED after 10 attempts"
       echo "--- deploy sha ---"
       git rev-parse HEAD
@@ -168,7 +168,7 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
       echo "--- sockets ---"
       ss -tlnp | awk 'NR==1 || /LISTEN/'
       echo "--- local health body ---"
-      printf '%s\n' "\${HEALTH_BODY:-}"
+      printf '%s\n' "${HEALTH_BODY:-}"
       echo "--- pm2 logs ---"
       pm2 logs hiring-agent --lines 80 --nostream || true
       exit 1
