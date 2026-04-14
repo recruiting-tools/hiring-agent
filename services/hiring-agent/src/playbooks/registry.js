@@ -1,5 +1,8 @@
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const ALWAYS_RUNNABLE_PLAYBOOKS = new Set();
+const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
+  "candidate_funnel",
+  "setup_communication"
+]);
 
 const FALLBACK_PLAYBOOKS = [
   {
