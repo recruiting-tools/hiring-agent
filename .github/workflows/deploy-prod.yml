@@ -39,6 +39,11 @@ jobs:
           DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: node scripts/migrate.js
 
+      - name: Run management database migrations
+        env:
+          MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
+        run: node scripts/migrate-management.js
+
       - name: Deploy to Cloud Run
         env:
           SERVICE: candidate-chatbot-v2
