@@ -116,6 +116,27 @@ test("hiring-agent: POST /api/chat returns fallback_text for setup_communication
   }
 });
 
+test("hiring-agent: routes via LLM when keyword router misses", async () => {
+  let llmCalls = 0;
+  const app = createHiringAgentApp({
+    llmAdapter: {
+      async generate() {
+        llmCalls += 1;
+        return JSON.stringify({ playbook_key: "candidate_funnel" });
+      }
+    }
+  });
+
+  const result = await app.postChatMessage({
+    message: "покажи состояние найма"
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.reply.kind, "render_funnel");
+  assert.equal(result.body.reply.playbook_key, "candidate_funnel");
+  assert.equal(llmCalls, 1);
+});
+
 test("hiring-agent: management-backed routing ignores available playbooks with zero steps", async () => {
   const managementSql = async (strings) => {
     const text = strings.join("");

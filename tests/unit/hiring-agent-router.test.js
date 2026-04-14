@@ -55,6 +55,10 @@ test("router: maps broadcast request to mass_broadcast", async () => {
   assert.equal(await routePlaybook("Отправь всем кандидатам ссылку на календарь"), "mass_broadcast");
 });
 
+test("router: maps simple mailing request to mass_broadcast", async () => {
+  assert.equal(await routePlaybook("сделай рассылку"), "mass_broadcast");
+});
+
 test("router: maps vacancy request to view_vacancy", async () => {
   assert.equal(await routePlaybook("карточка вакансии"), "view_vacancy");
 });
