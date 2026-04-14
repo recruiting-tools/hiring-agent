@@ -237,6 +237,88 @@ const CHAT_HTML = `<!DOCTYPE html>
       overflow-x: hidden;
       overflow-y: hidden;
     }
+    #app-shell {
+      height: 100dvh;
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+    }
+    #sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 18px 14px 14px;
+      border-right: 1px solid var(--edge);
+      background: var(--bg2);
+      min-width: 0;
+    }
+    .sidebar-block {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 0;
+    }
+    .sidebar-label {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--t3);
+    }
+    .sidebar-title {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .sidebar-copy {
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--t2);
+    }
+    .session-history,
+    .quick-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .session-item,
+    .quick-action {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--edge);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.02);
+      color: var(--t2);
+      font-size: 13px;
+      line-height: 1.4;
+      text-align: left;
+    }
+    .session-item.active {
+      border-color: rgba(79,143,247,0.4);
+      background: rgba(79,143,247,0.08);
+      color: var(--t1);
+    }
+    .session-item-title {
+      display: block;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    .session-item-meta {
+      color: var(--t3);
+      font-size: 12px;
+    }
+    .quick-action {
+      cursor: pointer;
+    }
+    .quick-action:hover {
+      border-color: var(--acc);
+      background: rgba(79,143,247,0.08);
+      color: var(--t1);
+    }
+    #main-panel {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+    }
 
     /* ── HEADER ────────────────────────────────────────────────── */
     #header {
@@ -264,10 +346,8 @@ const CHAT_HTML = `<!DOCTYPE html>
       letter-spacing: -0.01em;
     }
     #vacancy-select {
-      flex: 1 1 280px;
+      width: 100%;
       min-width: 0;
-      max-width: 420px;
-      margin-left: auto;
       padding: 6px 10px;
       background: var(--bg3);
       border: 1px solid var(--edge);
@@ -297,11 +377,12 @@ const CHAT_HTML = `<!DOCTYPE html>
     #recruiter-email {
       font-size: 12px;
       color: var(--t3);
-      margin-left: 4px;
+      margin-left: auto;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      max-width: 240px;
     }
 
     /* ── CHAT LOG ──────────────────────────────────────────────── */
@@ -510,28 +591,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       color: var(--t1);
     }
 
-    /* ── PLAYBOOK CHIPS (welcome message) ──────────────────────── */
-    .playbook-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 10px;
-    }
-    .playbook-chip {
-      padding: 5px 12px;
-      font-size: 12px;
-      font-family: var(--font);
-      font-weight: 500;
-      border-radius: 7px;
-      border: 1px solid var(--acc);
-      background: var(--acc-d);
-      color: var(--acc);
-      cursor: pointer;
-      transition: all 0.12s;
-    }
-    .playbook-chip:hover { background: var(--acc); color: white; }
-    a.playbook-chip { text-decoration: none; display: inline-block; }
-
     /* ── INPUT AREA ────────────────────────────────────────────── */
     #input-area {
       width: min(100%, 980px);
@@ -579,54 +638,96 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
     #send-btn:disabled { opacity: 0.35; cursor: default; }
     #send-btn svg { width: 16px; height: 16px; }
+    @media (max-width: 980px) {
+      #app-shell {
+        grid-template-columns: 1fr;
+      }
+      #sidebar {
+        border-right: 0;
+        border-bottom: 1px solid var(--edge);
+      }
+      .session-history,
+      .quick-actions {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+    }
     @media (max-width: 900px) {
       #header {
         align-items: stretch;
       }
-      #vacancy-select {
-        order: 10;
-        flex-basis: 100%;
-        max-width: none;
-        margin-left: 0;
-      }
       #recruiter-email {
-        flex: 1 1 auto;
+        margin-left: 0;
+        max-width: none;
       }
     }
   </style>
 </head>
 <body>
-  <!-- Header -->
-  <header id="header">
-    <div id="status-dot" title="WebSocket"></div>
-    <div class="logo">Hiring Agent</div>
-    <select id="vacancy-select">
-      <option value="">Загрузка вакансий…</option>
-    </select>
-    <span id="recruiter-email">__RECRUITER_EMAIL__</span>
-    <a href="/logout" id="logout-btn">Выйти</a>
-  </header>
+  <div id="app-shell">
+    <aside id="sidebar">
+      <div class="sidebar-block">
+        <div class="sidebar-label">Recruiting</div>
+        <div class="sidebar-title">Автоматизация рекрутинга</div>
+        <div class="sidebar-copy">Слева оставляем место под историю сессий и навигацию. Сейчас это каркас, чтобы потом не ломать layout при добавлении истории чатов.</div>
+      </div>
 
-  <!-- Chat log -->
-  <div id="chat-log">
-    <!-- Empty state shown before vacancy selected / on load -->
-    <div id="empty-state">
-      <div class="empty-icon">📋</div>
-      <h2>Выберите вакансию</h2>
-      <p>Выберите вакансию в меню выше или создайте новую</p>
-      <button class="btn-primary" id="create-vacancy-btn">Создать вакансию</button>
-    </div>
-  </div>
+      <div class="sidebar-block">
+        <div class="sidebar-label">Вакансия</div>
+        <select id="vacancy-select">
+          <option value="">Загрузка вакансий…</option>
+        </select>
+      </div>
 
-  <!-- Input -->
-  <div id="input-area">
-    <textarea id="msg-input" placeholder="Напишите сообщение…" rows="1"></textarea>
-    <button id="send-btn" disabled title="Отправить">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13"></line>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-      </svg>
-    </button>
+      <div class="sidebar-block">
+        <div class="sidebar-label">Сессии</div>
+        <div class="session-history" id="session-history">
+          <div class="session-item active">
+            <span class="session-item-title">Текущая сессия</span>
+            <span class="session-item-meta">История подключится сюда, когда заведём storage.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-block">
+        <div class="sidebar-label">Сценарии</div>
+        <div class="quick-actions">
+          <button class="quick-action" data-msg="настроить общение с кандидатами">Настроить общение</button>
+          <button class="quick-action" data-msg="покажи воронку по кандидатам">Показать воронку</button>
+          <button class="quick-action" data-msg="посмотри вакансию">Посмотреть вакансию</button>
+          <button class="quick-action" data-msg="сделай рассылку">Сделать рассылку</button>
+          <button class="quick-action" id="create-vacancy-btn">Создать вакансию</button>
+        </div>
+      </div>
+    </aside>
+
+    <main id="main-panel">
+      <header id="header">
+        <div id="status-dot" title="WebSocket"></div>
+        <div class="logo">Hiring Agent</div>
+        <span id="recruiter-email">__RECRUITER_EMAIL__</span>
+        <a href="/logout" id="logout-btn">Выйти</a>
+      </header>
+
+      <div id="chat-log">
+        <div id="empty-state">
+          <div class="empty-icon">📋</div>
+          <h2>Выберите вакансию</h2>
+          <p>Автоматизация рекрутинга здесь. Выберите вакансию слева или создайте новую.</p>
+          <button class="btn-primary" id="empty-create-vacancy-btn">Создать вакансию</button>
+        </div>
+      </div>
+
+      <div id="input-area">
+        <textarea id="msg-input" placeholder="Напишите сообщение…" rows="1"></textarea>
+        <button id="send-btn" disabled title="Отправить">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+    </main>
   </div>
 
   <script>
@@ -657,6 +758,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     const sendBtn        = document.getElementById('send-btn');
     const statusDot      = document.getElementById('status-dot');
     const createVacBtn   = document.getElementById('create-vacancy-btn');
+    const emptyCreateVacBtn = document.getElementById('empty-create-vacancy-btn');
+    const quickActions   = Array.from(document.querySelectorAll('.quick-action[data-msg]'));
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
     function connect() {
@@ -884,36 +987,9 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     function showWelcome(vacancyId, title) {
-      const bubbleEl = addSystemMessage(
+      addSystemMessage(
         'Работаю с вакансией **' + escapeText(title) + '**. Что будем делать?'
       );
-
-      // Add playbook chips
-      const PLAYBOOKS = [
-        { label: 'Настройте общение', msg: 'настроить общение с кандидатами' },
-        { label: 'Воронка', msg: 'покажи воронку по кандидатам' },
-      ];
-
-      const chipsEl = document.createElement('div');
-      chipsEl.className = 'playbook-chips';
-      PLAYBOOKS.forEach(({ label, msg }) => {
-        const chip = document.createElement('button');
-        chip.className = 'playbook-chip';
-        chip.textContent = label;
-        chip.addEventListener('click', () => sendMessage(msg));
-        chipsEl.appendChild(chip);
-      });
-      if (CHATBOT_MODERATION_BASE) {
-        const link = document.createElement('a');
-        const titleParam = encodeURIComponent(title || '');
-        link.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(vacancyId) + (titleParam ? '&title=' + titleParam : '');
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.className = 'playbook-chip';
-        link.textContent = 'Модерация';
-        chipsEl.appendChild(link);
-      }
-      bubbleEl.appendChild(chipsEl);
     }
 
     function triggerCreateVacancy() {
@@ -921,6 +997,10 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     createVacBtn.addEventListener('click', triggerCreateVacancy);
+    emptyCreateVacBtn.addEventListener('click', triggerCreateVacancy);
+    quickActions.forEach((button) => {
+      button.addEventListener('click', () => sendMessage(button.dataset.msg || ''));
+    });
 
     // ── Input handling ────────────────────────────────────────────────────────
     msgInput.addEventListener('input', () => {
