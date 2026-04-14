@@ -6,8 +6,12 @@ test("router: maps funnel request to candidate_funnel", async () => {
   assert.equal(await routePlaybook("Визуализируй воронку по кандидатам"), "candidate_funnel");
 });
 
-test("router: maps communication request to communication_plan", async () => {
-  assert.equal(await routePlaybook("Подготовь план коммуникации по вакансии"), "communication_plan");
+test("router: maps communication request to setup_communication", async () => {
+  assert.equal(await routePlaybook("Подготовь план коммуникации по вакансии"), "setup_communication");
+});
+
+test("router: maps button click to setup_communication", async () => {
+  assert.equal(await routePlaybook("настроить общение с кандидатами"), "setup_communication");
 });
 
 test("router: maps broadcast request to candidate_broadcast", async () => {

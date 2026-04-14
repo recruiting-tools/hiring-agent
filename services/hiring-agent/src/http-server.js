@@ -989,6 +989,13 @@ function replyToMarkdown(reply) {
     };
   }
 
+  if (reply.kind === "llm_output") {
+    return {
+      markdown: reply.content ?? "…",
+      actions: [],
+    };
+  }
+
   // Unknown — dump as code block
   return {
     markdown: "```json\n" + JSON.stringify(reply, null, 2) + "\n```",
