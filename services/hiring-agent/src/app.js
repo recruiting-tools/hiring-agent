@@ -12,6 +12,8 @@ export function createHiringAgentApp(options = {}) {
   const tenantDbTimeoutMs = options.tenantDbTimeoutMs ?? TENANT_DB_TIMEOUT_MS;
   const managementSql = options.managementSql ?? null;
   const llmAdapter = options.llmAdapter ?? null;
+  const communicationPlanLlmConfig = options.communicationPlanLlmConfig ?? {};
+  const createVacancyLlmConfig = options.createVacancyLlmConfig ?? {};
   const healthMetadata = {
     app_env: options.appEnv ?? "local",
     deploy_sha: options.deploySha ?? "unknown",
@@ -148,7 +150,9 @@ export function createHiringAgentApp(options = {}) {
         const result = await runCommunicationPlanPlaybook({
           tenantSql,
           vacancyId,
-          llmAdapter
+          llmAdapter,
+          recruiterInput: message,
+          llmConfig: communicationPlanLlmConfig
         });
         return {
           status: 200,
@@ -185,7 +189,10 @@ export function createHiringAgentApp(options = {}) {
         vacancyId,
         playbookKey,
         recruiterInput: message ?? null,
-        llmAdapter
+        llmAdapter,
+        llmConfig: {
+          createVacancy: createVacancyLlmConfig
+        }
       });
 
       return {
