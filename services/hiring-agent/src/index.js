@@ -3,7 +3,7 @@ import {
   createManagementStore,
   createPoolRegistry
 } from "../../../packages/access-context/src/index.js";
-import { GeminiAdapter } from "../../candidate-chatbot/src/gemini-adapter.js";
+import { OpenRouterAdapter } from "./openrouter-adapter.js";
 import { createHiringAgentApp } from "./app.js";
 import { createHiringAgentServer } from "./http-server.js";
 
@@ -12,7 +12,7 @@ export function resolveHiringAgentRuntime(env = process.env) {
   const appEnv = env.APP_ENV ?? null;
   const port = Number(env.PORT ?? 3100);
   const managementDatabaseUrl = env.MANAGEMENT_DATABASE_URL ?? null;
-  const geminiApiKey = env.GEMINI_API_KEY ?? null;
+  const openRouterApiKey = env.OPENROUTER_API_KEY ?? null;
   const deploySha = env.DEPLOY_SHA ?? env.GITHUB_SHA ?? "unknown";
   const startedAt = new Date().toISOString();
 
@@ -25,7 +25,7 @@ export function resolveHiringAgentRuntime(env = process.env) {
       demoMode: true,
       managementSql: null,
       managementStore: null,
-      llmAdapter: geminiApiKey ? new GeminiAdapter({ apiKey: geminiApiKey }) : null,
+      llmAdapter: openRouterApiKey ? new OpenRouterAdapter({ apiKey: openRouterApiKey }) : null,
       poolRegistry: createPoolRegistry(),
       startupMode: "demo"
     };
@@ -48,7 +48,7 @@ export function resolveHiringAgentRuntime(env = process.env) {
     demoMode: false,
     managementSql,
     managementStore: createManagementStore(managementSql),
-    llmAdapter: geminiApiKey ? new GeminiAdapter({ apiKey: geminiApiKey }) : null,
+    llmAdapter: openRouterApiKey ? new OpenRouterAdapter({ apiKey: openRouterApiKey }) : null,
     poolRegistry: createPoolRegistry(),
     startupMode: "management-auth"
   };
