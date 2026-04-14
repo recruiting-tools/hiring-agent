@@ -34,6 +34,22 @@ function makePendingMessage(overrides = {}) {
   };
 }
 
+function makeConversationMessage(overrides = {}) {
+  return {
+    message_id: `msg-${Math.random().toString(16).slice(2, 8)}`,
+    conversation_id: "conv-zakup-001",
+    candidate_id: "cand-zakup-good",
+    direction: "inbound",
+    message_type: "text",
+    body: "Кандидат прислал сообщение",
+    channel: "test",
+    channel_message_id: `channel-${Math.random().toString(16).slice(2, 8)}`,
+    occurred_at: "2026-04-12T10:00:00.000Z",
+    received_at: "2026-04-12T10:00:00.000Z",
+    ...overrides
+  };
+}
+
 test("moderation: GET / redirects to login instead of returning not_found", async () => {
   const store = new InMemoryHiringStore(seed);
   const app = createCandidateChatbot({ store, llmAdapter: new FakeLlmAdapter() });
@@ -179,6 +195,42 @@ test("moderation: GET /recruiter/:token/queue returns full body and reason for r
     assert.ok(item, "item should be in queue");
     assert.equal(item.body, longBody);
     assert.equal(item.reason, "Нужно уточнить следующий шаг по скринингу");
+  } finally {
+    server.close();
+  }
+});
+
+test("moderation: GET /recruiter/:token/queue includes previews, history and resume_text", async () => {
+  const store = new InMemoryHiringStore(seed);
+  store.messages.push(makeConversationMessage({
+    message_id: "msg-in-1",
+    body: "Добрый день, у меня опыт прямых закупок в Китае и контроля качества на фабриках.",
+    occurred_at: "2026-04-12T10:00:00.000Z"
+  }));
+  store.messages.push(makeConversationMessage({
+    message_id: "msg-out-1",
+    direction: "outbound",
+    body: "Отлично, тогда пришлите, пожалуйста, примеры категорий и кейс по браку.",
+    occurred_at: "2026-04-12T10:05:00.000Z"
+  }));
+  store.plannedMessages.push(makePendingMessage({
+    planned_message_id: "pm-rich-context",
+    body: "Нужен финальный planned message для модерации. ".repeat(8)
+  }));
+
+  const app = createCandidateChatbot({ store, llmAdapter: new FakeLlmAdapter() });
+  const server = createHttpServer(app).listen(0);
+  try {
+    const { status, body } = await req(server, "GET", "/recruiter/rec-tok-demo-001/queue");
+    assert.equal(status, 200);
+    const item = body.items.find((queueItem) => queueItem.planned_message_id === "pm-rich-context");
+    assert.ok(item, "item should be in queue");
+    assert.ok(item.planned_message_preview.length <= 200, "planned preview should be compact");
+    assert.equal(item.last_message_preview, "Отлично, тогда пришлите, пожалуйста, примеры категорий и кейс по браку.");
+    assert.equal(item.history.length, 2);
+    assert.equal(item.history[0].direction, "inbound");
+    assert.equal(item.history[1].direction, "outbound");
+    assert.match(item.resume_text, /8 лет в закупках из Китая/i);
   } finally {
     server.close();
   }
@@ -344,6 +396,9 @@ test("moderation: GET /recruiter/:token serves HTML page with Content-Type text/
     assert.equal(status, 200);
     assert.ok(contentType?.includes("text/html"), `Expected text/html, got: ${contentType}`);
     assert.ok(typeof body === "string" && body.includes("<!DOCTYPE html>"), "Response body should be HTML");
+    assert.match(body, /Сообщения на модерации/);
+    assert.match(body, /Запланированное сообщение/);
+    assert.match(body, /История сообщений/);
   } finally {
     server.close();
   }
