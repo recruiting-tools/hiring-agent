@@ -160,6 +160,8 @@ const LOGIN_HTML = `<!DOCTYPE html>
     </section>
   </div>
   <script>
+    const APP_BASE_PATH = '__APP_BASE_PATH__';
+    const withBasePath = (path) => (APP_BASE_PATH ? APP_BASE_PATH + path : path);
     const loginForm = document.getElementById("loginForm");
     const loginBtn = document.getElementById("loginBtn");
     const loginError = document.getElementById("loginError");
@@ -175,7 +177,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
       loginBtn.disabled = true;
 
       try {
-        const response = await fetch("/auth/login", {
+        const response = await fetch(withBasePath("/auth/login"), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -186,7 +188,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
 
         const data = await response.json().catch(() => ({}));
         if (response.ok) {
-          window.location = data.redirect || "/";
+          window.location = data.redirect || withBasePath("/");
           return;
         }
 
@@ -913,7 +915,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
           <div style="display:grid; gap:10px; margin-top:18px;">
             <button class="primary-btn" id="create-vacancy-btn">Создать вакансию</button>
-            <a href="/logout" class="ghost-btn" id="logout-btn">Выйти</a>
+            <a href="__LOGOUT_PATH__" class="ghost-btn" id="logout-btn">Выйти</a>
           </div>
         </section>
 
@@ -983,9 +985,12 @@ const CHAT_HTML = `<!DOCTYPE html>
 
   <script>
     // ── Config ────────────────────────────────────────────────────────────────
-    const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws';
+    const APP_BASE_PATH = '__APP_BASE_PATH__';
+    const withBasePath = (path) => (APP_BASE_PATH ? APP_BASE_PATH + path : path);
+    const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + withBasePath('/ws');
+    const LOGIN_PATH = withBasePath('/login');
     const CHATBOT_MODERATION_BASE = '__CHATBOT_MODERATION_BASE__';
-    const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id';
+    const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
     const STEP_LABELS = {
       auto_fetch:    'Загружаю данные вакансии',
       route_playbook:'Определяю плейбук',
@@ -1040,7 +1045,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         connectionLabel.textContent = 'Подключение потеряно';
         connectionCopy.textContent = 'Пробуем переподключиться автоматически…';
         updateSendEnabled();
-        if (ev.code === 4001) { window.location = '/login'; return; }
+        if (ev.code === 4001) { window.location = LOGIN_PATH; return; }
         setTimeout(connect, 3000); // auto-reconnect
       };
 
@@ -1193,8 +1198,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     // ── Vacancy selector ──────────────────────────────────────────────────────
     async function loadVacancies() {
       try {
-        const res = await fetch('/api/jobs');
-        if (res.status === 401) { window.location = '/login'; return; }
+        const res = await fetch(withBasePath('/api/jobs'));
+        if (res.status === 401) { window.location = LOGIN_PATH; return; }
         const data = await res.json();
         const jobs = Array.isArray(data.jobs) ? data.jobs : [];
         const savedVacancyId = localStorage.getItem(LAST_VACANCY_KEY);
@@ -1505,24 +1510,42 @@ export function createHiringAgentServer(app, options = {}) {
   const managementStore = options.managementStore ?? null;
   const poolRegistry = options.poolRegistry ?? null;
   const appEnv = options.appEnv ?? "local";
+  const appBasePath = normalizeBasePath(options.appBasePath ?? process.env.APP_BASE_PATH ?? "");
+  const loginPath = joinBasePath(appBasePath, "/login");
+  const logoutPath = joinBasePath(appBasePath, "/logout");
+  const wsPath = joinBasePath(appBasePath, "/ws");
+  const rootPath = appBasePath ? `${appBasePath}/` : "/";
+  const sessionCookieName = options.sessionCookieName ?? process.env.SESSION_COOKIE_NAME ?? sessionCookieNameFromBasePath(appBasePath);
+  const sessionCookiePath = appBasePath || "/";
 
   const server = createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? "/", "http://localhost");
+      const routePath = routePathFromRequest(requestUrl.pathname, appBasePath);
+      const normalizedPath = routePath ?? requestUrl.pathname;
 
-      if (request.method === "GET" && requestUrl.pathname === "/health") {
+      // Health stays available both with and without base path to keep VM-local probes simple.
+      if (request.method === "GET" && (requestUrl.pathname === "/health" || normalizedPath === "/health")) {
         const result = await app.getHealth();
         writeJson(response, result.status, result.body);
         return;
       }
 
-      if (request.method === "GET" && requestUrl.pathname === "/login") {
-        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end(LOGIN_HTML);
+      if (routePath === null) {
+        writeJson(response, 404, { error: "not_found" });
         return;
       }
 
-      if (request.method === "POST" && requestUrl.pathname === "/auth/login") {
+      if (request.method === "GET" && normalizedPath === "/login") {
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(
+          LOGIN_HTML
+            .replaceAll("__APP_BASE_PATH__", escapeJsString(appBasePath))
+        );
+        return;
+      }
+
+      if (request.method === "POST" && normalizedPath === "/auth/login") {
         const body = await readJsonBody(request);
         const email = String(body.email ?? "").trim().toLowerCase();
         const password = String(body.password ?? "");
@@ -1549,28 +1572,30 @@ export function createHiringAgentServer(app, options = {}) {
         const sessionToken = await createSession(managementSql, recruiter.recruiter_id);
         response.writeHead(200, {
           "content-type": "application/json; charset=utf-8",
-          "set-cookie": `session=${sessionToken}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Strict${secure}`
+          "set-cookie": `${sessionCookieName}=${sessionToken}; HttpOnly; Path=${sessionCookiePath}; Max-Age=2592000; SameSite=Strict${secure}`
         });
-        response.end(JSON.stringify({ redirect: "/" }));
+        response.end(JSON.stringify({ redirect: rootPath }));
         return;
       }
 
-      if (request.method === "GET" && requestUrl.pathname === "/logout") {
+      if (request.method === "GET" && normalizedPath === "/logout") {
         const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
         response.writeHead(302, {
-          location: "/login",
-          "set-cookie": `session=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict${secure}`
+          location: loginPath,
+          "set-cookie": `${sessionCookieName}=; HttpOnly; Path=${sessionCookiePath}; Max-Age=0; SameSite=Strict${secure}`
         });
         response.end();
         return;
       }
 
-      if (request.method === "GET" && requestUrl.pathname === "/") {
+      if (request.method === "GET" && normalizedPath === "/") {
         const accessContext = await requireAccessContext(request, response, {
           managementStore,
           poolRegistry,
           appEnv,
-          unauthorizedStatus: 302
+          unauthorizedStatus: 302,
+          loginPath,
+          sessionCookieName
         });
         if (!accessContext) return;
 
@@ -1583,15 +1608,18 @@ export function createHiringAgentServer(app, options = {}) {
           CHAT_HTML
             .replace("__RECRUITER_EMAIL__", escapeHtml(accessContext.recruiterEmail))
             .replace("__CHATBOT_MODERATION_BASE__", escapeHtml(chatbotModerationBase))
+            .replace("__LOGOUT_PATH__", escapeHtml(logoutPath))
+            .replace("__APP_BASE_PATH__", escapeJsString(appBasePath))
         );
         return;
       }
 
-      if (request.method === "GET" && requestUrl.pathname === "/api/jobs") {
+      if (request.method === "GET" && normalizedPath === "/api/jobs") {
         const accessContext = await requireAccessContext(request, response, {
           managementStore,
           poolRegistry,
-          appEnv
+          appEnv,
+          sessionCookieName
         });
         if (!accessContext) return;
 
@@ -1603,11 +1631,12 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
 
-      if (request.method === "POST" && requestUrl.pathname === "/api/chat") {
+      if (request.method === "POST" && normalizedPath === "/api/chat") {
         const accessContext = await requireAccessContext(request, response, {
           managementStore,
           poolRegistry,
-          appEnv
+          appEnv,
+          sessionCookieName
         });
         if (!accessContext) return;
 
@@ -1651,11 +1680,12 @@ export function createHiringAgentServer(app, options = {}) {
   });
 
   // ── WebSocket server ─────────────────────────────────────────────────────────
-  const wss = new WebSocketServer({ server, path: "/ws" });
+  const wss = new WebSocketServer({ server, path: wsPath });
 
   wss.on("connection", async (ws, req) => {
     console.log("[ws] new connection");
     const cookies = parseCookies(req.headers.cookie ?? "");
+    const sessionToken = cookies[sessionCookieName];
 
     // Resolve access context at connection time — mirrors requireAccessContext.
     // This ensures tenantSql is properly tenant-scoped in management mode.
@@ -1666,7 +1696,7 @@ export function createHiringAgentServer(app, options = {}) {
           managementStore,
           poolRegistry,
           appEnv,
-          sessionToken: cookies.session,
+          sessionToken,
         });
         wsContext = {
           recruiterId: ctx.recruiterId,
@@ -1680,7 +1710,7 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
     } else {
-      const recruiter = await resolveSession(managementSql, cookies.session).catch(() => null);
+      const recruiter = await resolveSession(managementSql, sessionToken).catch(() => null);
       if (!recruiter) {
         console.log("[ws] auth failed (session)");
         ws.close(4001, "Unauthorized");
@@ -1719,11 +1749,47 @@ export function createHiringAgentServer(app, options = {}) {
   return server;
 }
 
+function normalizeBasePath(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw === "/") return "";
+  const withLeadingSlash = raw.startsWith("/") ? raw : `/${raw}`;
+  return withLeadingSlash.replace(/\/+$/g, "");
+}
+
+function joinBasePath(basePath, path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return basePath ? `${basePath}${normalizedPath}` : normalizedPath;
+}
+
+function routePathFromRequest(pathname, basePath) {
+  if (!basePath) return pathname || "/";
+  if (pathname === basePath || pathname === `${basePath}/`) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return null;
+}
+
+function sessionCookieNameFromBasePath(basePath) {
+  if (!basePath) return "session";
+  const suffix = basePath.slice(1).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `session_${suffix}`;
+}
+
+function escapeJsString(value) {
+  return String(value)
+    .replaceAll("\\", "\\\\")
+    .replaceAll("'", "\\'");
+}
+
 async function requireAccessContext(request, response, options = {}) {
   const unauthorizedStatus = options.unauthorizedStatus ?? 401;
-  const cookies = parseCookies(request.headers.cookie);
+  const cookies = parseCookies(request.headers.cookie ?? "");
+  const sessionCookieName = options.sessionCookieName ?? "session";
+  const loginPath = options.loginPath ?? "/login";
+  const sessionToken = cookies[sessionCookieName];
   if (!options.managementStore || !options.poolRegistry) {
-    const recruiter = await resolveSession(null, cookies.session);
+    const recruiter = await resolveSession(null, sessionToken);
     if (recruiter) {
       return {
         recruiterId: recruiter.recruiter_id,
@@ -1734,7 +1800,7 @@ async function requireAccessContext(request, response, options = {}) {
     }
 
     if (unauthorizedStatus === 302) {
-      response.writeHead(302, { location: "/login" });
+      response.writeHead(302, { location: loginPath });
       response.end();
       return null;
     }
@@ -1748,11 +1814,11 @@ async function requireAccessContext(request, response, options = {}) {
       managementStore: options.managementStore,
       poolRegistry: options.poolRegistry,
       appEnv: options.appEnv ?? "local",
-      sessionToken: cookies.session
+      sessionToken
     });
   } catch (error) {
     if (error instanceof AccessContextError && error.code === "ERROR_UNAUTHENTICATED" && unauthorizedStatus === 302) {
-      response.writeHead(302, { location: "/login" });
+      response.writeHead(302, { location: loginPath });
       response.end();
       return null;
     }
@@ -1766,7 +1832,7 @@ async function requireAccessContext(request, response, options = {}) {
     }
 
     if (unauthorizedStatus === 302) {
-      response.writeHead(302, { location: "/login" });
+      response.writeHead(302, { location: loginPath });
       response.end();
       return null;
     }

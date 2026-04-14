@@ -188,6 +188,60 @@ test("hiring-agent: GET / serves HTML shell after auth", async () => {
   }
 });
 
+test("hiring-agent: base path mode isolates auth/app routes under /sandbox-001", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp(), {
+    appBasePath: "/sandbox-001",
+    sessionCookieName: "session_sandbox_001"
+  }).listen(0);
+
+  try {
+    const port = server.address().port;
+    const loginResponse = await fetch(`http://localhost:${port}/sandbox-001/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "demo@local",
+        password: "demo"
+      })
+    });
+    const setCookie = loginResponse.headers.get("set-cookie") ?? "";
+    assert.equal(loginResponse.status, 200);
+    assert.match(setCookie, /^session_sandbox_001=/);
+    assert.match(setCookie, /Path=\/sandbox-001/);
+
+    const shellResponse = await fetch(`http://localhost:${port}/sandbox-001/`, {
+      headers: { cookie: setCookie }
+    });
+    const shellHtml = await shellResponse.text();
+    assert.equal(shellResponse.status, 200);
+    assert.match(shellHtml, /const APP_BASE_PATH = '\/sandbox-001';/);
+    assert.match(shellHtml, /href="\/sandbox-001\/logout"/);
+
+    const wsUrl = `ws://localhost:${port}/sandbox-001/ws`;
+    await new Promise((resolve, reject) => {
+      const ws = new WsClient(wsUrl, { headers: { cookie: setCookie } });
+      const timeout = setTimeout(() => reject(new Error("ws timeout")), 2_000);
+      ws.on("open", () => {
+        clearTimeout(timeout);
+        ws.close();
+        resolve();
+      });
+      ws.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+
+    const noPrefixResponse = await fetch(`http://localhost:${port}/`, {
+      headers: { cookie: setCookie },
+      redirect: "manual"
+    });
+    assert.equal(noPrefixResponse.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: POST /auth/login sets 30 day cookie without secure outside production", async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = "test";
