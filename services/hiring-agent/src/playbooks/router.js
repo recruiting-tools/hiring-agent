@@ -1,41 +1,44 @@
-const ROUTES = [
+const FALLBACK_ROUTES = [
   {
     playbook_key: "candidate_funnel",
-    patterns: [
-      /воронк/i,
-      /статус[аы] кандидат/i,
-      /кандидат.*статус/i,
-      /funnel/i,
-      /pipeline/i
-    ]
+    keywords: ["воронк", "статус кандидат", "funnel", "pipeline"]
   },
   {
     playbook_key: "communication_plan",
-    patterns: [
-      /план коммуникац/i,
-      /скрининг/i,
-      /pipeline общения/i,
-      /communication plan/i
-    ]
+    keywords: ["план коммуникац", "скрининг", "communication plan"]
   },
   {
     playbook_key: "candidate_broadcast",
-    patterns: [
-      /всем кандидат/i,
-      /бродкаст/i,
-      /массов.*сообщ/i,
-      /broadcast/i,
-      /календар/i
-    ]
+    keywords: ["всем кандидатам", "бродкаст", "массовое сообщение", "broadcast", "календарь"]
   }
 ];
 
-export function routePlaybook(message) {
+let cachedDefinitions = null;
+
+export async function routePlaybook(message, managementSql = null) {
   const normalized = String(message ?? "").trim();
-  for (const route of ROUTES) {
-    if (route.patterns.some((pattern) => pattern.test(normalized))) {
+  const routes = managementSql ? await getDbRoutes(managementSql) : FALLBACK_ROUTES;
+
+  for (const route of routes) {
+    if (route.keywords.some((keyword) => normalized.toLowerCase().includes(keyword.toLowerCase()))) {
       return route.playbook_key;
     }
   }
   return null;
+}
+
+async function getDbRoutes(managementSql) {
+  if (!cachedDefinitions) {
+    cachedDefinitions = await managementSql`
+      SELECT playbook_key, keywords
+      FROM management.playbook_definitions
+      WHERE status = 'available'
+      ORDER BY sort_order ASC, playbook_key ASC
+    `;
+  }
+
+  return cachedDefinitions.map((row) => ({
+    playbook_key: row.playbook_key,
+    keywords: row.keywords ?? []
+  }));
 }

@@ -7,6 +7,14 @@ export class GeminiAdapter {
     this.modelName = model;
   }
 
+  async generate(prompt) {
+    const model = this.genAI.getGenerativeModel({
+      model: this.modelName
+    });
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  }
+
   async evaluate({ job, candidate, pendingSteps, pendingTemplateSteps, history, inboundMessage }) {
     const prompt = buildPrompt({ job, candidate, pendingSteps, pendingTemplateSteps, history, inboundMessage });
     const model = this.genAI.getGenerativeModel({

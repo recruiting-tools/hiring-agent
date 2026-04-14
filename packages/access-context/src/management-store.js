@@ -77,6 +77,183 @@ export function createManagementStore(managementSql) {
         LIMIT 1
       `;
       return rows[0] ?? null;
+    },
+
+    async getPlaybookSteps(playbookKey) {
+      const rows = await managementSql`
+        SELECT
+          step_key,
+          playbook_key,
+          step_order,
+          name,
+          step_type,
+          user_message,
+          prompt_template,
+          context_key,
+          db_save_column,
+          next_step_order,
+          options,
+          notes,
+          created_at
+        FROM management.playbook_steps
+        WHERE playbook_key = ${playbookKey}
+        ORDER BY step_order ASC
+      `;
+      return rows;
+    },
+
+    async getActiveSession({ tenantId, recruiterId, vacancyId, playbookKey }) {
+      const rows = await managementSql`
+        SELECT
+          session_id,
+          tenant_id,
+          recruiter_id,
+          conversation_id,
+          playbook_key,
+          current_step_order,
+          vacancy_id,
+          context,
+          call_stack,
+          status,
+          started_at,
+          updated_at,
+          completed_at
+        FROM management.playbook_sessions
+        WHERE tenant_id = ${tenantId}
+          AND recruiter_id = ${recruiterId}
+          AND vacancy_id IS NOT DISTINCT FROM ${vacancyId}
+          AND playbook_key = ${playbookKey}
+          AND status = 'active'
+        LIMIT 1
+      `;
+      return rows[0] ?? null;
+    },
+
+    async createPlaybookSession({
+      tenantId,
+      recruiterId,
+      conversationId = null,
+      playbookKey,
+      currentStepOrder,
+      vacancyId = null,
+      context = {},
+      callStack = []
+    }) {
+      const rows = await managementSql`
+        INSERT INTO management.playbook_sessions (
+          tenant_id,
+          recruiter_id,
+          conversation_id,
+          playbook_key,
+          current_step_order,
+          vacancy_id,
+          context,
+          call_stack
+        )
+        VALUES (
+          ${tenantId},
+          ${recruiterId},
+          ${conversationId},
+          ${playbookKey},
+          ${currentStepOrder},
+          ${vacancyId},
+          ${JSON.stringify(context)}::jsonb,
+          ${JSON.stringify(callStack)}::jsonb
+        )
+        RETURNING
+          session_id,
+          tenant_id,
+          recruiter_id,
+          conversation_id,
+          playbook_key,
+          current_step_order,
+          vacancy_id,
+          context,
+          call_stack,
+          status,
+          started_at,
+          updated_at,
+          completed_at
+      `;
+      return rows[0] ?? null;
+    },
+
+    async updateSession(sessionId, {
+      currentStepOrder,
+      context,
+      callStack,
+      vacancyId,
+      status
+    } = {}) {
+      const rows = await managementSql`
+        UPDATE management.playbook_sessions
+        SET
+          current_step_order = COALESCE(${currentStepOrder}, current_step_order),
+          context = COALESCE(${context === undefined ? null : JSON.stringify(context)}::jsonb, context),
+          call_stack = COALESCE(${callStack === undefined ? null : JSON.stringify(callStack)}::jsonb, call_stack),
+          vacancy_id = COALESCE(${vacancyId}, vacancy_id),
+          status = COALESCE(${status}, status),
+          updated_at = now()
+        WHERE session_id = ${sessionId}
+        RETURNING
+          session_id,
+          tenant_id,
+          recruiter_id,
+          conversation_id,
+          playbook_key,
+          current_step_order,
+          vacancy_id,
+          context,
+          call_stack,
+          status,
+          started_at,
+          updated_at,
+          completed_at
+      `;
+      return rows[0] ?? null;
+    },
+
+    async completeSession(sessionId, { context, callStack, vacancyId } = {}) {
+      const rows = await managementSql`
+        UPDATE management.playbook_sessions
+        SET
+          status = 'completed',
+          current_step_order = null,
+          context = COALESCE(${context === undefined ? null : JSON.stringify(context)}::jsonb, context),
+          call_stack = COALESCE(${callStack === undefined ? null : JSON.stringify(callStack)}::jsonb, call_stack),
+          vacancy_id = COALESCE(${vacancyId}, vacancy_id),
+          updated_at = now(),
+          completed_at = now()
+        WHERE session_id = ${sessionId}
+        RETURNING
+          session_id,
+          tenant_id,
+          recruiter_id,
+          conversation_id,
+          playbook_key,
+          current_step_order,
+          vacancy_id,
+          context,
+          call_stack,
+          status,
+          started_at,
+          updated_at,
+          completed_at
+      `;
+      return rows[0] ?? null;
+    },
+
+    async abortActiveSessions({ tenantId, recruiterId, vacancyId, excludePlaybookKey = null }) {
+      await managementSql`
+        UPDATE management.playbook_sessions
+        SET status = 'aborted',
+            updated_at = now()
+        WHERE tenant_id = ${tenantId}
+          AND recruiter_id = ${recruiterId}
+          AND vacancy_id IS NOT DISTINCT FROM ${vacancyId}
+          AND status = 'active'
+          AND (${excludePlaybookKey}::text IS NULL OR playbook_key <> ${excludePlaybookKey})
+      `;
     }
   };
 }

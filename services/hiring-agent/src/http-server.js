@@ -1026,7 +1026,7 @@ export function createHiringAgentServer(app, options = {}) {
       const requestUrl = new URL(request.url ?? "/", "http://localhost");
 
       if (request.method === "GET" && requestUrl.pathname === "/health") {
-        const result = app.getHealth();
+        const result = await app.getHealth();
         writeJson(response, result.status, result.body);
         return;
       }
@@ -1121,9 +1121,14 @@ export function createHiringAgentServer(app, options = {}) {
         const body = await readJsonBody(request);
         const result = await app.postChatMessage({
           message: body.message,
+          action: body.action,
+          playbook_key: body.playbook_key,
           tenantSql: accessContext.tenantSql,
           tenantId: accessContext.tenantId,
-          job_id: body.job_id
+          recruiterId: accessContext.recruiterId,
+          managementSql,
+          job_id: body.job_id,
+          vacancy_id: body.vacancy_id
         });
         writeJson(response, result.status, result.body);
         return;

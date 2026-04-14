@@ -1,6 +1,7 @@
 import { getDemoRuntimeData } from "./demo-runtime-data.js";
 import { executeWithDb, runCandidateFunnelPlaybook } from "./playbooks/candidate-funnel.js";
 import { findPlaybook, getPlaybookRegistry } from "./playbooks/registry.js";
+import { dispatch } from "./playbooks/runtime.js";
 import { routePlaybook } from "./playbooks/router.js";
 
 const TENANT_DB_TIMEOUT_MS = 5000;
@@ -8,6 +9,8 @@ const TENANT_DB_TIMEOUT_MS = 5000;
 export function createHiringAgentApp(options = {}) {
   const demoMode = options.demoMode ?? true;
   const tenantDbTimeoutMs = options.tenantDbTimeoutMs ?? TENANT_DB_TIMEOUT_MS;
+  const managementSql = options.managementSql ?? null;
+  const llmAdapter = options.llmAdapter ?? null;
   const healthMetadata = {
     app_env: options.appEnv ?? "local",
     deploy_sha: options.deploySha ?? "unknown",
@@ -16,7 +19,8 @@ export function createHiringAgentApp(options = {}) {
   };
 
   return {
-    getHealth() {
+    async getHealth() {
+      const playbooks = await getPlaybookRegistry(managementSql);
       return {
         status: 200,
         body: {
@@ -24,7 +28,7 @@ export function createHiringAgentApp(options = {}) {
           status: "ok",
           mode: demoMode ? "stateless-demo" : "management-auth",
           ...healthMetadata,
-          playbooks: getPlaybookRegistry().map((playbook) => ({
+          playbooks: playbooks.map((playbook) => ({
             playbook_key: playbook.playbook_key,
             enabled: playbook.enabled,
             status: playbook.status
@@ -33,8 +37,20 @@ export function createHiringAgentApp(options = {}) {
       };
     },
 
-    async postChatMessage({ message, tenantSql = null, tenantId = null, job_id: jobId }) {
-      const playbookKey = routePlaybook(message);
+    async postChatMessage({
+      message,
+      action = null,
+      playbook_key: requestedPlaybookKey = null,
+      tenantSql = null,
+      tenantId = null,
+      recruiterId = null,
+      job_id: jobId,
+      vacancy_id: vacancyId = null,
+      managementSql: requestManagementSql = managementSql
+    }) {
+      const playbookKey = action === "start_playbook" && requestedPlaybookKey
+        ? requestedPlaybookKey
+        : await routePlaybook(message, requestManagementSql);
       if (!playbookKey) {
         return {
           status: 200,
@@ -47,7 +63,7 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      const playbook = findPlaybook(playbookKey);
+      const playbook = await findPlaybook(playbookKey, requestManagementSql);
       if (!playbook) {
         return {
           status: 404,
@@ -112,10 +128,44 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
+      if (playbook.playbook_key !== "create_vacancy" && !vacancyId) {
+        return {
+          status: 200,
+          body: {
+            reply: {
+              kind: "fallback_text",
+              text: "Сначала выберите вакансию для этого playbook."
+            }
+          }
+        };
+      }
+
+      if (!requestManagementSql) {
+        return {
+          status: 501,
+          body: {
+            error: "playbook_runtime_requires_management_db"
+          }
+        };
+      }
+
+      const runtimeResult = await dispatch({
+        managementSql: requestManagementSql,
+        tenantSql,
+        tenantId,
+        recruiterId,
+        vacancyId,
+        playbookKey,
+        recruiterInput: message ?? null,
+        llmAdapter
+      });
+
       return {
-        status: 501,
+        status: 200,
         body: {
-          error: "playbook_not_implemented"
+          reply: runtimeResult.reply,
+          session_id: runtimeResult.sessionId,
+          vacancy_id: runtimeResult.vacancyId ?? vacancyId ?? null
         }
       };
     },
