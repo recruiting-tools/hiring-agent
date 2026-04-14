@@ -762,6 +762,171 @@ test("hiring-agent: management-backed chat accepts owned job_id and returns funn
   }
 });
 
+test("hiring-agent: management-backed setup_communication uses chatbot.jobs and returns llm output", async () => {
+  const llmCalls = [];
+  let callIndex = 0;
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+    callIndex += 1;
+
+    if (callIndex === 1) {
+      assert.match(text, /FROM chatbot\.jobs/);
+      assert.deepEqual(values, ["job-owned", "tenant-alpha-001"]);
+      return [{ job_id: "job-owned", title: "Owned role" }];
+    }
+
+    assert.match(text, /LEFT JOIN chatbot\.pipeline_templates/);
+    assert.match(text, /FROM chatbot\.jobs j/);
+    assert.deepEqual(values, ["job-owned"]);
+    return [{
+      job_id: "job-owned",
+      title: "Owned role",
+      description: "Remote, 200k, TypeScript and Playwright.",
+      pipeline_steps: [
+        {
+          id: "intro",
+          goal: "Проверить опыт автоматизации",
+          done_when: "Кандидат описывает реальные кейсы с Playwright",
+          reject_when: "Нет опыта автотестов"
+        }
+      ]
+    }];
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    llmAdapter: {
+      async generate(prompt) {
+        llmCalls.push(prompt);
+        return "## План коммуникации\n\n### Вариант 1\n\nГотово.";
+      }
+    }
+  });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "настроить общение с кандидатами",
+      job_id: "job-owned",
+      vacancy_id: "job-owned"
+    }, "session=sess-alpha");
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "llm_output");
+    assert.match(body.reply.content, /План коммуникации/);
+    assert.equal(llmCalls.length, 1);
+    assert.match(llmCalls[0], /Описание вакансии:/);
+    assert.match(llmCalls[0], /Remote, 200k, TypeScript and Playwright\./);
+    assert.match(llmCalls[0], /Проверить опыт автоматизации/);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed setup_communication rejects foreign job_id before llm call", async () => {
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+    assert.match(text, /WHERE job_id = \$1/);
+    assert.deepEqual(values, ["job-foreign", "tenant-alpha-001"]);
+    return [];
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    llmAdapter: {
+      async generate() {
+        throw new Error("llm must not be called");
+      }
+    }
+  });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "настроить общение с кандидатами",
+      job_id: "job-foreign",
+      vacancy_id: "job-foreign"
+    }, "session=sess-alpha");
+    assert.equal(status, 404);
+    assert.equal(body.error, "job_not_found");
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: WebSocket returns funnel chunks for authenticated session", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   const port = server.address().port;

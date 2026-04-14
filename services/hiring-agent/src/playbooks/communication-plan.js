@@ -3,7 +3,7 @@
  *
  * Instead of going through the 6-step runtime (auto_fetch → llm_generate → display
  * → llm_generate → display → buttons), we do it in one shot:
- *   1. Fetch vacancy from chatbot.vacancies
+ *   1. Fetch job + pipeline template from chatbot.jobs / chatbot.pipeline_templates
  *   2. Build a single comprehensive prompt
  *   3. One LLM call → full communication plan + first message examples
  *   4. Return as llm_output reply
@@ -40,15 +40,8 @@ export async function runCommunicationPlanPlaybook({ tenantSql, vacancyId, llmAd
     };
   }
 
-  const rows = await tenantSql`
-    SELECT *
-    FROM chatbot.vacancies
-    WHERE vacancy_id = ${vacancyId}
-    LIMIT 1
-  `;
-
-  const vacancy = rows[0] ?? null;
-  if (!vacancy) {
+  const job = await getCommunicationPlanJob(tenantSql, vacancyId);
+  if (!job) {
     return {
       reply: {
         kind: "fallback_text",
@@ -57,7 +50,7 @@ export async function runCommunicationPlanPlaybook({ tenantSql, vacancyId, llmAd
     };
   }
 
-  const prompt = buildPrompt(vacancy);
+  const prompt = buildPrompt(job);
   const raw = await llmAdapter.generate(prompt);
 
   return {
@@ -69,12 +62,40 @@ export async function runCommunicationPlanPlaybook({ tenantSql, vacancyId, llmAd
   };
 }
 
-function buildPrompt(vacancy) {
-  const mustHaves = formatList(vacancy.must_haves);
-  const niceHaves = formatList(vacancy.nice_haves);
-  const conditions = formatConditions(vacancy.work_conditions);
-  const inScopeSteps = formatApplicationSteps(vacancy.application_steps);
-  const firstStepScript = getFirstStepScript(vacancy.application_steps);
+async function getCommunicationPlanJob(tenantSql, jobId) {
+  const rows = await tenantSql`
+    SELECT
+      j.job_id,
+      j.title,
+      j.description,
+      pt.steps_json AS pipeline_steps
+    FROM chatbot.jobs j
+    LEFT JOIN chatbot.pipeline_templates pt
+      ON pt.job_id = j.job_id
+    WHERE j.job_id = ${jobId}
+    ORDER BY pt.template_version DESC NULLS LAST
+    LIMIT 1
+  `;
+
+  return normalizeJob(rows[0] ?? null);
+}
+
+function normalizeJob(row) {
+  if (!row) return null;
+
+  return {
+    job_id: row.job_id,
+    title: row.title ?? null,
+    description: row.description ?? null,
+    pipeline_steps: Array.isArray(row.pipeline_steps) ? row.pipeline_steps : []
+  };
+}
+
+function buildPrompt(job) {
+  const steps = Array.isArray(job.pipeline_steps) ? job.pipeline_steps : [];
+  const description = job.description?.trim() || "— не указано";
+  const communicationSteps = formatPipelineSteps(steps);
+  const firstStepGuidance = getFirstStepGuidance(steps);
 
   return `Ты помогаешь рекрутеру выстроить сценарий переписки с кандидатами по вакансии.
 
@@ -110,20 +131,14 @@ function buildPrompt(vacancy) {
 ДАННЫЕ ВАКАНСИИ
 ─────────────────────────────────────
 
-Должность: ${vacancy.title ?? "не указана"}
+Должность: ${job.title ?? "не указана"}
 
-Маст-хэвы:
-${mustHaves}
+Описание вакансии:
+${description}
 
-Найс-хэвы:
-${niceHaves}
-
-Условия работы:
-${conditions}
-
-Шаги найма (наша зона):
-${inScopeSteps}
-${firstStepScript ? `\nСкрипт первого шага:\n${firstStepScript}` : ""}
+Шаги скрининга и найма:
+${communicationSteps}
+${firstStepGuidance ? `\nПодсказка по первому сообщению:\n${firstStepGuidance}` : ""}
 ─────────────────────────────────────
 ФОРМАТ ОТВЕТА
 ─────────────────────────────────────
@@ -134,44 +149,26 @@ ${firstStepScript ? `\nСкрипт первого шага:\n${firstStepScript}
 В конце — одна строка с рекомендацией по режиму автоматизации (полная автоматизация / пре-модерация / только уведомления) и коротким обоснованием (1 предложение).`;
 }
 
-function formatList(items) {
-  if (!Array.isArray(items) || items.length === 0) return "— не указано";
-  return items.map((item) => `- ${item}`).join("\n");
-}
-
-function formatConditions(conditions) {
-  if (!conditions || typeof conditions !== "object") return "— не указано";
-  const parts = [];
-  if (conditions.salary_range) {
-    const { min, max } = conditions.salary_range;
-    if (min && max) parts.push(`Зарплата: ${min.toLocaleString("ru-RU")}–${max.toLocaleString("ru-RU")} ₽`);
-    else if (min) parts.push(`Зарплата: от ${min.toLocaleString("ru-RU")} ₽`);
-    else if (max) parts.push(`Зарплата: до ${max.toLocaleString("ru-RU")} ₽`);
-  }
-  if (conditions.pay_per_shift) parts.push(`Ставка за смену: ${conditions.pay_per_shift}`);
-  if (conditions.schedule) parts.push(`График: ${conditions.schedule}`);
-  if (conditions.location) parts.push(`Локация: ${conditions.location}`);
-  if (conditions.remote === true) parts.push("Удалённая работа: да");
-  if (Array.isArray(conditions.perks) && conditions.perks.length > 0) {
-    parts.push(`Бонусы: ${conditions.perks.join(", ")}`);
-  }
-  return parts.length > 0 ? parts.join("\n") : "— не указано";
-}
-
-function formatApplicationSteps(steps) {
+function formatPipelineSteps(steps) {
   if (!Array.isArray(steps) || steps.length === 0) return "— не указано";
-  const inScope = steps.filter((s) => s.in_our_scope);
-  if (inScope.length === 0) return "— нет шагов в нашей зоне";
-  return inScope
+  return steps
     .map((s, i) => {
-      const target = s.is_target ? " [целевое действие]" : "";
-      return `${i + 1}. ${s.name}${target}`;
+      const goal = s.goal ? ` — ${s.goal}` : "";
+      const doneWhen = s.done_when ? `\n   Когда считаем успехом: ${s.done_when}` : "";
+      const rejectWhen = s.reject_when ? `\n   Когда это red flag: ${s.reject_when}` : "";
+      return `${i + 1}. ${s.id ?? s.name ?? `step-${i + 1}`}${goal}${doneWhen}${rejectWhen}`;
     })
     .join("\n");
 }
 
-function getFirstStepScript(steps) {
+function getFirstStepGuidance(steps) {
   if (!Array.isArray(steps)) return null;
-  const firstInScope = steps.find((s) => s.in_our_scope && s.script);
-  return firstInScope?.script ?? null;
+  const firstStep = steps[0];
+  if (!firstStep) return null;
+
+  const parts = [];
+  if (firstStep.goal) parts.push(`Первый шаг должен проверить: ${firstStep.goal}`);
+  if (firstStep.done_when) parts.push(`Успешный сигнал: ${firstStep.done_when}`);
+  if (firstStep.reject_when) parts.push(`Риск/отказ: ${firstStep.reject_when}`);
+  return parts.length > 0 ? parts.join("\n") : null;
 }
