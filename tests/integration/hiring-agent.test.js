@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import WsClient from "ws";
 import { createHiringAgentApp } from "../../services/hiring-agent/src/app.js";
 import { createHiringAgentServer } from "../../services/hiring-agent/src/http-server.js";
 
@@ -664,6 +665,68 @@ test("hiring-agent: management-backed chat accepts owned job_id and returns funn
     assert.equal(status, 200);
     assert.equal(body.reply.kind, "render_funnel");
     assert.equal(body.reply.summary.total, 3);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: WebSocket returns funnel chunks for authenticated session", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  const port = server.address().port;
+  try {
+    const sessionCookie = await login(server);
+
+    const messages = await new Promise((resolve, reject) => {
+      const ws = new WsClient(`ws://localhost:${port}/`, { headers: { cookie: sessionCookie } });
+      const received = [];
+      let settled = false;
+
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        ws.close();
+        if (err) reject(err); else resolve(received);
+      };
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({ type: "message", text: "Визуализируй воронку по кандидатам" }));
+      });
+      ws.on("message", (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          received.push(msg);
+          if (msg.type === "done") finish();
+        } catch (err) {
+          finish(err);
+        }
+      });
+      ws.on("error", finish);
+      setTimeout(() => finish(new Error("timeout")), 5000);
+    });
+
+    const chunk = messages.find((m) => m.type === "chunk");
+    const done = messages.find((m) => m.type === "done");
+    assert.ok(chunk, "should receive chunk message");
+    assert.ok(typeof chunk.text === "string" && chunk.text.length > 0, "chunk text should be non-empty");
+    assert.ok(done, "should receive done message");
+    assert.ok(Array.isArray(done.actions), "done.actions should be an array");
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: WebSocket closes with 4001 when session cookie is missing", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  const port = server.address().port;
+  try {
+    const closeCode = await new Promise((resolve, reject) => {
+      const ws = new WsClient(`ws://localhost:${port}/`);
+      ws.on("close", (code) => resolve(code));
+      ws.on("error", reject);
+      setTimeout(() => reject(new Error("timeout")), 5000);
+    });
+
+    assert.equal(closeCode, 4001);
   } finally {
     server.close();
   }
