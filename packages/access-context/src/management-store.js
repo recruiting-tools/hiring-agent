@@ -4,6 +4,8 @@ const SESSION_TTL_DAYS = 30;
 const SESSION_RENEWAL_WINDOW_DAYS = 7;
 
 export function createManagementStore(managementSql) {
+  const value = (input) => (input === undefined ? null : input);
+
   return {
     async getRecruiterSession(sessionToken) {
       const rows = await managementSql`
@@ -21,7 +23,7 @@ export function createManagementStore(managementSql) {
         FROM management.sessions s
         JOIN management.recruiters r ON r.recruiter_id = s.recruiter_id
         JOIN management.tenants t ON t.tenant_id = r.tenant_id
-        WHERE s.session_token = ${sessionToken}
+        WHERE s.session_token = ${value(sessionToken)}
           AND s.expires_at > now()
       `;
       return rows[0] ?? null;
@@ -35,7 +37,7 @@ export function createManagementStore(managementSql) {
       await managementSql`
         UPDATE management.sessions
         SET expires_at = now() + ${`${SESSION_TTL_DAYS} days`}::interval
-        WHERE session_token = ${sessionToken}
+        WHERE session_token = ${value(sessionToken)}
       `;
     },
 
@@ -43,7 +45,7 @@ export function createManagementStore(managementSql) {
       const sessionToken = randomSessionToken();
       await managementSql`
         INSERT INTO management.sessions (session_token, recruiter_id, expires_at)
-        VALUES (${sessionToken}, ${recruiterId}, now() + ${`${SESSION_TTL_DAYS} days`}::interval)
+        VALUES (${value(sessionToken)}, ${value(recruiterId)}, now() + ${`${SESSION_TTL_DAYS} days`}::interval)
       `;
       return sessionToken;
     },
@@ -52,7 +54,7 @@ export function createManagementStore(managementSql) {
       const rows = await managementSql`
         SELECT recruiter_id, tenant_id, email, password_hash, status, role
         FROM management.recruiters
-        WHERE email = ${email}
+        WHERE email = ${value(email)}
       `;
       return rows[0] ?? null;
     },
@@ -61,8 +63,8 @@ export function createManagementStore(managementSql) {
       const rows = await managementSql`
         SELECT binding_id, tenant_id, environment, binding_kind, db_alias, schema_name, is_primary
         FROM management.tenant_database_bindings
-        WHERE tenant_id = ${tenantId}
-          AND environment = ${appEnv}
+        WHERE tenant_id = ${value(tenantId)}
+          AND environment = ${value(appEnv)}
           AND is_primary = true
         LIMIT 1
       `;
@@ -73,7 +75,7 @@ export function createManagementStore(managementSql) {
       const rows = await managementSql`
         SELECT db_alias, secret_name, connection_string, provider, region, status
         FROM management.database_connections
-        WHERE db_alias = ${dbAlias}
+        WHERE db_alias = ${value(dbAlias)}
         LIMIT 1
       `;
       return rows[0] ?? null;
@@ -97,7 +99,7 @@ export function createManagementStore(managementSql) {
           notes,
           created_at
         FROM management.playbook_steps
-        WHERE playbook_key = ${playbookKey}
+        WHERE playbook_key = ${value(playbookKey)}
         ORDER BY step_order ASC
       `;
       return rows;
@@ -120,10 +122,10 @@ export function createManagementStore(managementSql) {
           updated_at,
           completed_at
         FROM management.playbook_sessions
-        WHERE tenant_id = ${tenantId}
-          AND recruiter_id = ${recruiterId}
-          AND vacancy_id IS NOT DISTINCT FROM ${vacancyId}
-          AND playbook_key = ${playbookKey}
+        WHERE tenant_id = ${value(tenantId)}
+          AND recruiter_id = ${value(recruiterId)}
+          AND vacancy_id IS NOT DISTINCT FROM ${value(vacancyId)}
+          AND playbook_key = ${value(playbookKey)}
           AND status = 'active'
         LIMIT 1
       `;
@@ -152,14 +154,14 @@ export function createManagementStore(managementSql) {
           call_stack
         )
         VALUES (
-          ${tenantId},
-          ${recruiterId},
-          ${conversationId},
-          ${playbookKey},
-          ${currentStepOrder},
-          ${vacancyId},
-          ${JSON.stringify(context)}::jsonb,
-          ${JSON.stringify(callStack)}::jsonb
+          ${value(tenantId)},
+          ${value(recruiterId)},
+          ${value(conversationId)},
+          ${value(playbookKey)},
+          ${value(currentStepOrder)},
+          ${value(vacancyId)},
+          ${JSON.stringify(context ?? {})}::jsonb,
+          ${JSON.stringify(callStack ?? [])}::jsonb
         )
         RETURNING
           session_id,
@@ -189,13 +191,13 @@ export function createManagementStore(managementSql) {
       const rows = await managementSql`
         UPDATE management.playbook_sessions
         SET
-          current_step_order = COALESCE(${currentStepOrder}, current_step_order),
+          current_step_order = COALESCE(${value(currentStepOrder)}, current_step_order),
           context = COALESCE(${context === undefined ? null : JSON.stringify(context)}::jsonb, context),
           call_stack = COALESCE(${callStack === undefined ? null : JSON.stringify(callStack)}::jsonb, call_stack),
-          vacancy_id = COALESCE(${vacancyId}, vacancy_id),
-          status = COALESCE(${status}, status),
+          vacancy_id = COALESCE(${value(vacancyId)}, vacancy_id),
+          status = COALESCE(${value(status)}, status),
           updated_at = now()
-        WHERE session_id = ${sessionId}
+        WHERE session_id = ${value(sessionId)}
         RETURNING
           session_id,
           tenant_id,
@@ -222,10 +224,10 @@ export function createManagementStore(managementSql) {
           current_step_order = null,
           context = COALESCE(${context === undefined ? null : JSON.stringify(context)}::jsonb, context),
           call_stack = COALESCE(${callStack === undefined ? null : JSON.stringify(callStack)}::jsonb, call_stack),
-          vacancy_id = COALESCE(${vacancyId}, vacancy_id),
+          vacancy_id = COALESCE(${value(vacancyId)}, vacancy_id),
           updated_at = now(),
           completed_at = now()
-        WHERE session_id = ${sessionId}
+        WHERE session_id = ${value(sessionId)}
         RETURNING
           session_id,
           tenant_id,
@@ -249,11 +251,11 @@ export function createManagementStore(managementSql) {
         UPDATE management.playbook_sessions
         SET status = 'aborted',
             updated_at = now()
-        WHERE tenant_id = ${tenantId}
-          AND recruiter_id = ${recruiterId}
-          AND vacancy_id IS NOT DISTINCT FROM ${vacancyId}
+        WHERE tenant_id = ${value(tenantId)}
+          AND recruiter_id = ${value(recruiterId)}
+          AND vacancy_id IS NOT DISTINCT FROM ${value(vacancyId)}
           AND status = 'active'
-          AND (${excludePlaybookKey}::text IS NULL OR playbook_key <> ${excludePlaybookKey})
+          AND (${value(excludePlaybookKey)}::text IS NULL OR playbook_key <> ${value(excludePlaybookKey)})
       `;
     }
   };
