@@ -404,6 +404,50 @@ test("hiring-agent: demo mode missing session returns 401 explicitly", async () 
   }
 });
 
+test("hiring-agent: management-backed chat returns guidance when no job_id provided", async () => {
+  const tenantSql = async () => {
+    throw new Error("tenantSql must not be called when job_id is missing");
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return { binding_id: "bind-1", db_alias: "db-alpha", binding_kind: "shared_db", schema_name: null };
+      },
+      async getDatabaseConnection() {
+        return { db_alias: "db-alpha", connection_string: "postgres://alpha" };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: { getOrCreate() { return tenantSql; } }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "Визуализируй воронку по кандидатам"
+      // no job_id
+    }, "session=sess-alpha");
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "fallback_text");
+    assert.ok(body.reply.text.includes("Выберите вакансию"));
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: management-backed chat rejects foreign job_id before funnel query", async () => {
   const tenantSql = async (strings, ...values) => {
     const text = strings.reduce((result, chunk, index) => (
