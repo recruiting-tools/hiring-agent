@@ -1,0 +1,101 @@
+{
+  "_comment": "Candidate archetypes for demo simulator. Each archetype defines behavioral traits and initial message templates.",
+  "archetypes": [
+    {
+      "id": "strong_fit",
+      "label": "Сильный кандидат",
+      "description": "Отвечает по делу, подтверждает опыт и соответствие требованиям, готов на условия",
+      "terminal": false,
+      "goes_dark_probability": 0.05,
+      "reply_delay_minutes": [10, 60]
+    },
+    {
+      "id": "medium_needs_clarification",
+      "label": "Пограничный / нужно уточнить",
+      "description": "Опыт есть, но не полный. Задаёт вопросы. Нужно 2–3 уточняющих обмена.",
+      "terminal": false,
+      "goes_dark_probability": 0.15,
+      "reply_delay_minutes": [30, 180]
+    },
+    {
+      "id": "salary_mismatch",
+      "label": "Несоответствие по зарплате",
+      "description": "Хочет значительно выше вилки. После уточнения — либо уходит, либо идёт на компромисс (редко).",
+      "terminal": true,
+      "goes_dark_probability": 0.30,
+      "reply_delay_minutes": [60, 240]
+    },
+    {
+      "id": "schedule_mismatch",
+      "label": "Несоответствие по графику",
+      "description": "Кандидат нормальный, но не готов к требуемому графику. Отказывает сам или получает отказ.",
+      "terminal": true,
+      "goes_dark_probability": 0.25,
+      "reply_delay_minutes": [20, 120]
+    },
+    {
+      "id": "docs_problem",
+      "label": "Проблемы с документами",
+      "description": "Опыт есть, но нет медкнижки / допуска / гражданства. Часть готова оформить, часть — нет.",
+      "terminal": false,
+      "goes_dark_probability": 0.35,
+      "reply_delay_minutes": [30, 120]
+    },
+    {
+      "id": "no_experience_but_motivated",
+      "label": "Без опыта, но мотивированный",
+      "description": "Типичный hh-типаж: 'Готов учиться, быстро обучаюсь'. Опыта нет или минимум.",
+      "terminal": true,
+      "goes_dark_probability": 0.20,
+      "reply_delay_minutes": [15, 90]
+    },
+    {
+      "id": "hidden_gem",
+      "label": "Скрытый сильный кандидат",
+      "description": "Резюме слабое, короткое или нестандартное — но в диалоге оказывается сильным.",
+      "terminal": false,
+      "goes_dark_probability": 0.10,
+      "reply_delay_minutes": [20, 120]
+    },
+    {
+      "id": "went_dark",
+      "label": "Ушёл в молчание",
+      "description": "Откликнулся (и, возможно, ответил на первое сообщение), затем перестал отвечать.",
+      "terminal": true,
+      "goes_dark_probability": 1.0,
+      "reply_delay_minutes": [120, 1440]
+    },
+    {
+      "id": "chaotic_responder",
+      "label": "Хаотичный кандидат",
+      "description": "Отвечает непоследовательно, смешивает темы, нужно извлекать смысл. Иногда всё же подходит.",
+      "terminal": false,
+      "goes_dark_probability": 0.20,
+      "reply_delay_minutes": [5, 240]
+    }
+  ],
+  "vacancy_weights": {
+    "blue_collar": {
+      "strong_fit": 0.20,
+      "medium_needs_clarification": 0.22,
+      "salary_mismatch": 0.12,
+      "schedule_mismatch": 0.10,
+      "docs_problem": 0.08,
+      "no_experience_but_motivated": 0.10,
+      "hidden_gem": 0.05,
+      "went_dark": 0.10,
+      "chaotic_responder": 0.03
+    },
+    "white_collar": {
+      "strong_fit": 0.25,
+      "medium_needs_clarification": 0.25,
+      "salary_mismatch": 0.18,
+      "schedule_mismatch": 0.05,
+      "docs_problem": 0.02,
+      "no_experience_but_motivated": 0.05,
+      "hidden_gem": 0.08,
+      "went_dark": 0.08,
+      "chaotic_responder": 0.04
+    }
+  }
+}

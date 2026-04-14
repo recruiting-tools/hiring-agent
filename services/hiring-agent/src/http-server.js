@@ -1,5 +1,4 @@
 import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { WebSocketServer } from "ws";
 import { createSession, getRecruiterByEmail, parseCookies, resolveSession } from "./auth.js";
@@ -161,6 +160,8 @@ const LOGIN_HTML = `<!DOCTYPE html>
     </section>
   </div>
   <script>
+    const APP_BASE_PATH = '__APP_BASE_PATH__';
+    const withBasePath = (path) => (APP_BASE_PATH ? APP_BASE_PATH + path : path);
     const loginForm = document.getElementById("loginForm");
     const loginBtn = document.getElementById("loginBtn");
     const loginError = document.getElementById("loginError");
@@ -176,7 +177,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
       loginBtn.disabled = true;
 
       try {
-        const response = await fetch("/auth/login", {
+        const response = await fetch(withBasePath("/auth/login"), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -187,7 +188,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
 
         const data = await response.json().catch(() => ({}));
         if (response.ok) {
-          window.location = data.redirect || "/";
+          window.location = data.redirect || withBasePath("/");
           return;
         }
 
@@ -215,173 +216,394 @@ const CHAT_HTML = `<!DOCTYPE html>
   <style>
     :root {
       --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      --bg:    #080a0f;
-      --bg2:   #0e1118;
-      --bg3:   #161b26;
-      --edge:  #1e2535;
-      --t1:    #e4e8f0;
-      --t2:    #8892a4;
-      --t3:    #4a5268;
-      --acc:   #4f8ff7;
-      --acc-d: rgba(79,143,247,0.12);
-      --green: #34c759;
-      --red:   #ef4444;
+      --bg: #09111f;
+      --bg2: #0d1627;
+      --bg3: #101b31;
+      --surface: rgba(13, 22, 39, 0.82);
+      --surface-strong: rgba(16, 27, 49, 0.94);
+      --surface-soft: rgba(255, 255, 255, 0.04);
+      --edge: rgba(157, 181, 224, 0.14);
+      --edge-strong: rgba(157, 181, 224, 0.24);
+      --t1: #edf3ff;
+      --t2: #9ca9c6;
+      --t3: #61708d;
+      --acc: #69a2ff;
+      --acc-strong: #8fb8ff;
+      --acc-d: rgba(105, 162, 255, 0.14);
+      --green: #3ddc97;
+      --red: #ff6b6b;
+      --shadow-lg: 0 28px 90px rgba(2, 8, 23, 0.45);
+      --shadow-md: 0 16px 50px rgba(2, 8, 23, 0.24);
+      --shell-width: 1440px;
+      --chat-width: 920px;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: var(--font);
-      background: var(--bg);
+      background:
+        radial-gradient(circle at top left, rgba(105, 162, 255, 0.2), transparent 30%),
+        radial-gradient(circle at top right, rgba(61, 220, 151, 0.12), transparent 24%),
+        linear-gradient(180deg, #08101d 0%, #09111f 35%, #0c1525 100%);
       color: var(--t1);
-      height: 100dvh;
-      display: flex;
-      flex-direction: column;
-      overflow-x: hidden;
-      overflow-y: hidden;
+      min-height: 100dvh;
+    }
+    a { color: inherit; }
+    button,
+    textarea,
+    select {
+      font: inherit;
     }
 
-    /* ── HEADER ────────────────────────────────────────────────── */
-    #header {
+    .app-shell {
+      width: min(calc(100% - 32px), var(--shell-width));
+      margin: 0 auto;
+      padding: 28px 0 32px;
+    }
+    .topbar {
       display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .brand-stack {
+      display: grid;
+      gap: 6px;
+    }
+    .eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--acc-strong);
+    }
+    .topbar h1 {
+      font-size: clamp(28px, 3vw, 40px);
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+    }
+    .topbar p {
+      max-width: 640px;
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--t2);
+    }
+    .status-pill {
+      display: inline-flex;
       align-items: center;
-      flex-wrap: wrap;
       gap: 10px;
-      padding: 10px 16px;
-      min-height: 52px;
-      border-bottom: 1px solid var(--edge);
-      flex-shrink: 0;
+      padding: 12px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--edge);
+      background: rgba(8, 14, 26, 0.54);
+      color: var(--t2);
+      white-space: nowrap;
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow-md);
+    }
+    .status-pill strong {
+      color: var(--t1);
+      font-size: 13px;
+      font-weight: 600;
     }
     #status-dot {
-      width: 7px; height: 7px;
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
       background: var(--red);
-      flex-shrink: 0;
-      transition: background 0.3s;
+      box-shadow: 0 0 0 6px rgba(255, 107, 107, 0.12);
+      transition: background 0.3s, box-shadow 0.3s;
     }
-    #status-dot.connected { background: var(--green); }
-    .logo {
-      font-size: 14px;
+    #status-dot.connected {
+      background: var(--green);
+      box-shadow: 0 0 0 6px rgba(61, 220, 151, 0.12);
+    }
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+      gap: 20px;
+      align-items: stretch;
+      min-height: calc(100dvh - 170px);
+    }
+    .panel {
+      border: 1px solid var(--edge);
+      background: var(--surface);
+      border-radius: 28px;
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow-lg);
+    }
+    .sidebar {
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+    .sidebar-card {
+      padding: 20px;
+    }
+    .sidebar-card h2,
+    .sidebar-card h3 {
+      font-size: 15px;
       font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .sidebar-card p {
+      margin-top: 8px;
+      color: var(--t2);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .meta-grid {
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .meta-row {
+      display: grid;
+      gap: 6px;
+    }
+    .meta-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--t3);
+    }
+    .meta-value {
       color: var(--t1);
-      letter-spacing: -0.01em;
+      font-size: 14px;
+      line-height: 1.45;
+      word-break: break-word;
     }
     #vacancy-select {
-      flex: 1 1 280px;
-      min-width: 0;
-      max-width: 420px;
-      margin-left: auto;
-      padding: 6px 10px;
-      background: var(--bg3);
+      width: 100%;
+      padding: 12px 14px;
+      background: var(--surface-strong);
       border: 1px solid var(--edge);
-      border-radius: 8px;
+      border-radius: 14px;
       color: var(--t1);
-      font-family: var(--font);
-      font-size: 13px;
+      font-size: 14px;
       cursor: pointer;
       outline: none;
+      appearance: none;
     }
     #vacancy-select:focus { border-color: var(--acc); }
     #vacancy-select option { background: var(--bg2); }
-    #logout-btn {
-      margin-left: 8px;
-      padding: 5px 12px;
-      font-size: 12px;
-      font-family: var(--font);
-      background: transparent;
-      border: 1px solid var(--edge);
-      border-radius: 7px;
-      color: var(--t2);
-      cursor: pointer;
-      text-decoration: none;
-      white-space: nowrap;
+    .primary-btn,
+    .ghost-btn,
+    .shortcut-btn,
+    .action-btn,
+    .playbook-chip,
+    #send-btn {
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, opacity 0.16s ease, color 0.16s ease;
     }
-    #logout-btn:hover { border-color: var(--t2); color: var(--t1); }
-    #recruiter-email {
+    .primary-btn,
+    .ghost-btn,
+    .shortcut-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 42px;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      padding: 0 14px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .primary-btn {
+      color: #07101d;
+      background: linear-gradient(135deg, #8bb7ff 0%, #6ea7ff 100%);
+      box-shadow: 0 12px 32px rgba(105, 162, 255, 0.22);
+    }
+    .ghost-btn {
+      color: var(--t2);
+      border-color: var(--edge);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .primary-btn:hover,
+    .ghost-btn:hover,
+    .shortcut-btn:hover,
+    .action-btn:hover,
+    .playbook-chip:hover,
+    #send-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+    }
+    .shortcut-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .shortcut-btn {
+      justify-content: flex-start;
+      min-height: 48px;
+      padding: 0 14px;
+      border-radius: 16px;
+      border: 1px solid var(--edge);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--t1);
+      text-align: left;
+    }
+    .shortcut-btn[disabled] {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .shortcut-btn span {
+      display: block;
+    }
+    .shortcut-title {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .shortcut-copy {
+      margin-top: 2px;
       font-size: 12px;
-      color: var(--t3);
-      margin-left: 4px;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      color: var(--t2);
+    }
+    #moderation-link {
+      margin-top: 10px;
+    }
+    #moderation-link[hidden] {
+      display: none;
     }
 
-    /* ── CHAT LOG ──────────────────────────────────────────────── */
+    .chat-stage {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 12%),
+        rgba(10, 18, 33, 0.82);
+    }
+    .chat-stage-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--edge);
+      background: rgba(6, 12, 24, 0.42);
+      backdrop-filter: blur(18px);
+    }
+    .chat-stage-copy {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+    .chat-stage-copy h2 {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chat-stage-copy p {
+      font-size: 13px;
+      color: var(--t2);
+      line-height: 1.5;
+    }
+    #logout-btn {
+      flex-shrink: 0;
+      padding: 11px 14px;
+      border: 1px solid var(--edge);
+      border-radius: 14px;
+      color: var(--t2);
+      text-decoration: none;
+      background: rgba(255, 255, 255, 0.03);
+    }
+    #logout-btn:hover {
+      border-color: var(--edge-strong);
+      color: var(--t1);
+    }
+
     #chat-log {
       flex: 1;
       overflow-y: auto;
-      overflow-x: hidden;
-      width: min(100%, 980px);
-      margin: 0 auto;
-      padding: 20px 16px;
+      padding: 26px 22px 18px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 14px;
       scroll-behavior: smooth;
     }
     #chat-log::-webkit-scrollbar { width: 4px; }
     #chat-log::-webkit-scrollbar-track { background: transparent; }
     #chat-log::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 2px; }
+    .chat-lane {
+      width: min(100%, var(--chat-width));
+      margin: 0 auto;
+    }
 
-    /* ── EMPTY STATE ───────────────────────────────────────────── */
     #empty-state {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 16px;
+      gap: 18px;
       flex: 1;
-      padding: 40px 20px;
+      padding: 48px 20px 56px;
       text-align: center;
       color: var(--t2);
     }
-    #empty-state .empty-icon { font-size: 40px; }
-    #empty-state h2 { font-size: 18px; font-weight: 600; color: var(--t1); }
-    #empty-state p { font-size: 14px; line-height: 1.5; max-width: 300px; }
-    .btn-primary {
-      padding: 9px 18px;
-      background: var(--acc);
-      color: white;
-      border: none;
-      border-radius: 9px;
-      font-family: var(--font);
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
+    #empty-state .empty-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--edge);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 12px;
+      color: var(--acc-strong);
     }
-    .btn-primary:hover { opacity: 0.88; }
-
-    /* ── MESSAGE ROWS ──────────────────────────────────────────── */
+    #empty-state h2 {
+      font-size: clamp(28px, 3.8vw, 40px);
+      font-weight: 600;
+      letter-spacing: -0.05em;
+      color: var(--t1);
+      max-width: 560px;
+    }
+    #empty-state p {
+      font-size: 15px;
+      line-height: 1.75;
+      max-width: 560px;
+    }
+    .empty-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
     .msg-row {
       display: flex;
-      width: 100%;
-      min-width: 0;
+      width: min(100%, var(--chat-width));
+      margin: 0 auto;
     }
     .msg-row.user { justify-content: flex-end; }
     .msg-row.assistant { justify-content: flex-start; }
-
     .bubble {
-      max-width: min(100%, 680px);
-      padding: 10px 14px;
+      max-width: min(82%, 760px);
+      padding: 14px 16px;
       font-size: 14px;
-      line-height: 1.55;
-      border-radius: 12px;
+      line-height: 1.65;
+      border-radius: 20px;
       word-break: break-word;
-      overflow-wrap: anywhere;
+      box-shadow: var(--shadow-md);
     }
     .user-bubble {
-      background: var(--acc);
-      color: white;
-      border-radius: 12px 12px 2px 12px;
+      background: linear-gradient(135deg, #79abff 0%, #5a97ff 100%);
+      color: #07101d;
+      border-radius: 20px 20px 6px 20px;
     }
     .assistant-bubble {
-      background: var(--bg2);
+      background: rgba(9, 17, 31, 0.78);
       border: 1px solid var(--edge);
       color: var(--t1);
-      border-radius: 12px 12px 12px 2px;
+      border-radius: 20px 20px 20px 6px;
       position: relative;
     }
-
-    /* Streaming cursor */
     .assistant-bubble.streaming .bubble-content:not(:empty)::after {
       content: '▋';
       display: inline;
@@ -391,12 +613,11 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 
-    /* ── PROGRESS STEPS ────────────────────────────────────────── */
     .progress-steps {
       display: flex;
       flex-direction: column;
       gap: 4px;
-      margin-bottom: 6px;
+      margin-bottom: 10px;
     }
     .progress-steps:empty { display: none; }
     .progress-step {
@@ -421,13 +642,11 @@ const CHAT_HTML = `<!DOCTYPE html>
       0%,100%{opacity:1;transform:scale(1)}
       50%{opacity:0.45;transform:scale(0.75)}
     }
-
-    /* ── BUBBLE CONTENT (markdown) ─────────────────────────────── */
     .bubble-content { overflow-x: auto; }
     .bubble-content p { margin: 0 0 8px; }
     .bubble-content p:last-child { margin-bottom: 0; }
     .bubble-content h1,.bubble-content h2,.bubble-content h3 {
-      font-size: 15px; font-weight: 600; margin: 12px 0 6px;
+      font-size: 15px; font-weight: 600; margin: 14px 0 6px;
       color: var(--t1);
     }
     .bubble-content h2 { font-size: 14px; }
@@ -481,331 +700,297 @@ const CHAT_HTML = `<!DOCTYPE html>
     .bubble-content strong { color: var(--t1); font-weight: 600; }
     .bubble-content a { color: var(--acc); text-decoration: none; }
     .bubble-content a:hover { text-decoration: underline; }
-    .comm-plan {
-      display: grid;
-      gap: 12px;
-      margin-top: 4px;
-    }
-    .comm-plan-card {
-      border: 1px solid var(--edge);
-      border-radius: 12px;
-      background: rgba(255,255,255,0.02);
-      padding: 12px;
-      display: grid;
-      gap: 10px;
-    }
-    .comm-plan-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--t1);
-      margin: 0;
-      line-height: 1.35;
-    }
-    .comm-plan-note {
-      margin: 0;
-      padding: 8px 10px;
-      border: 1px solid rgba(79, 143, 247, 0.35);
-      background: rgba(79, 143, 247, 0.10);
-      border-radius: 8px;
-      color: #dbe8ff;
-      font-size: 13px;
-      line-height: 1.4;
-    }
-    .comm-plan-subtitle {
-      margin: 0;
-      font-size: 12px;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-      color: var(--t3);
-      font-weight: 600;
-    }
-    .comm-plan-table-wrap {
-      overflow-x: auto;
-      border: 1px solid var(--edge);
-      border-radius: 10px;
-      background: rgba(0,0,0,0.12);
-    }
-    .comm-plan-table {
-      width: 100%;
-      min-width: 560px;
-      border-collapse: collapse;
-      font-size: 13px;
-      line-height: 1.45;
-    }
-    .comm-plan-table th,
-    .comm-plan-table td {
-      padding: 9px 10px;
-      border-bottom: 1px solid var(--edge);
-      text-align: left;
-      vertical-align: top;
-    }
-    .comm-plan-table tr:last-child td {
-      border-bottom: none;
-    }
-    .comm-plan-table th {
-      background: rgba(255,255,255,0.03);
-      color: var(--t2);
-      font-size: 11px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      font-weight: 600;
-      white-space: nowrap;
-    }
-    .comm-plan-reminders {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 26px;
-      height: 22px;
-      padding: 0 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(79, 143, 247, 0.45);
-      background: rgba(79, 143, 247, 0.14);
-      color: #dbe8ff;
-      font-weight: 600;
-      font-size: 12px;
-      line-height: 1;
-    }
-    .comm-plan-goal {
-      margin: 0;
-      padding: 10px 12px;
-      border-radius: 10px;
-      border: 1px solid rgba(126, 208, 162, 0.28);
-      background: rgba(126, 208, 162, 0.09);
-      color: #dff7eb;
-      font-size: 13px;
-      line-height: 1.45;
-    }
-    .comm-plan-examples {
-      display: grid;
-      gap: 8px;
-    }
-    .comm-plan-example {
-      border: 1px solid var(--edge);
-      border-radius: 10px;
-      padding: 10px;
-      background: rgba(255,255,255,0.02);
-      display: grid;
-      gap: 6px;
-    }
-    .comm-plan-example-title {
-      margin: 0;
-      font-weight: 600;
-      color: var(--t1);
-      font-size: 13px;
-      line-height: 1.35;
-    }
-    .comm-plan-example-text {
-      margin: 0;
-      color: var(--t2);
-      font-size: 13px;
-      line-height: 1.5;
-      white-space: pre-wrap;
-    }
-    .comm-plan-hint {
-      margin: 0;
-      color: var(--t3);
-      font-size: 12px;
-      line-height: 1.45;
-    }
-
-    /* ── ACTION BUTTONS ────────────────────────────────────────── */
     .actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 10px;
-      padding-top: 10px;
+      gap: 8px;
+      margin-top: 14px;
+      padding-top: 12px;
       border-top: 1px solid var(--edge);
     }
     .actions:empty { display: none; }
-    .artifact-bar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px dashed var(--edge);
-      font-size: 12px;
-      color: var(--t2);
-      flex-wrap: wrap;
-    }
-    .artifact-bar:empty { display: none; }
-    .artifact-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      text-decoration: none;
-      border: 1px solid var(--edge);
-      background: var(--bg3);
-      color: var(--t2);
-      border-radius: 7px;
-      padding: 5px 10px;
-      transition: all 0.12s;
-      max-width: 100%;
-    }
-    .artifact-link:hover {
-      border-color: var(--acc);
-      color: var(--t1);
-      background: var(--acc-d);
-    }
-    .artifact-copy {
-      border: 1px solid var(--edge);
-      background: transparent;
-      color: var(--t2);
-      border-radius: 7px;
-      padding: 5px 10px;
-      font-size: 12px;
-      cursor: pointer;
-    }
-    .artifact-copy:hover {
-      border-color: var(--acc);
-      color: var(--t1);
-    }
     .action-btn {
-      padding: 5px 12px;
+      padding: 8px 12px;
       font-size: 12px;
-      font-family: var(--font);
       font-weight: 500;
-      border-radius: 7px;
+      border-radius: 999px;
       border: 1px solid var(--edge);
-      background: var(--bg3);
+      background: rgba(255, 255, 255, 0.04);
       color: var(--t2);
       cursor: pointer;
-      transition: all 0.12s;
-      white-space: normal;
-      text-align: left;
-      line-height: 1.25;
+      white-space: nowrap;
     }
     .action-btn:hover {
       background: var(--acc-d);
       border-color: var(--acc);
       color: var(--t1);
     }
-
-    /* ── PLAYBOOK CHIPS (welcome message) ──────────────────────── */
     .playbook-chips {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 10px;
+      gap: 8px;
+      margin-top: 14px;
     }
     .playbook-chip {
-      padding: 5px 12px;
+      padding: 8px 12px;
       font-size: 12px;
-      font-family: var(--font);
       font-weight: 500;
-      border-radius: 7px;
+      border-radius: 999px;
       border: 1px solid var(--acc);
       background: var(--acc-d);
       color: var(--acc);
       cursor: pointer;
-      transition: all 0.12s;
     }
     .playbook-chip:hover { background: var(--acc); color: white; }
     a.playbook-chip { text-decoration: none; display: inline-block; }
-
-    /* ── INPUT AREA ────────────────────────────────────────────── */
     #input-area {
-      width: min(100%, 980px);
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      padding: 18px 22px 22px;
+      border-top: 1px solid var(--edge);
+      flex-shrink: 0;
+      background: rgba(6, 12, 24, 0.42);
+    }
+    .composer-shell {
+      width: min(100%, var(--chat-width));
       margin: 0 auto;
       display: flex;
       align-items: flex-end;
-      gap: 8px;
-      padding: 10px 16px 14px;
-      border-top: 1px solid var(--edge);
-      flex-shrink: 0;
-      min-width: 0;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 20px;
+      border: 1px solid var(--edge);
+      background: rgba(7, 14, 26, 0.82);
+      box-shadow: var(--shadow-md);
     }
     #msg-input {
       flex: 1;
-      min-width: 0;
       resize: none;
-      background: var(--bg3);
-      border: 1px solid var(--edge);
-      border-radius: 10px;
-      padding: 9px 13px;
-      font-family: var(--font);
+      background: transparent;
+      border: 0;
+      border-radius: 14px;
+      padding: 10px 12px;
       font-size: 14px;
       color: var(--t1);
       max-height: 160px;
-      min-height: 38px;
+      min-height: 42px;
       overflow-y: hidden;
       outline: none;
-      transition: border-color 0.15s;
       line-height: 1.5;
     }
     #msg-input::placeholder { color: var(--t3); }
-    #msg-input:focus { border-color: var(--acc); }
+    .composer-meta {
+      width: min(100%, var(--chat-width));
+      margin: 8px auto 0;
+      padding: 0 4px;
+      font-size: 12px;
+      color: var(--t3);
+    }
     #send-btn {
-      width: 36px; height: 36px;
+      width: 42px;
+      height: 42px;
       flex-shrink: 0;
-      border-radius: 9px;
+      border-radius: 14px;
       border: none;
-      background: var(--acc);
-      color: white;
+      background: linear-gradient(135deg, #8bb7ff 0%, #6ea7ff 100%);
+      color: #07101d;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: opacity 0.12s;
     }
     #send-btn:disabled { opacity: 0.35; cursor: default; }
     #send-btn svg { width: 16px; height: 16px; }
-    @media (max-width: 900px) {
-      #header {
+    @media (max-width: 980px) {
+      .app-shell {
+        width: min(calc(100% - 20px), var(--shell-width));
+        padding-top: 18px;
+      }
+      .topbar {
+        flex-direction: column;
         align-items: stretch;
       }
-      #vacancy-select {
-        order: 10;
-        flex-basis: 100%;
-        max-width: none;
-        margin-left: 0;
+      .workspace {
+        grid-template-columns: 1fr;
+        min-height: auto;
       }
-      #recruiter-email {
-        flex: 1 1 auto;
+      .sidebar {
+        order: 2;
+      }
+      .chat-stage {
+        min-height: 70dvh;
+      }
+      .chat-stage-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .bubble {
+        max-width: 100%;
+      }
+    }
+    @media (max-width: 640px) {
+      .app-shell {
+        width: 100%;
+        padding: 0;
+      }
+      .topbar {
+        margin: 0;
+        padding: 18px 16px 14px;
+      }
+      .panel,
+      .chat-stage {
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+      }
+      .workspace {
+        gap: 0;
+      }
+      .sidebar {
+        gap: 0;
+      }
+      .sidebar-card {
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+      }
+      #chat-log,
+      #input-area,
+      .chat-stage-header {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+      .composer-shell {
+        padding: 8px;
+      }
+      #empty-state h2 {
+        font-size: 30px;
       }
     }
   </style>
 </head>
 <body>
-  <!-- Header -->
-  <header id="header">
-    <div id="status-dot" title="WebSocket"></div>
-    <div class="logo">Hiring Agent</div>
-    <select id="vacancy-select">
-      <option value="">Загрузка вакансий…</option>
-    </select>
-    <span id="recruiter-email">__RECRUITER_EMAIL__</span>
-    <a href="/logout" id="logout-btn">Выйти</a>
-  </header>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-stack">
+        <div class="eyebrow">Playbook Workspace</div>
+        <h1>Hiring agent для работы с вакансией, а не fullscreen-чат.</h1>
+        <p>Нормальный desktop workflow для рекрутера: контекст слева, диалог в отдельной сцене, короткие маршруты под рукой и без ощущения, что UI растянули на весь монитор.</p>
+      </div>
+      <div class="status-pill">
+        <span id="status-dot" title="WebSocket"></span>
+        <div>
+          <strong id="connection-label">Подключение</strong>
+          <div id="connection-copy">Соединяемся с агентом…</div>
+        </div>
+      </div>
+    </header>
 
-  <!-- Chat log -->
-  <div id="chat-log">
-    <!-- Empty state shown before vacancy selected / on load -->
-    <div id="empty-state">
-      <div class="empty-icon">📋</div>
-      <h2>Выберите вакансию</h2>
-      <p>Выберите вакансию в меню выше или создайте новую</p>
-      <button class="btn-primary" id="create-vacancy-btn">Создать вакансию</button>
-    </div>
-  </div>
+    <main class="workspace">
+      <aside class="sidebar">
+        <section class="sidebar-card panel">
+          <h2>Контекст</h2>
+          <p id="workspace-copy">Держите вакансию и служебные действия отдельно от самого диалога. Так легче читать длинные ответы и быстрее переключаться между сценариями.</p>
 
-  <!-- Input -->
-  <div id="input-area">
-    <textarea id="msg-input" placeholder="Напишите сообщение…" rows="1"></textarea>
-    <button id="send-btn" disabled title="Отправить">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13"></line>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-      </svg>
-    </button>
+          <div class="meta-grid">
+            <div class="meta-row">
+              <div class="meta-label">Рекрутер</div>
+              <div class="meta-value">__RECRUITER_EMAIL__</div>
+            </div>
+
+            <div class="meta-row">
+              <div class="meta-label">Вакансия</div>
+              <select id="vacancy-select">
+                <option value="">Загрузка вакансий…</option>
+              </select>
+            </div>
+
+            <div class="meta-row">
+              <div class="meta-label">Текущий фокус</div>
+              <div class="meta-value" id="context-vacancy-title">Вакансия не выбрана</div>
+              <div class="meta-value" id="context-vacancy-copy" style="color: var(--t2); font-size: 13px;">Выберите вакансию или создайте новую, чтобы открыть рабочий сценарий.</div>
+            </div>
+          </div>
+
+          <div style="display:grid; gap:10px; margin-top:18px;">
+            <button class="primary-btn" id="create-vacancy-btn">Создать вакансию</button>
+            <a href="__LOGOUT_PATH__" class="ghost-btn" id="logout-btn">Выйти</a>
+          </div>
+        </section>
+
+        <section class="sidebar-card panel">
+          <h3>Быстрые сценарии</h3>
+          <p>Лучше направлять пользователя готовыми следующими шагами, чем заставлять каждый раз печатать с нуля.</p>
+
+          <div class="shortcut-list">
+            <button class="shortcut-btn" data-msg="настроить общение с кандидатами" data-requires-vacancy="true">
+              <span class="shortcut-title">Настроить общение</span>
+              <span class="shortcut-copy">Собрать шаблоны и сценарий коммуникации</span>
+            </button>
+            <button class="shortcut-btn" data-msg="посмотри вакансию" data-requires-vacancy="true">
+              <span class="shortcut-title">Посмотреть вакансию</span>
+              <span class="shortcut-copy">Подтянуть контекст по выбранной позиции</span>
+            </button>
+            <button class="shortcut-btn" data-msg="покажи воронку по кандидатам" data-requires-vacancy="true">
+              <span class="shortcut-title">Открыть воронку</span>
+              <span class="shortcut-copy">Проверить этапы, зависания и конверсию</span>
+            </button>
+            <button class="shortcut-btn" data-msg="сделай рассылку" data-requires-vacancy="true">
+              <span class="shortcut-title">Сделать рассылку</span>
+              <span class="shortcut-copy">Запустить следующий аутрич по кандидатам</span>
+            </button>
+          </div>
+
+          <a href="#" class="ghost-btn" id="moderation-link" hidden target="_blank" rel="noopener">Открыть модерацию кандидатов</a>
+        </section>
+      </aside>
+
+      <section class="chat-stage panel">
+        <header class="chat-stage-header">
+          <div class="chat-stage-copy">
+            <h2 id="chat-stage-title">Рабочая зона агента</h2>
+            <p id="chat-stage-subtitle">Выберите вакансию, чтобы открыть нормальный контекстный чат вместо пустого полотна.</p>
+          </div>
+        </header>
+
+        <div id="chat-log">
+          <div id="empty-state" class="chat-lane">
+            <div class="empty-badge">Workspace-first UI</div>
+            <h2>Выберите вакансию и работайте с агентом в отдельной chat-scene.</h2>
+            <p>Лучший паттерн для desktop AI здесь не fullscreen-мессенджер, а центрированная зона диалога с ограниченной шириной, плюс постоянный блок контекста и быстрых действий рядом.</p>
+            <div class="empty-actions">
+              <button class="primary-btn" id="empty-create-vacancy-btn">Создать вакансию</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="input-area">
+          <div style="width:100%;">
+            <div class="composer-shell">
+              <textarea id="msg-input" placeholder="Напишите, что нужно сделать по вакансии…" rows="1"></textarea>
+              <button id="send-btn" disabled title="Отправить">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
+            <div class="composer-meta" id="composer-meta">Можно писать свободно или выбирать быстрые сценарии слева.</div>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
 
   <script>
     // ── Config ────────────────────────────────────────────────────────────────
-    const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws';
+    const APP_BASE_PATH = '__APP_BASE_PATH__';
+    const withBasePath = (path) => (APP_BASE_PATH ? APP_BASE_PATH + path : path);
+    const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + withBasePath('/ws');
+    const LOGIN_PATH = withBasePath('/login');
     const CHATBOT_MODERATION_BASE = '__CHATBOT_MODERATION_BASE__';
+    const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
     const STEP_LABELS = {
       auto_fetch:    'Загружаю данные вакансии',
       route_playbook:'Определяю плейбук',
@@ -815,15 +1000,13 @@ const CHAT_HTML = `<!DOCTYPE html>
       decision:      'Проверяю условия',
       render:        'Генерирую ответ',
     };
-    const INITIAL_URL_STATE = readUrlState();
 
     // ── State ─────────────────────────────────────────────────────────────────
     let ws = null;
     let streaming = false;
     let selectedVacancyId = null;
-    let currentArtifactId = INITIAL_URL_STATE.artifactId;
-    let currentSessionId = INITIAL_URL_STATE.sessionId;
-    let currentAssistant = null; // { stepsEl, contentEl, artifactEl, actionsEl, text }
+    let selectedVacancyTitle = '';
+    let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
     const chatLog        = document.getElementById('chat-log');
@@ -833,6 +1016,16 @@ const CHAT_HTML = `<!DOCTYPE html>
     const sendBtn        = document.getElementById('send-btn');
     const statusDot      = document.getElementById('status-dot');
     const createVacBtn   = document.getElementById('create-vacancy-btn');
+    const emptyCreateVacBtn = document.getElementById('empty-create-vacancy-btn');
+    const connectionLabel = document.getElementById('connection-label');
+    const connectionCopy = document.getElementById('connection-copy');
+    const contextVacancyTitle = document.getElementById('context-vacancy-title');
+    const contextVacancyCopy = document.getElementById('context-vacancy-copy');
+    const chatStageTitle = document.getElementById('chat-stage-title');
+    const chatStageSubtitle = document.getElementById('chat-stage-subtitle');
+    const composerMeta = document.getElementById('composer-meta');
+    const moderationLink = document.getElementById('moderation-link');
+    const shortcutButtons = Array.from(document.querySelectorAll('.shortcut-btn'));
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
     function connect() {
@@ -840,6 +1033,8 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       ws.onopen = () => {
         statusDot.classList.add('connected');
+        connectionLabel.textContent = 'Агент на связи';
+        connectionCopy.textContent = 'Можно отправлять сообщения и запускать playbook-сценарии.';
         updateSendEnabled();
       };
 
@@ -847,12 +1042,18 @@ const CHAT_HTML = `<!DOCTYPE html>
         streaming = false;
         currentAssistant = null;
         statusDot.classList.remove('connected');
+        connectionLabel.textContent = 'Подключение потеряно';
+        connectionCopy.textContent = 'Пробуем переподключиться автоматически…';
         updateSendEnabled();
-        if (ev.code === 4001) { window.location = '/login'; return; }
+        if (ev.code === 4001) { window.location = LOGIN_PATH; return; }
         setTimeout(connect, 3000); // auto-reconnect
       };
 
-      ws.onerror = () => statusDot.classList.remove('connected');
+      ws.onerror = () => {
+        statusDot.classList.remove('connected');
+        connectionLabel.textContent = 'Ошибка соединения';
+        connectionCopy.textContent = 'WebSocket недоступен, пробуем восстановить сессию.';
+      };
 
       ws.onmessage = (ev) => {
         const data = JSON.parse(ev.data);
@@ -886,18 +1087,6 @@ const CHAT_HTML = `<!DOCTYPE html>
           currentAssistant.bubbleEl.classList.remove('streaming');
 
           // Render action buttons
-          if (data.artifact) {
-            renderArtifactFooter(currentAssistant.artifactEl, data.artifact);
-            currentArtifactId = data.artifact.id || currentArtifactId;
-            currentSessionId = data.artifact.session_id || currentSessionId;
-            writeUrlState({
-              vacancyId: selectedVacancyId,
-              artifactId: currentArtifactId,
-              sessionId: currentSessionId,
-              push: true
-            });
-          }
-
           if (data.actions && data.actions.length > 0) {
             data.actions.forEach(({ label, message }) => {
               const btn = document.createElement('button');
@@ -964,18 +1153,14 @@ const CHAT_HTML = `<!DOCTYPE html>
       const actionsEl = document.createElement('div');
       actionsEl.className = 'actions';
 
-      const artifactEl = document.createElement('div');
-      artifactEl.className = 'artifact-bar';
-
       bubble.appendChild(stepsEl);
       bubble.appendChild(contentEl);
-      bubble.appendChild(artifactEl);
       bubble.appendChild(actionsEl);
       row.appendChild(bubble);
       chatLog.appendChild(row);
       scrollBottom();
 
-      return { bubbleEl: bubble, stepsEl, contentEl, artifactEl, actionsEl, text: '' };
+      return { bubbleEl: bubble, stepsEl, contentEl, actionsEl, text: '' };
     }
 
     function addSystemMessage(markdown) {
@@ -991,37 +1176,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       chatLog.appendChild(row);
       scrollBottom();
       return bubble;
-    }
-
-    function renderArtifactFooter(container, artifact) {
-      if (!container || !artifact || !artifact.url) return;
-      container.innerHTML = '';
-
-      const link = document.createElement('a');
-      link.className = 'artifact-link';
-      link.href = artifact.url;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      const shortId = String(artifact.id || '').slice(0, 8);
-      link.textContent = shortId ? ('Артефакт #' + shortId) : 'Открыть артефакт';
-      container.appendChild(link);
-
-      const copyBtn = document.createElement('button');
-      copyBtn.type = 'button';
-      copyBtn.className = 'artifact-copy';
-      copyBtn.textContent = 'Копировать ссылку';
-      copyBtn.addEventListener('click', async () => {
-        try {
-          const absoluteUrl = new URL(artifact.url, location.origin).toString();
-          await navigator.clipboard.writeText(absoluteUrl);
-          copyBtn.textContent = 'Скопировано';
-          setTimeout(() => { copyBtn.textContent = 'Копировать ссылку'; }, 1400);
-        } catch {
-          copyBtn.textContent = 'Не скопировано';
-          setTimeout(() => { copyBtn.textContent = 'Копировать ссылку'; }, 1400);
-        }
-      });
-      container.appendChild(copyBtn);
     }
 
     function sendMessage(text) {
@@ -1044,35 +1198,23 @@ const CHAT_HTML = `<!DOCTYPE html>
     // ── Vacancy selector ──────────────────────────────────────────────────────
     async function loadVacancies() {
       try {
-        const res = await fetch('/api/jobs');
-        if (res.status === 401) { window.location = '/login'; return; }
+        const res = await fetch(withBasePath('/api/jobs'));
+        if (res.status === 401) { window.location = LOGIN_PATH; return; }
         const data = await res.json();
         const jobs = Array.isArray(data.jobs) ? data.jobs : [];
-        let artifactPayload = null;
-        let requestedVacancyId = INITIAL_URL_STATE.vacancyId;
-
-        if (INITIAL_URL_STATE.artifactId) {
-          artifactPayload = await fetchArtifactPayload(INITIAL_URL_STATE.artifactId);
-          const artifactVacancyId = artifactPayload?.artifact?.vacancy_id || null;
-          if (!requestedVacancyId && artifactVacancyId) {
-            requestedVacancyId = artifactVacancyId;
-          }
-          if (!currentSessionId && artifactPayload?.artifact?.session_id) {
-            currentSessionId = artifactPayload.artifact.session_id;
-          }
-          currentArtifactId = INITIAL_URL_STATE.artifactId;
-        }
+        const savedVacancyId = localStorage.getItem(LAST_VACANCY_KEY);
 
         if (jobs.length === 0) {
-          // No vacancies: hide dropdown, update empty state to "create first"
-          vacancySelect.style.display = 'none';
-          document.querySelector('#empty-state h2').textContent = 'Нет вакансий';
-          document.querySelector('#empty-state p').textContent = 'Создайте первую вакансию, чтобы начать работу с кандидатами';
+          vacancySelect.innerHTML = '<option value="">Нет вакансий</option>';
+          contextVacancyTitle.textContent = 'Нет активных вакансий';
+          contextVacancyCopy.textContent = 'Создайте первую вакансию, чтобы агент мог работать с контекстом и кандидатами.';
+          chatStageTitle.textContent = 'Пока нет вакансий';
+          chatStageSubtitle.textContent = 'Создайте первую вакансию, затем агент сможет строить воронку, коммуникацию и рассылки.';
+          composerMeta.textContent = 'Пока можно только создать новую вакансию.';
+          syncShortcuts();
           return;
         }
 
-        // Has vacancies: ensure dropdown is visible
-        vacancySelect.style.display = '';
         vacancySelect.innerHTML = '';
 
         const placeholder = document.createElement('option');
@@ -1087,19 +1229,17 @@ const CHAT_HTML = `<!DOCTYPE html>
           vacancySelect.appendChild(opt);
         });
 
-        if (requestedVacancyId) {
-          const requested = jobs.find((job) => job.job_id === requestedVacancyId);
-          if (requested) {
-            vacancySelect.value = requested.job_id;
-            onVacancySelected(requested.job_id, requested.title, {
-              preserveArtifact: true,
-              skipWelcome: Boolean(artifactPayload)
-            });
-            if (artifactPayload) {
-              hydrateChatFromArtifactPayload(artifactPayload);
-            }
-            return;
-          }
+        // «+ Создать вакансию» at the end (only when other vacancies exist)
+        const createOpt = document.createElement('option');
+        createOpt.value = '__create__';
+        createOpt.textContent = '+ Создать вакансию';
+        vacancySelect.appendChild(createOpt);
+
+        const savedMatch = jobs.find((job) => String(job.job_id) === savedVacancyId);
+        if (savedMatch) {
+          vacancySelect.value = savedMatch.job_id;
+          onVacancySelected(savedMatch.job_id, savedMatch.title);
+          return;
         }
 
         // Auto-select if only one
@@ -1118,20 +1258,13 @@ const CHAT_HTML = `<!DOCTYPE html>
       onVacancySelected(val || null, title);
     });
 
-    function onVacancySelected(vacancyId, title, options = {}) {
-      const preserveArtifact = Boolean(options.preserveArtifact);
-      const skipWelcome = Boolean(options.skipWelcome);
+    function onVacancySelected(vacancyId, title) {
       selectedVacancyId = vacancyId;
-      if (!preserveArtifact) {
-        currentArtifactId = null;
-        currentSessionId = null;
-      }
-      writeUrlState({
-        vacancyId: selectedVacancyId,
-        artifactId: currentArtifactId,
-        sessionId: currentSessionId,
-        push: false
-      });
+      selectedVacancyTitle = title || '';
+      if (vacancyId) localStorage.setItem(LAST_VACANCY_KEY, String(vacancyId));
+      else localStorage.removeItem(LAST_VACANCY_KEY);
+
+      syncContext();
 
       // Clear chat
       chatLog.innerHTML = '';
@@ -1142,10 +1275,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         return;
       }
 
-      // Welcome message with playbook chips
-      if (!skipWelcome) {
-        showWelcome(vacancyId, title);
-      }
+      showWelcome(vacancyId, title);
       updateSendEnabled();
     }
 
@@ -1169,26 +1299,64 @@ const CHAT_HTML = `<!DOCTYPE html>
         chip.addEventListener('click', () => sendMessage(msg));
         chipsEl.appendChild(chip);
       });
-      if (CHATBOT_MODERATION_BASE) {
-        const link = document.createElement('a');
-        const titleParam = encodeURIComponent(title || '');
-        link.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(vacancyId) + (titleParam ? '&title=' + titleParam : '');
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.className = 'playbook-chip';
-        link.textContent = 'Модерация';
-        chipsEl.appendChild(link);
-      }
       bubbleEl.appendChild(chipsEl);
     }
 
     function triggerCreateVacancy() {
-      addSystemMessage('> ⚠️ **Создание вакансии пока недоступно**\n\nЭтот playbook ещё не подключён в текущем окружении.');
+      selectedVacancyId = null;
+      selectedVacancyTitle = '';
+      vacancySelect.value = '';
+      syncContext();
+      chatLog.innerHTML = '';
+      updateSendEnabled();
+      sendMessage('создать вакансию');
     }
 
     createVacBtn.addEventListener('click', triggerCreateVacancy);
+    emptyCreateVacBtn.addEventListener('click', triggerCreateVacancy);
+    shortcutButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        if (!button.disabled) sendMessage(button.dataset.msg || '');
+      });
+    });
 
-    // ── Input handling ────────────────────────────────────────────────────────
+    function syncContext() {
+      const hasVacancy = Boolean(selectedVacancyId);
+
+      contextVacancyTitle.textContent = hasVacancy ? selectedVacancyTitle : 'Вакансия не выбрана';
+      contextVacancyCopy.textContent = hasVacancy
+        ? 'Контекст закреплён. Можно запускать playbook-сценарии, смотреть воронку и собирать коммуникацию.'
+        : 'Выберите вакансию или создайте новую, чтобы открыть рабочий сценарий.';
+
+      chatStageTitle.textContent = hasVacancy
+        ? selectedVacancyTitle
+        : 'Рабочая зона агента';
+      chatStageSubtitle.textContent = hasVacancy
+        ? 'Чат ограничен по ширине для нормальной читаемости, а контекст остаётся рядом.'
+        : 'Выберите вакансию, чтобы открыть нормальный контекстный чат вместо пустого полотна.';
+
+      composerMeta.textContent = hasVacancy
+        ? 'Enter отправляет сообщение, Shift+Enter переносит строку.'
+        : 'Можно писать свободно или сначала выбрать вакансию слева.';
+
+      if (CHATBOT_MODERATION_BASE && hasVacancy) {
+        const titleParam = encodeURIComponent(selectedVacancyTitle || '');
+        moderationLink.href = CHATBOT_MODERATION_BASE + '?job_id=' + encodeURIComponent(selectedVacancyId) + (titleParam ? '&title=' + titleParam : '');
+        moderationLink.hidden = false;
+      } else {
+        moderationLink.hidden = true;
+      }
+
+      syncShortcuts();
+    }
+
+    function syncShortcuts() {
+      shortcutButtons.forEach((button) => {
+        const requiresVacancy = button.dataset.requiresVacancy === 'true';
+        button.disabled = requiresVacancy && !selectedVacancyId;
+      });
+    }
+
     msgInput.addEventListener('input', () => {
       msgInput.style.height = 'auto';
       msgInput.style.height = Math.min(msgInput.scrollHeight, 160) + 'px';
@@ -1209,126 +1377,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       sendBtn.disabled = !ready;
     }
 
-    async function fetchArtifactPayload(artifactId) {
-      if (!artifactId) return null;
-      try {
-        const response = await fetch('/api/artifacts/' + encodeURIComponent(artifactId));
-        if (response.status === 401) {
-          window.location = '/login';
-          return null;
-        }
-        if (!response.ok) return null;
-        return await response.json();
-      } catch {
-        return null;
-      }
-    }
-
-    function hydrateChatFromArtifactPayload(payload) {
-      if (!payload || !payload.artifact) return;
-      const historyItems = Array.isArray(payload.history) && payload.history.length > 0
-        ? payload.history
-        : [payload.artifact];
-
-      chatLog.innerHTML = '';
-
-      historyItems.forEach((item) => {
-        if (item.request_message) {
-          addUserBubble(String(item.request_message));
-        }
-        const markdown = mapReplyToMarkdown(item.reply);
-        addAssistantHistoryBubble(markdown, {
-          id: item.artifact_id,
-          url: '/artifact/' + encodeURIComponent(item.artifact_id || '')
-        });
-      });
-
-      if (historyItems.length === 0) {
-        addSystemMessage('История артефакта пока пустая.');
-      }
-      scrollBottom();
-    }
-
-    function addAssistantHistoryBubble(markdown, artifact) {
-      const row = document.createElement('div');
-      row.className = 'msg-row assistant';
-
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble assistant-bubble';
-
-      const contentEl = document.createElement('div');
-      contentEl.className = 'bubble-content';
-      renderMarkdown(contentEl, markdown || '...');
-
-      const artifactEl = document.createElement('div');
-      artifactEl.className = 'artifact-bar';
-      renderArtifactFooter(artifactEl, artifact);
-
-      bubble.appendChild(contentEl);
-      bubble.appendChild(artifactEl);
-      row.appendChild(bubble);
-      chatLog.appendChild(row);
-    }
-
-    function mapReplyToMarkdown(reply) {
-      if (!reply || typeof reply !== 'object') {
-        return String(reply ?? '...');
-      }
-      if (reply.kind === 'fallback_text') return reply.text || '...';
-      if (reply.kind === 'llm_output') return reply.content || '...';
-      if (reply.kind === 'display') return reply.content || '...';
-      if (reply.kind === 'user_input') return reply.message || '...';
-      if (reply.kind === 'playbook_locked') {
-        return '> ⚠️ **' + escapeText(reply.title || 'Плейбук недоступен') + '**\n\n' + String(reply.message || '');
-      }
-      if (reply.kind === 'render_funnel') {
-        const rows = (reply.rows || []).map((r) =>
-          '| ' + (r.step_name || '-') + ' | ' + (r.total || 0) + ' | ' + (r.completed || 0) + ' | ' + (r.in_progress || 0) + ' | ' + (r.stuck || 0) + ' | ' + (r.rejected || 0) + ' |'
-        ).join('\\n');
-        return [
-          '## ' + String(reply.title || 'Воронка кандидатов'),
-          '',
-          '| Этап | Всего | Завершили | В работе | Зависли | Отсечены |',
-          '|------|-------|-----------|----------|---------|----------|',
-          rows || '| — | 0 | 0 | 0 | 0 | 0 |'
-        ].join('\\n');
-      }
-      return '~~~json\\n' + JSON.stringify(reply, null, 2) + '\\n~~~';
-    }
-
     // ── Helpers ───────────────────────────────────────────────────────────────
     function scrollBottom() {
       chatLog.scrollTop = chatLog.scrollHeight;
-    }
-
-    function readUrlState() {
-      const params = new URLSearchParams(location.search);
-      const pathParts = location.pathname.split('/').filter(Boolean);
-      const pathArtifactId = pathParts[0] === 'chat' && pathParts[1] ? decodeURIComponent(pathParts[1]) : null;
-      return {
-        vacancyId: params.get('vacancy_id') || null,
-        artifactId: params.get('artifact_id') || pathArtifactId,
-        sessionId: params.get('session_id') || null
-      };
-    }
-
-    function writeUrlState({ vacancyId, artifactId, sessionId, push = false }) {
-      const params = new URLSearchParams(location.search);
-      if (vacancyId) params.set('vacancy_id', vacancyId); else params.delete('vacancy_id');
-      params.delete('artifact_id');
-      if (sessionId) params.set('session_id', sessionId); else params.delete('session_id');
-
-      const query = params.toString();
-      const path = artifactId
-        ? ('/chat/' + encodeURIComponent(artifactId))
-        : '/chat';
-      const nextUrl = query ? (path + '?' + query) : path;
-      const state = { vacancyId, artifactId, sessionId };
-      if (push) {
-        history.pushState(state, '', nextUrl);
-      } else {
-        history.replaceState(state, '', nextUrl);
-      }
     }
 
     function escapeHtml(s) {
@@ -1355,454 +1406,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     // Show empty state initially
     chatLog.innerHTML = '';
     chatLog.appendChild(emptyState);
-  </script>
-</body>
-</html>`;
-
-const ARTIFACT_HTML = `<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat Artifact</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
-  <style>
-    :root {
-      --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      --bg: #080a0f;
-      --bg2: #0e1118;
-      --edge: #1e2535;
-      --t1: #e4e8f0;
-      --t2: #8892a4;
-      --acc: #4f8ff7;
-      --acc-d: rgba(79,143,247,0.12);
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: var(--font);
-      background: var(--bg);
-      color: var(--t1);
-      padding: 24px 16px 40px;
-    }
-    .wrap {
-      width: min(100%, 980px);
-      margin: 0 auto;
-      display: grid;
-      gap: 16px;
-    }
-    .card {
-      background: var(--bg2);
-      border: 1px solid var(--edge);
-      border-radius: 12px;
-      padding: 14px;
-    }
-    .meta-grid {
-      display: grid;
-      grid-template-columns: 180px 1fr;
-      gap: 8px 12px;
-      font-size: 13px;
-      color: var(--t2);
-    }
-    .meta-grid b { color: var(--t1); font-weight: 600; }
-    .history {
-      display: grid;
-      gap: 10px;
-    }
-    .history-item {
-      border: 1px solid var(--edge);
-      border-radius: 10px;
-      overflow: hidden;
-    }
-    .history-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      background: rgba(255,255,255,0.02);
-      border-bottom: 1px solid var(--edge);
-      font-size: 12px;
-      color: var(--t2);
-    }
-    .history-body {
-      display: grid;
-      gap: 10px;
-      padding: 12px;
-    }
-    .input, .reply {
-      border: 1px solid var(--edge);
-      border-radius: 8px;
-      padding: 10px;
-      font-size: 13px;
-      line-height: 1.5;
-      overflow-wrap: anywhere;
-    }
-    .input {
-      background: rgba(79,143,247,0.08);
-      color: #d8e5ff;
-    }
-    .reply {
-      background: rgba(255,255,255,0.02);
-      color: var(--t1);
-    }
-    .muted {
-      color: var(--t2);
-      font-size: 13px;
-    }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border: 1px solid var(--edge);
-      color: var(--t2);
-      background: transparent;
-      border-radius: 8px;
-      padding: 8px 12px;
-      cursor: pointer;
-      text-decoration: none;
-      font-size: 13px;
-    }
-    .btn:hover {
-      color: var(--t1);
-      border-color: var(--acc);
-      background: var(--acc-d);
-    }
-    .comm-plan {
-      display: grid;
-      gap: 12px;
-    }
-    .comm-plan-card {
-      border: 1px solid var(--edge);
-      border-radius: 12px;
-      background: rgba(255,255,255,0.02);
-      padding: 12px;
-      display: grid;
-      gap: 10px;
-    }
-    .comm-plan-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--t1);
-      margin: 0;
-      line-height: 1.35;
-    }
-    .comm-plan-note {
-      margin: 0;
-      padding: 8px 10px;
-      border: 1px solid rgba(79, 143, 247, 0.35);
-      background: rgba(79, 143, 247, 0.10);
-      border-radius: 8px;
-      color: #dbe8ff;
-      font-size: 13px;
-      line-height: 1.4;
-    }
-    .comm-plan-subtitle {
-      margin: 0;
-      font-size: 12px;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-      color: var(--t2);
-      font-weight: 600;
-    }
-    .comm-plan-table-wrap {
-      overflow-x: auto;
-      border: 1px solid var(--edge);
-      border-radius: 10px;
-      background: rgba(0,0,0,0.12);
-    }
-    .comm-plan-table {
-      width: 100%;
-      min-width: 560px;
-      border-collapse: collapse;
-      font-size: 13px;
-      line-height: 1.45;
-    }
-    .comm-plan-table th,
-    .comm-plan-table td {
-      padding: 9px 10px;
-      border-bottom: 1px solid var(--edge);
-      text-align: left;
-      vertical-align: top;
-    }
-    .comm-plan-table tr:last-child td {
-      border-bottom: none;
-    }
-    .comm-plan-table th {
-      background: rgba(255,255,255,0.03);
-      color: var(--t2);
-      font-size: 11px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      font-weight: 600;
-      white-space: nowrap;
-    }
-    .comm-plan-reminders {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 26px;
-      height: 22px;
-      padding: 0 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(79, 143, 247, 0.45);
-      background: rgba(79, 143, 247, 0.14);
-      color: #dbe8ff;
-      font-weight: 600;
-      font-size: 12px;
-      line-height: 1;
-    }
-    .comm-plan-goal {
-      margin: 0;
-      padding: 10px 12px;
-      border-radius: 10px;
-      border: 1px solid rgba(126, 208, 162, 0.28);
-      background: rgba(126, 208, 162, 0.09);
-      color: #dff7eb;
-      font-size: 13px;
-      line-height: 1.45;
-    }
-    .comm-plan-examples {
-      display: grid;
-      gap: 8px;
-    }
-    .comm-plan-example {
-      border: 1px solid var(--edge);
-      border-radius: 10px;
-      padding: 10px;
-      background: rgba(255,255,255,0.02);
-      display: grid;
-      gap: 6px;
-    }
-    .comm-plan-example-title {
-      margin: 0;
-      font-weight: 600;
-      color: var(--t1);
-      font-size: 13px;
-      line-height: 1.35;
-    }
-    .comm-plan-example-text {
-      margin: 0;
-      color: var(--t2);
-      font-size: 13px;
-      line-height: 1.5;
-      white-space: pre-wrap;
-    }
-    .comm-plan-hint {
-      margin: 0;
-      color: var(--t2);
-      font-size: 12px;
-      line-height: 1.45;
-    }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <h1 style="font-size:20px; margin-bottom: 10px;">Артефакт чата</h1>
-      <div class="muted" id="artifactStatus">Загрузка…</div>
-      <div style="display:flex; gap:8px; margin-top: 10px;">
-        <a class="btn" href="/chat" target="_self">Назад в чат</a>
-        <button class="btn" id="copyLinkBtn" type="button">Копировать ссылку</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="meta-grid" id="metaGrid"></div>
-    </div>
-
-    <div class="card">
-      <h2 style="font-size:16px; margin-bottom: 10px;">История</h2>
-      <div id="history" class="history"></div>
-    </div>
-  </div>
-
-  <script>
-    const ARTIFACT_ID = '__ARTIFACT_ID__';
-    const statusEl = document.getElementById('artifactStatus');
-    const metaGrid = document.getElementById('metaGrid');
-    const historyEl = document.getElementById('history');
-    const copyLinkBtn = document.getElementById('copyLinkBtn');
-
-    copyLinkBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(location.href);
-        copyLinkBtn.textContent = 'Скопировано';
-      } catch {
-        copyLinkBtn.textContent = 'Не скопировано';
-      }
-      setTimeout(() => { copyLinkBtn.textContent = 'Копировать ссылку'; }, 1400);
-    });
-
-    function addMeta(label, value) {
-      const key = document.createElement('b');
-      key.textContent = label;
-      const val = document.createElement('span');
-      val.textContent = value == null ? '—' : String(value);
-      metaGrid.appendChild(key);
-      metaGrid.appendChild(val);
-    }
-
-    function replyToMarkdown(reply) {
-      if (!reply || typeof reply !== 'object') return String(reply ?? '');
-      if (reply.kind === 'fallback_text') return reply.text ?? '';
-      if (reply.kind === 'llm_output') return reply.content ?? '';
-      if (reply.kind === 'communication_plan') return communicationPlanToMarkdown(reply);
-      if (reply.kind === 'display') return reply.content ?? '';
-      if (reply.kind === 'user_input') return reply.message ?? '';
-      if (reply.kind === 'playbook_locked') return '> ⚠️ ' + (reply.message ?? '');
-      if (reply.kind === 'completed') return reply.message ?? 'Playbook completed.';
-      return '~~~json\\n' + JSON.stringify(reply, null, 2) + '\\n~~~';
-    }
-
-    function communicationPlanToMarkdown(reply) {
-      const rows = Array.isArray(reply.steps) ? reply.steps : [];
-      const examples = Array.isArray(reply.examples) ? reply.examples : [];
-
-      const escape = (value) => String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-
-      const tableRows = rows.length > 0
-        ? rows.map((row) => {
-          const step = escape(String(row.step ?? '').trim() || '—');
-          const reminders = Number.isFinite(Number(row.reminders_count)) ? Number(row.reminders_count) : 0;
-          const comment = escape(String(row.comment ?? '').trim() || '—');
-          return (
-            '<tr>' +
-              '<td>' + step + '</td>' +
-              '<td><span class="comm-plan-reminders">' + reminders + '</span></td>' +
-              '<td>' + comment + '</td>' +
-            '</tr>'
-          );
-        }).join('')
-        : (
-          '<tr><td>—</td><td><span class="comm-plan-reminders">0</span></td><td>—</td></tr>'
-        );
-
-      const examplesHtml = examples.length > 0
-        ? (
-          '<div class="comm-plan-examples">' +
-          examples.map((item, index) => (
-            '<article class="comm-plan-example">' +
-              '<h4 class="comm-plan-example-title">' + escape(item.title || ('Вариант ' + (index + 1))) + '</h4>' +
-              '<p class="comm-plan-example-text">' + escape(item.message || '') + '</p>' +
-            '</article>'
-          )).join('') +
-          '</div>'
-        )
-        : '<p class="comm-plan-hint">Чтобы увидеть примеры первого сообщения, нажмите кнопку «Сгенерировать примеры общения по этому сценарию коммуникаций».</p>';
-
-      const noteHtml = reply.note
-        ? '<p class="comm-plan-note">' + escape(reply.note) + '</p>'
-        : '';
-
-      return (
-        '<section class="comm-plan">' +
-          '<article class="comm-plan-card">' +
-            '<h3 class="comm-plan-title">План коммуникации</h3>' +
-            noteHtml +
-            '<p><strong>Сценарий:</strong> ' + escape(reply.scenario_title || 'Рабочий сценарий') + '</p>' +
-            '<div class="comm-plan-table-wrap">' +
-              '<table class="comm-plan-table">' +
-                '<thead><tr><th>Шаг</th><th>Кол-во напоминалок</th><th>Комментарий</th></tr></thead>' +
-                '<tbody>' + tableRows + '</tbody>' +
-              '</table>' +
-            '</div>' +
-            '<p class="comm-plan-goal"><strong>Целевое действие:</strong> ' + escape(reply.goal || 'Договоренность о следующем шаге') + '</p>' +
-          '</article>' +
-          '<article class="comm-plan-card">' +
-            '<p class="comm-plan-subtitle">Примеры первого сообщения</p>' +
-            examplesHtml +
-          '</article>' +
-        '</section>'
-      );
-    }
-
-    function renderMarkdown(container, text) {
-      const html = DOMPurify.sanitize(marked.parse(text || ''));
-      container.innerHTML = html;
-    }
-
-    function renderHistory(items) {
-      historyEl.innerHTML = '';
-      if (!Array.isArray(items) || items.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'muted';
-        empty.textContent = 'История для этого артефакта пока отсутствует.';
-        historyEl.appendChild(empty);
-        return;
-      }
-
-      items.forEach((item) => {
-        const box = document.createElement('div');
-        box.className = 'history-item';
-
-        const head = document.createElement('div');
-        head.className = 'history-head';
-        const left = document.createElement('span');
-        left.textContent = '#' + String(item.artifact_id || '').slice(0, 8);
-        const right = document.createElement('span');
-        right.textContent = item.created_at ? new Date(item.created_at).toLocaleString() : '';
-        head.appendChild(left);
-        head.appendChild(right);
-
-        const body = document.createElement('div');
-        body.className = 'history-body';
-
-        if (item.request_message) {
-          const input = document.createElement('div');
-          input.className = 'input';
-          input.textContent = item.request_message;
-          body.appendChild(input);
-        }
-
-        const reply = document.createElement('div');
-        reply.className = 'reply';
-        renderMarkdown(reply, replyToMarkdown(item.reply));
-        body.appendChild(reply);
-
-        box.appendChild(head);
-        box.appendChild(body);
-        historyEl.appendChild(box);
-      });
-    }
-
-    async function loadArtifact() {
-      try {
-        const res = await fetch('/api/artifacts/' + encodeURIComponent(ARTIFACT_ID));
-        if (res.status === 401) {
-          location.href = '/login';
-          return;
-        }
-        if (!res.ok) {
-          statusEl.textContent = 'Артефакт не найден или недоступен.';
-          return;
-        }
-
-        const data = await res.json();
-        const artifact = data.artifact || {};
-        statusEl.textContent = 'Артефакт загружен';
-
-        addMeta('artifact_id', artifact.artifact_id);
-        addMeta('created_at', artifact.created_at ? new Date(artifact.created_at).toISOString() : null);
-        addMeta('session_id', artifact.session_id);
-        addMeta('vacancy_id', artifact.vacancy_id);
-        addMeta('source', artifact.source);
-        addMeta('recruiter_id', artifact.recruiter_id);
-
-        renderHistory(data.history || []);
-      } catch {
-        statusEl.textContent = 'Ошибка загрузки артефакта.';
-      }
-    }
-
-    marked.use({ breaks: true, gfm: true });
-    loadArtifact();
+    syncContext();
   </script>
 </body>
 </html>`;
@@ -1860,13 +1464,6 @@ function replyToMarkdown(reply) {
     };
   }
 
-  if (reply.kind === "communication_plan") {
-    return {
-      markdown: formatCommunicationPlanMarkdown(reply),
-      actions: Array.isArray(reply.actions) ? reply.actions : []
-    };
-  }
-
   // Unknown — dump as code block
   return {
     markdown: "```json\n" + JSON.stringify(reply, null, 2) + "\n```",
@@ -1874,66 +1471,7 @@ function replyToMarkdown(reply) {
   };
 }
 
-function formatCommunicationPlanMarkdown(reply) {
-  const steps = Array.isArray(reply.steps) ? reply.steps : [];
-  const examples = Array.isArray(reply.examples) ? reply.examples : [];
-
-  const tableRows = steps.length > 0
-    ? steps.map((row) => {
-      const step = escapeHtml(row.step ?? "—");
-      const remindersRaw = Number(row.reminders_count);
-      const reminders = Number.isFinite(remindersRaw) ? remindersRaw : 0;
-      const comment = escapeHtml(row.comment ?? "—");
-      return (
-        "<tr>" +
-          `<td>${step}</td>` +
-          `<td><span class="comm-plan-reminders">${reminders}</span></td>` +
-          `<td>${comment}</td>` +
-        "</tr>"
-      );
-    }).join("")
-    : "<tr><td>—</td><td><span class=\"comm-plan-reminders\">0</span></td><td>—</td></tr>";
-
-  const noteHtml = reply.note
-    ? `<p class="comm-plan-note">${escapeHtml(reply.note)}</p>`
-    : "";
-
-  const examplesHtml = examples.length > 0
-    ? (
-      "<div class=\"comm-plan-examples\">" +
-      examples.map((item, index) => (
-        "<article class=\"comm-plan-example\">" +
-          `<h4 class="comm-plan-example-title">${escapeHtml(item.title ?? `Вариант ${index + 1}`)}</h4>` +
-          `<p class="comm-plan-example-text">${escapeHtml(item.message ?? "")}</p>` +
-        "</article>"
-      )).join("") +
-      "</div>"
-    )
-    : "<p class=\"comm-plan-hint\">Чтобы увидеть примеры первого сообщения, нажмите кнопку «Сгенерировать примеры общения по этому сценарию коммуникаций».</p>";
-
-  return (
-    "<section class=\"comm-plan\">" +
-      "<article class=\"comm-plan-card\">" +
-        "<h3 class=\"comm-plan-title\">План коммуникации</h3>" +
-        noteHtml +
-        `<p><strong>Сценарий:</strong> ${escapeHtml(reply.scenario_title ?? "Рабочий сценарий")}</p>` +
-        "<div class=\"comm-plan-table-wrap\">" +
-          "<table class=\"comm-plan-table\">" +
-            "<thead><tr><th>Шаг</th><th>Кол-во напоминалок</th><th>Комментарий</th></tr></thead>" +
-            `<tbody>${tableRows}</tbody>` +
-          "</table>" +
-        "</div>" +
-        `<p class="comm-plan-goal"><strong>Целевое действие:</strong> ${escapeHtml(reply.goal ?? "Договоренность о следующем шаге")}</p>` +
-      "</article>" +
-      "<article class=\"comm-plan-card\">" +
-        "<p class=\"comm-plan-subtitle\">Примеры первого сообщения</p>" +
-        examplesHtml +
-      "</article>" +
-    "</section>"
-  );
-}
-
-async function handleChatWs(ws, msg, wsContext, app, artifactStore) {
+async function handleChatWs(ws, msg, wsContext, app) {
   const send = (obj) => {
     if (ws.readyState === 1) ws.send(JSON.stringify(obj));
   };
@@ -1956,20 +1494,10 @@ async function handleChatWs(ws, msg, wsContext, app, artifactStore) {
     const reply = result.body?.reply ?? result.body;
     console.log("[ws] reply kind:", reply?.kind ?? "unknown", "status:", result.status);
 
-    const artifact = await artifactStore.create({
-      source: "ws",
-      tenantId: wsContext.tenantId,
-      recruiterId: wsContext.recruiterId,
-      sessionId: result.body?.session_id ?? null,
-      vacancyId: result.body?.vacancy_id ?? vacancyId ?? null,
-      requestMessage: text,
-      reply
-    });
-
     send({ type: "progress", tool: "render", label: "Генерирую ответ" });
     const { markdown, actions } = replyToMarkdown(reply);
     send({ type: "chunk", text: markdown });
-    send({ type: "done", actions, artifact });
+    send({ type: "done", actions });
 
   } catch (err) {
     console.error("[ws] error:", err?.message);
@@ -1982,25 +1510,42 @@ export function createHiringAgentServer(app, options = {}) {
   const managementStore = options.managementStore ?? null;
   const poolRegistry = options.poolRegistry ?? null;
   const appEnv = options.appEnv ?? "local";
-  const artifactStore = createChatArtifactStore({ managementSql });
+  const appBasePath = normalizeBasePath(options.appBasePath ?? process.env.APP_BASE_PATH ?? "");
+  const loginPath = joinBasePath(appBasePath, "/login");
+  const logoutPath = joinBasePath(appBasePath, "/logout");
+  const wsPath = joinBasePath(appBasePath, "/ws");
+  const rootPath = appBasePath ? `${appBasePath}/` : "/";
+  const sessionCookieName = options.sessionCookieName ?? process.env.SESSION_COOKIE_NAME ?? sessionCookieNameFromBasePath(appBasePath);
+  const sessionCookiePath = appBasePath || "/";
 
   const server = createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? "/", "http://localhost");
+      const routePath = routePathFromRequest(requestUrl.pathname, appBasePath);
+      const normalizedPath = routePath ?? requestUrl.pathname;
 
-      if (request.method === "GET" && requestUrl.pathname === "/health") {
+      // Health stays available both with and without base path to keep VM-local probes simple.
+      if (request.method === "GET" && (requestUrl.pathname === "/health" || normalizedPath === "/health")) {
         const result = await app.getHealth();
         writeJson(response, result.status, result.body);
         return;
       }
 
-      if (request.method === "GET" && requestUrl.pathname === "/login") {
-        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end(LOGIN_HTML);
+      if (routePath === null) {
+        writeJson(response, 404, { error: "not_found" });
         return;
       }
 
-      if (request.method === "POST" && requestUrl.pathname === "/auth/login") {
+      if (request.method === "GET" && normalizedPath === "/login") {
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(
+          LOGIN_HTML
+            .replaceAll("__APP_BASE_PATH__", escapeJsString(appBasePath))
+        );
+        return;
+      }
+
+      if (request.method === "POST" && normalizedPath === "/auth/login") {
         const body = await readJsonBody(request);
         const email = String(body.email ?? "").trim().toLowerCase();
         const password = String(body.password ?? "");
@@ -2027,28 +1572,30 @@ export function createHiringAgentServer(app, options = {}) {
         const sessionToken = await createSession(managementSql, recruiter.recruiter_id);
         response.writeHead(200, {
           "content-type": "application/json; charset=utf-8",
-          "set-cookie": `session=${sessionToken}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Strict${secure}`
+          "set-cookie": `${sessionCookieName}=${sessionToken}; HttpOnly; Path=${sessionCookiePath}; Max-Age=2592000; SameSite=Strict${secure}`
         });
-        response.end(JSON.stringify({ redirect: "/" }));
+        response.end(JSON.stringify({ redirect: rootPath }));
         return;
       }
 
-      if (request.method === "GET" && requestUrl.pathname === "/logout") {
+      if (request.method === "GET" && normalizedPath === "/logout") {
         const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
         response.writeHead(302, {
-          location: "/login",
-          "set-cookie": `session=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict${secure}`
+          location: loginPath,
+          "set-cookie": `${sessionCookieName}=; HttpOnly; Path=${sessionCookiePath}; Max-Age=0; SameSite=Strict${secure}`
         });
         response.end();
         return;
       }
 
-      if (request.method === "GET" && (requestUrl.pathname === "/" || isChatShellPath(requestUrl.pathname))) {
+      if (request.method === "GET" && normalizedPath === "/") {
         const accessContext = await requireAccessContext(request, response, {
           managementStore,
           poolRegistry,
           appEnv,
-          unauthorizedStatus: 302
+          unauthorizedStatus: 302,
+          loginPath,
+          sessionCookieName
         });
         if (!accessContext) return;
 
@@ -2061,35 +1608,18 @@ export function createHiringAgentServer(app, options = {}) {
           CHAT_HTML
             .replace("__RECRUITER_EMAIL__", escapeHtml(accessContext.recruiterEmail))
             .replace("__CHATBOT_MODERATION_BASE__", escapeHtml(chatbotModerationBase))
+            .replace("__LOGOUT_PATH__", escapeHtml(logoutPath))
+            .replace("__APP_BASE_PATH__", escapeJsString(appBasePath))
         );
         return;
       }
 
-      if (request.method === "GET" && requestUrl.pathname.startsWith("/artifact/")) {
+      if (request.method === "GET" && normalizedPath === "/api/jobs") {
         const accessContext = await requireAccessContext(request, response, {
           managementStore,
           poolRegistry,
           appEnv,
-          unauthorizedStatus: 302
-        });
-        if (!accessContext) return;
-
-        const artifactId = requestUrl.pathname.slice("/artifact/".length);
-        if (!artifactId) {
-          writeJson(response, 404, { error: "artifact_not_found" });
-          return;
-        }
-
-        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end(ARTIFACT_HTML.replace("__ARTIFACT_ID__", escapeHtml(artifactId)));
-        return;
-      }
-
-      if (request.method === "GET" && requestUrl.pathname === "/api/jobs") {
-        const accessContext = await requireAccessContext(request, response, {
-          managementStore,
-          poolRegistry,
-          appEnv
+          sessionCookieName
         });
         if (!accessContext) return;
 
@@ -2101,40 +1631,12 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
 
-      if (request.method === "GET" && requestUrl.pathname.startsWith("/api/artifacts/")) {
+      if (request.method === "POST" && normalizedPath === "/api/chat") {
         const accessContext = await requireAccessContext(request, response, {
           managementStore,
           poolRegistry,
-          appEnv
-        });
-        if (!accessContext) return;
-
-        const artifactId = requestUrl.pathname.slice("/api/artifacts/".length);
-        if (!artifactId) {
-          writeJson(response, 404, { error: "artifact_not_found" });
-          return;
-        }
-
-        const payload = await artifactStore.getById({
-          artifactId,
-          tenantId: accessContext.tenantId,
-          recruiterId: accessContext.recruiterId
-        });
-
-        if (!payload) {
-          writeJson(response, 404, { error: "artifact_not_found" });
-          return;
-        }
-
-        writeJson(response, 200, payload);
-        return;
-      }
-
-      if (request.method === "POST" && requestUrl.pathname === "/api/chat") {
-        const accessContext = await requireAccessContext(request, response, {
-          managementStore,
-          poolRegistry,
-          appEnv
+          appEnv,
+          sessionCookieName
         });
         if (!accessContext) return;
 
@@ -2150,22 +1652,6 @@ export function createHiringAgentServer(app, options = {}) {
           job_id: body.job_id,
           vacancy_id: body.vacancy_id
         });
-
-        if (result.body?.reply) {
-          const artifact = await artifactStore.create({
-            source: "api",
-            tenantId: accessContext.tenantId,
-            recruiterId: accessContext.recruiterId,
-            sessionId: result.body?.session_id ?? null,
-            vacancyId: result.body?.vacancy_id ?? body.vacancy_id ?? body.job_id ?? null,
-            requestMessage: body.message ?? null,
-            reply: result.body.reply
-          });
-          if (artifact) {
-            result.body.artifact = artifact;
-          }
-        }
-
         writeJson(response, result.status, result.body);
         return;
       }
@@ -2194,11 +1680,12 @@ export function createHiringAgentServer(app, options = {}) {
   });
 
   // ── WebSocket server ─────────────────────────────────────────────────────────
-  const wss = new WebSocketServer({ server, path: "/ws" });
+  const wss = new WebSocketServer({ server, path: wsPath });
 
   wss.on("connection", async (ws, req) => {
     console.log("[ws] new connection");
     const cookies = parseCookies(req.headers.cookie ?? "");
+    const sessionToken = cookies[sessionCookieName];
 
     // Resolve access context at connection time — mirrors requireAccessContext.
     // This ensures tenantSql is properly tenant-scoped in management mode.
@@ -2209,7 +1696,7 @@ export function createHiringAgentServer(app, options = {}) {
           managementStore,
           poolRegistry,
           appEnv,
-          sessionToken: cookies.session,
+          sessionToken,
         });
         wsContext = {
           recruiterId: ctx.recruiterId,
@@ -2223,7 +1710,7 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
     } else {
-      const recruiter = await resolveSession(managementSql, cookies.session).catch(() => null);
+      const recruiter = await resolveSession(managementSql, sessionToken).catch(() => null);
       if (!recruiter) {
         console.log("[ws] auth failed (session)");
         ws.close(4001, "Unauthorized");
@@ -2249,249 +1736,60 @@ export function createHiringAgentServer(app, options = {}) {
     ws.on("close", () => clearInterval(heartbeat));
     ws.on("error", () => clearInterval(heartbeat));
 
-      ws.on("message", async (raw) => {
-        let msg;
-        try { msg = JSON.parse(raw.toString()); } catch { return; }
-        if (msg.type === "message") {
-          await handleChatWs(ws, msg, wsContext, app, artifactStore);
-        }
-      });
+    ws.on("message", async (raw) => {
+      let msg;
+      try { msg = JSON.parse(raw.toString()); } catch { return; }
+      if (msg.type === "message") {
+        await handleChatWs(ws, msg, wsContext, app);
+      }
     });
+  });
   // ─────────────────────────────────────────────────────────────────────────────
 
   return server;
 }
 
-function createChatArtifactStore({ managementSql }) {
-  const memoryArtifacts = new Map();
-  const memoryByTenant = new Map();
-
-  return {
-    async create({
-      source = "api",
-      tenantId,
-      recruiterId = null,
-      sessionId = null,
-      vacancyId = null,
-      requestMessage = null,
-      reply = null
-    }) {
-      if (!tenantId || !reply) return null;
-
-      const safeReply = toJsonSafe(reply);
-      const safeMessage = requestMessage == null ? null : String(requestMessage);
-
-      if (managementSql) {
-        try {
-          const rows = await managementSql`
-            INSERT INTO management.chat_artifacts (
-              tenant_id,
-              recruiter_id,
-              session_id,
-              vacancy_id,
-              source,
-              request_message,
-              reply
-            )
-            VALUES (
-              ${tenantId},
-              ${recruiterId},
-              ${sessionId},
-              ${vacancyId},
-              ${source},
-              ${safeMessage},
-              ${JSON.stringify(safeReply)}::jsonb
-            )
-            RETURNING artifact_id::text AS artifact_id, created_at, session_id::text AS session_id, vacancy_id
-          `;
-
-          return toArtifactLink(rows[0]);
-        } catch (error) {
-          console.error("[artifact] db insert failed:", error?.message);
-        }
-      }
-
-      const artifactId = randomUUID();
-      const createdAt = new Date().toISOString();
-      const row = {
-        artifact_id: artifactId,
-        tenant_id: tenantId,
-        recruiter_id: recruiterId,
-        session_id: sessionId,
-        vacancy_id: vacancyId,
-        source,
-        request_message: safeMessage,
-        reply: safeReply,
-        created_at: createdAt
-      };
-      memoryArtifacts.set(artifactId, row);
-
-      const ids = memoryByTenant.get(tenantId) ?? [];
-      ids.push(artifactId);
-      memoryByTenant.set(tenantId, ids);
-
-      return toArtifactLink(row);
-    },
-
-    async getById({ artifactId, tenantId }) {
-      if (!artifactId || !tenantId) return null;
-
-      if (managementSql) {
-        try {
-          const rows = await managementSql`
-            SELECT
-              artifact_id::text AS artifact_id,
-              tenant_id,
-              recruiter_id,
-              session_id::text AS session_id,
-              vacancy_id,
-              source,
-              request_message,
-              reply,
-              created_at
-            FROM management.chat_artifacts
-            WHERE artifact_id::text = ${artifactId}
-              AND tenant_id = ${tenantId}
-            LIMIT 1
-          `;
-          const artifact = rows[0] ?? null;
-          if (!artifact) return null;
-
-          const historyRows = await fetchArtifactHistory({
-            managementSql,
-            tenantId,
-            artifact
-          });
-
-          return {
-            artifact,
-            history: historyRows
-          };
-        } catch (error) {
-          console.error("[artifact] db read failed:", error?.message);
-        }
-      }
-
-      const artifact = memoryArtifacts.get(artifactId);
-      if (!artifact || artifact.tenant_id !== tenantId) return null;
-      const history = fetchMemoryHistory({
-        tenantId,
-        artifact,
-        memoryArtifacts,
-        memoryByTenant
-      });
-      return { artifact, history };
-    }
-  };
+function normalizeBasePath(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw === "/") return "";
+  const withLeadingSlash = raw.startsWith("/") ? raw : `/${raw}`;
+  return withLeadingSlash.replace(/\/+$/g, "");
 }
 
-async function fetchArtifactHistory({ managementSql, tenantId, artifact }) {
-  if (artifact.session_id) {
-    const rows = await managementSql`
-      SELECT
-        artifact_id::text AS artifact_id,
-        tenant_id,
-        recruiter_id,
-        session_id::text AS session_id,
-        vacancy_id,
-        source,
-        request_message,
-        reply,
-        created_at
-      FROM management.chat_artifacts
-      WHERE tenant_id = ${tenantId}
-        AND session_id = ${artifact.session_id}
-      ORDER BY created_at ASC
-      LIMIT 120
-    `;
-    return rows;
-  }
-
-  if (artifact.vacancy_id) {
-    const rows = await managementSql`
-      SELECT
-        artifact_id::text AS artifact_id,
-        tenant_id,
-        recruiter_id,
-        session_id::text AS session_id,
-        vacancy_id,
-        source,
-        request_message,
-        reply,
-        created_at
-      FROM management.chat_artifacts
-      WHERE tenant_id = ${tenantId}
-        AND vacancy_id = ${artifact.vacancy_id}
-      ORDER BY created_at ASC
-      LIMIT 120
-    `;
-    return rows;
-  }
-
-  const rows = await managementSql`
-    SELECT
-      artifact_id::text AS artifact_id,
-      tenant_id,
-      recruiter_id,
-      session_id::text AS session_id,
-      vacancy_id,
-      source,
-      request_message,
-      reply,
-      created_at
-    FROM management.chat_artifacts
-    WHERE tenant_id = ${tenantId}
-      AND recruiter_id IS NOT DISTINCT FROM ${artifact.recruiter_id}
-    ORDER BY created_at ASC
-    LIMIT 120
-  `;
-  return rows;
+function joinBasePath(basePath, path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return basePath ? `${basePath}${normalizedPath}` : normalizedPath;
 }
 
-function fetchMemoryHistory({ tenantId, artifact, memoryArtifacts, memoryByTenant }) {
-  const ids = memoryByTenant.get(tenantId) ?? [];
-  const rows = ids
-    .map((id) => memoryArtifacts.get(id))
-    .filter(Boolean);
-
-  if (artifact.session_id) {
-    return rows.filter((row) => row.session_id === artifact.session_id).slice(-120);
+function routePathFromRequest(pathname, basePath) {
+  if (!basePath) return pathname || "/";
+  if (pathname === basePath || pathname === `${basePath}/`) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
   }
-
-  if (artifact.vacancy_id) {
-    return rows.filter((row) => row.vacancy_id === artifact.vacancy_id).slice(-120);
-  }
-
-  return rows
-    .filter((row) => row.recruiter_id === artifact.recruiter_id)
-    .slice(-120);
+  return null;
 }
 
-function toArtifactLink(row) {
-  if (!row?.artifact_id) return null;
-  return {
-    id: row.artifact_id,
-    url: `/artifact/${row.artifact_id}`,
-    api_url: `/api/artifacts/${row.artifact_id}`,
-    created_at: row.created_at ?? null,
-    session_id: row.session_id ?? null,
-    vacancy_id: row.vacancy_id ?? null
-  };
+function sessionCookieNameFromBasePath(basePath) {
+  if (!basePath) return "session";
+  const suffix = basePath.slice(1).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `session_${suffix}`;
 }
 
-function toJsonSafe(value) {
-  try {
-    return JSON.parse(JSON.stringify(value ?? null));
-  } catch {
-    return { kind: "fallback_text", text: String(value ?? "") };
-  }
+function escapeJsString(value) {
+  return String(value)
+    .replaceAll("\\", "\\\\")
+    .replaceAll("'", "\\'");
 }
 
 async function requireAccessContext(request, response, options = {}) {
   const unauthorizedStatus = options.unauthorizedStatus ?? 401;
-  const cookies = parseCookies(request.headers.cookie);
+  const cookies = parseCookies(request.headers.cookie ?? "");
+  const sessionCookieName = options.sessionCookieName ?? "session";
+  const loginPath = options.loginPath ?? "/login";
+  const sessionToken = cookies[sessionCookieName];
   if (!options.managementStore || !options.poolRegistry) {
-    const recruiter = await resolveSession(null, cookies.session);
+    const recruiter = await resolveSession(null, sessionToken);
     if (recruiter) {
       return {
         recruiterId: recruiter.recruiter_id,
@@ -2502,7 +1800,7 @@ async function requireAccessContext(request, response, options = {}) {
     }
 
     if (unauthorizedStatus === 302) {
-      response.writeHead(302, { location: "/login" });
+      response.writeHead(302, { location: loginPath });
       response.end();
       return null;
     }
@@ -2516,11 +1814,11 @@ async function requireAccessContext(request, response, options = {}) {
       managementStore: options.managementStore,
       poolRegistry: options.poolRegistry,
       appEnv: options.appEnv ?? "local",
-      sessionToken: cookies.session
+      sessionToken
     });
   } catch (error) {
     if (error instanceof AccessContextError && error.code === "ERROR_UNAUTHENTICATED" && unauthorizedStatus === 302) {
-      response.writeHead(302, { location: "/login" });
+      response.writeHead(302, { location: loginPath });
       response.end();
       return null;
     }
@@ -2534,7 +1832,7 @@ async function requireAccessContext(request, response, options = {}) {
     }
 
     if (unauthorizedStatus === 302) {
-      response.writeHead(302, { location: "/login" });
+      response.writeHead(302, { location: loginPath });
       response.end();
       return null;
     }
@@ -2560,11 +1858,6 @@ async function readJsonBody(request) {
 function writeJson(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
-}
-
-function isChatShellPath(pathname) {
-  if (pathname === "/chat") return true;
-  return /^\/chat\/[^/]+$/.test(pathname);
 }
 
 function escapeHtml(value) {

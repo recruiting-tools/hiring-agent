@@ -6,6 +6,7 @@ export async function handleDisplayStep({ step, context, recruiterInput }) {
   const content = step.user_message
     ? interpolate(step.user_message, context)
     : resolveDisplayContent(step, context);
+  const contentType = resolveDisplayContentType(step, content);
   const options = parseOptions(step.options);
 
   if (options.length && !recruiterInput) {
@@ -16,7 +17,7 @@ export async function handleDisplayStep({ step, context, recruiterInput }) {
       reply: {
         kind: "display",
         content,
-        content_type: "text",
+        content_type: contentType,
         options
       }
     };
@@ -51,7 +52,7 @@ export async function handleDisplayStep({ step, context, recruiterInput }) {
     reply: {
       kind: "display",
       content,
-      content_type: "text",
+      content_type: contentType,
       ...(options.length ? { options } : {})
     }
   };
@@ -60,4 +61,16 @@ export async function handleDisplayStep({ step, context, recruiterInput }) {
 function resolveDisplayContent(step, context) {
   if (!step.context_key) return "";
   return context[step.context_key] == null ? "" : String(context[step.context_key]);
+}
+
+function resolveDisplayContentType(step, content) {
+  if (typeof step.user_message === "string" && step.user_message.includes("| html")) {
+    return "html";
+  }
+
+  if (typeof content === "string" && /<[^>]+>/.test(content)) {
+    return "html";
+  }
+
+  return "text";
 }

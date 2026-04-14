@@ -84,3 +84,60 @@ MANAGEMENT_DATABASE_URL="$MANAGEMENT_DATABASE_URL" node scripts/seed-playbooks.j
 - production tenant binding
 
 If one of those is production, this is not a sandbox.
+## Sandbox Fleet (3 slots)
+
+Чтобы параллелить задачи, используем 3 независимых slot-окружения:
+
+- `sandbox-1`
+- `sandbox-2`
+- `sandbox-3`
+
+Каждый slot — это отдельный GitHub `environment` с собственными секретами:
+
+- `VM_HOST`
+- `VM_USER`
+- `VM_SSH_KEY`
+- `MANAGEMENT_DATABASE_URL`
+- `OPENROUTER_API_KEY`
+- `SANDBOX_PUBLIC_URL`
+
+И настройки environment:
+
+- `Required reviewers`: none (иначе деплой будет ждать ручного approve)
+- deployment branch policy: allow required branches/refs вашей команды
+
+Деплой в слот запускается workflow:
+
+- `.github/workflows/deploy-hiring-agent-sandbox-slot.yml`
+
+Важная деталь по параллельности:
+
+- concurrency key = `deploy-hiring-agent-<slot>`
+- это блокирует только выбранный slot;
+- остальные 2 slot остаются доступными для деплоя.
+
+### Slot Occupancy (busy/free)
+
+```bash
+pnpm sandbox:slots:status
+```
+
+Скрипт покажет по каждому слоту:
+
+- `free` — слот свободен
+- `queued` / `in_progress` — слот занят
+- ref и URL активного workflow run
+
+### Trigger Deploy to Slot
+
+```bash
+pnpm deploy:hiring-agent:sandbox-slot -- sandbox-1
+pnpm deploy:hiring-agent:sandbox-slot -- sandbox-2 feature/my-branch
+pnpm deploy:hiring-agent:sandbox-slot -- sandbox-3 main 3101
+```
+
+Формат:
+
+```bash
+scripts/deploy-hiring-agent-sandbox-slot.sh <sandbox-1|sandbox-2|sandbox-3> [ref] [port]
+```
