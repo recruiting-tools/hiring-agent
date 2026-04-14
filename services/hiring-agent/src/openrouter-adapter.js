@@ -4,7 +4,7 @@
  * Satisfies the { generate(prompt): Promise<string> } interface.
  */
 export class OpenRouterAdapter {
-  constructor({ apiKey, model = "google/gemini-2.5-flash-preview" }) {
+  constructor({ apiKey, model = "google/gemini-2.5-flash" }) {
     this.apiKey = apiKey;
     this.model = model;
   }
