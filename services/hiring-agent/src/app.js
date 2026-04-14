@@ -150,6 +150,7 @@ export function createHiringAgentApp(options = {}) {
         const result = await runCommunicationPlanPlaybook({
           tenantSql,
           vacancyId,
+          jobId,
           llmAdapter,
           recruiterInput: message,
           llmConfig: communicationPlanLlmConfig
