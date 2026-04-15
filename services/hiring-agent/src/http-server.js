@@ -247,6 +247,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         linear-gradient(180deg, #08101d 0%, #09111f 35%, #0c1525 100%);
       color: var(--t1);
       min-height: 100dvh;
+      overflow: hidden;
     }
     a { color: inherit; }
     button,
@@ -259,6 +260,10 @@ const CHAT_HTML = `<!DOCTYPE html>
       width: min(calc(100% - 32px), var(--shell-width));
       margin: 0 auto;
       padding: 28px 0 32px;
+      min-height: 100dvh;
+      max-height: 100dvh;
+      display: flex;
+      flex-direction: column;
     }
     .topbar {
       display: flex;
@@ -324,7 +329,8 @@ const CHAT_HTML = `<!DOCTYPE html>
       grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
       gap: 20px;
       align-items: stretch;
-      min-height: calc(100dvh - 170px);
+      flex: 1;
+      min-height: 0;
     }
     .panel {
       border: 1px solid var(--edge);
@@ -337,6 +343,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       display: grid;
       gap: 16px;
       align-content: start;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
     }
     .sidebar-card {
       padding: 20px;
@@ -479,6 +488,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       display: flex;
       flex-direction: column;
       min-height: 0;
+      height: 100%;
       overflow: hidden;
       background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 12%),
@@ -528,6 +538,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     #chat-log {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       padding: 26px 22px 18px;
       display: flex;
@@ -820,13 +831,16 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
       .workspace {
         grid-template-columns: 1fr;
-        min-height: auto;
+        flex: 1;
+        min-height: 0;
       }
       .sidebar {
         order: 2;
+        overflow: visible;
+        padding-right: 0;
       }
       .chat-stage {
-        min-height: 70dvh;
+        min-height: 0;
       }
       .chat-stage-header {
         flex-direction: column;
