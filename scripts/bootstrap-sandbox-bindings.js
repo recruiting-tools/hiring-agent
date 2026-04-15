@@ -47,11 +47,6 @@ try {
     ORDER BY s.tenant_id ASC
   `, [sourceEnv, targetEnv]);
 
-  if (rows.rows.length === 0) {
-    console.log(`No missing primary bindings for target env '${targetEnv}'.`);
-    process.exit(0);
-  }
-
   let updated = 0;
   for (const row of rows.rows) {
     await upsertPrimaryBinding(client, {
@@ -97,6 +92,9 @@ try {
     }
   }
 
+  if (updated === 0) {
+    console.log(`No missing primary bindings for target env '${targetEnv}'.`);
+  }
   console.log(`Done. Ensured ${updated} primary binding(s) in '${targetEnv}' from '${sourceEnv}'.`);
 } finally {
   await client.end();
