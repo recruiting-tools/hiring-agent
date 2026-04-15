@@ -1,3 +1,5 @@
+import { hasFallbackSteps } from "./local-seed-fallback.js";
+
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
   "candidate_funnel",
@@ -38,6 +40,12 @@ const FALLBACK_PLAYBOOKS = [
 let cachedPlaybooks = null;
 let cachedAt = 0;
 let cachePromise = null;
+
+export function clearPlaybookRegistryCache() {
+  cachedPlaybooks = null;
+  cachedAt = 0;
+  cachePromise = null;
+}
 
 export async function getPlaybookRegistry(managementSql = null) {
   if (!managementSql) {
@@ -85,5 +93,9 @@ export async function findPlaybook(playbookKey, managementSql = null) {
 }
 
 function isRunnablePlaybook(playbookKey, stepCount) {
-  return ALWAYS_RUNNABLE_PLAYBOOKS.has(playbookKey) || Number(stepCount ?? 0) > 0;
+  return (
+    ALWAYS_RUNNABLE_PLAYBOOKS.has(playbookKey)
+    || Number(stepCount ?? 0) > 0
+    || hasFallbackSteps(playbookKey)
+  );
 }

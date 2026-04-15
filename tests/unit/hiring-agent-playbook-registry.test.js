@@ -24,6 +24,14 @@ test("registry: candidate_funnel remains enabled without DB steps", async () => 
           status: "available",
           sort_order: 2,
           step_count: 0
+        },
+        {
+          playbook_key: "create_vacancy",
+          name: "Создать новую вакансию",
+          trigger_description: "create vacancy",
+          status: "available",
+          sort_order: 3,
+          step_count: 0
         }
       ];
     }
@@ -34,6 +42,7 @@ test("registry: candidate_funnel remains enabled without DB steps", async () => 
   const playbooks = await getPlaybookRegistry(managementSql);
   assert.equal(playbooks.find((item) => item.playbook_key === "candidate_funnel")?.enabled, true);
   assert.equal(playbooks.find((item) => item.playbook_key === "setup_communication")?.enabled, true);
+  assert.equal(playbooks.find((item) => item.playbook_key === "create_vacancy")?.enabled, true);
 });
 
 test("router: candidate_funnel remains routable without DB steps", async () => {
@@ -47,9 +56,15 @@ test("router: candidate_funnel remains routable without DB steps", async () => {
       playbook_key: "setup_communication",
       keywords: ["настроить общение"],
       step_count: 0
+    },
+    {
+      playbook_key: "create_vacancy",
+      keywords: ["создать вакансию"],
+      step_count: 0
     }
   ]);
 
   assert.equal(await routePlaybook("покажи воронку по кандидатам", managementSql), "candidate_funnel");
   assert.equal(await routePlaybook("настроить общение с кандидатами", managementSql), "setup_communication");
+  assert.equal(await routePlaybook("создать вакансию", managementSql), "create_vacancy");
 });

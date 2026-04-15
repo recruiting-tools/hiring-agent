@@ -6,6 +6,7 @@ import { handleDecisionStep } from "./step-handlers/decision.js";
 import { handleDisplayStep } from "./step-handlers/display.js";
 import { handleLlmExtractStep, PlaybookLlmError } from "./step-handlers/llm-extract.js";
 import { handleLlmGenerateStep } from "./step-handlers/llm-generate.js";
+import { getFallbackPlaybookSteps } from "./local-seed-fallback.js";
 import { handleSubroutineStep } from "./step-handlers/subroutine.js";
 import { handleUserInputStep } from "./step-handlers/user-input.js";
 
@@ -39,7 +40,13 @@ export async function dispatch({
     throw new Error("managementStore or managementSql is required");
   }
 
-  const steps = (await managementStore.getPlaybookSteps(playbookKey)).map((step) => normalizeStep(step));
+  let steps = (await managementStore.getPlaybookSteps(playbookKey)).map((step) => normalizeStep(step));
+  if (!steps.length) {
+    steps = getFallbackPlaybookSteps(playbookKey).map((step) => normalizeStep(step));
+    if (steps.length) {
+      console.warn(`[playbook-runtime] using local fallback steps for ${playbookKey}`);
+    }
+  }
   if (!steps.length) {
     throw new Error(`Playbook steps not found for ${playbookKey}`);
   }

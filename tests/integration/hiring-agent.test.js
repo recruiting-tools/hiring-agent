@@ -3,6 +3,7 @@ import test from "node:test";
 import WsClient from "ws";
 import { createHiringAgentApp } from "../../services/hiring-agent/src/app.js";
 import { createHiringAgentServer } from "../../services/hiring-agent/src/http-server.js";
+import { clearPlaybookRegistryCache } from "../../services/hiring-agent/src/playbooks/registry.js";
 
 async function req(server, method, path, body, cookie) {
   const port = server.address().port;
@@ -218,6 +219,88 @@ test("hiring-agent: management-backed routing ignores available playbooks with z
   assert.equal(result.status, 200);
   assert.equal(result.body.reply.kind, "fallback_text");
   assert.match(result.body.reply.text, /доступны сценарии/i);
+});
+
+test("hiring-agent: create_vacancy starts from fallback steps when DB step_count is zero", async () => {
+  clearPlaybookRegistryCache();
+  let sessionSequence = 0;
+  const managementSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [
+        {
+          playbook_key: "create_vacancy",
+          name: "Создать новую вакансию",
+          trigger_description: "create vacancy",
+          status: "available",
+          sort_order: 1,
+          step_count: 0
+        }
+      ];
+    }
+
+    if (text.includes("FROM management.playbook_steps")) {
+      return [];
+    }
+
+    if (text.includes("FROM management.playbook_sessions") && text.includes("status = 'active'")) {
+      return [];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("status = 'aborted'")) {
+      return [];
+    }
+
+    if (text.includes("INSERT INTO management.playbook_sessions")) {
+      sessionSequence += 1;
+      return [{
+        session_id: `sess-fallback-${sessionSequence}`,
+        tenant_id: "tenant-alpha-001",
+        recruiter_id: "rec-alpha-001",
+        conversation_id: null,
+        playbook_key: "create_vacancy",
+        current_step_order: 1,
+        vacancy_id: null,
+        context: {},
+        call_stack: [],
+        status: "active",
+        started_at: new Date(),
+        updated_at: new Date(),
+        completed_at: null
+      }];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("SET")) {
+      return [];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    managementSql
+  });
+
+  try {
+    const result = await app.postChatMessage({
+      action: "start_playbook",
+      playbook_key: "create_vacancy",
+      tenantId: "tenant-alpha-001",
+      recruiterId: "rec-alpha-001",
+      managementSql
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.reply.kind, "user_input");
+    assert.match(result.body.reply.message, /Загрузите материалы по вакансии/i);
+    assert.equal(typeof result.body.session_id, "string");
+  } finally {
+    clearPlaybookRegistryCache();
+  }
 });
 
 test("hiring-agent: GET / serves HTML shell after auth", async () => {

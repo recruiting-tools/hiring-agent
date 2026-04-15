@@ -1,3 +1,5 @@
+import { hasFallbackSteps } from "./local-seed-fallback.js";
+
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
   "candidate_funnel",
@@ -137,7 +139,9 @@ async function getDbRoutes(managementSql, options = {}) {
       ORDER BY d.sort_order ASC, d.playbook_key ASC
     `.then((rows) => {
       const filtered = rows.filter((row) => (
-        ALWAYS_RUNNABLE_PLAYBOOKS.has(row.playbook_key) || Number(row.step_count ?? 0) > 0
+        ALWAYS_RUNNABLE_PLAYBOOKS.has(row.playbook_key)
+        || Number(row.step_count ?? 0) > 0
+        || hasFallbackSteps(row.playbook_key)
       ));
       cachedDefinitions = filtered;
       cachedAt = Date.now();
