@@ -39,6 +39,28 @@ This means the correct near-term production mode is:
 - live operational use only for the parts that are already safe and implemented
 - remaining gaps closed iteratively after sandbox validation
 
+## What Changed In The HH Review Sandbox Chain
+
+Useful confirmed updates from the current repo state:
+
+1. `POST /internal/hh-import` is now the main manual import lever for bringing an hh vacancy into the system.
+2. The import path uses `HH_VACANCY_JOB_MAP` to translate hh vacancy ids into internal `job_id` targets.
+3. The import endpoint accepts a time window:
+   - `window_start` is required
+   - `window_end` is optional
+4. `POST /internal/hh-poll` remains the incremental follow-up lever for new messages in already imported negotiations.
+5. The sandbox hh mock endpoint `/api/hh/vacancies/<vacancy_id>/responses` now supports:
+   - `unread_only=true`
+   - `updated_after`
+   - `updated_before`
+6. The mock fixtures now include `unread`.
+7. `scripts/smoke_hh_step1.py` already checks these filters in sandbox.
+
+Operational meaning:
+
+- manual session handoff into the system now goes through import window + vacancy mapping
+- sandbox can validate "new/unread/updated in window" behavior before production rollout
+
 ## Vacancy Identity
 
 Required fields:
@@ -243,6 +265,9 @@ Before the session relies on hiring-agent playbooks, verify production prerequis
 3. production tenant has required playbooks enabled
 4. playbook definitions are present and not stale
 5. runtime environment points to production DBs and intended model env vars
+6. migration `services/candidate-chatbot/migrations/009_hh_oauth_and_flags.sql` is applied in the target environment
+7. feature flag `hh_import` can actually be read and enabled in production
+8. internal auth token for `/internal/hh-import` and `/internal/hh-poll` is present
 
 Repo assets relevant to this:
 
@@ -250,6 +275,10 @@ Repo assets relevant to this:
 - tenant playbook access: `/Users/vova/Documents/GitHub/hiring-agent/scripts/admin-playbooks.js`
 - general workflow rules: `/Users/vova/Documents/GitHub/hiring-agent/AI-AGENT.md`
 - release/runtime notes: `/Users/vova/Documents/GitHub/hiring-agent/README.md`
+
+Critical production note:
+
+- if migration `009_hh_oauth_and_flags.sql` is not applied, `hh_import` cannot be enabled correctly and import/poll cutover is blocked
 
 ### Phase 3. Mirror the current manual review contract
 
@@ -302,6 +331,10 @@ The repo already contains supporting operational scripts, but they are not thems
 
 Use them as follows:
 
+- `POST /internal/hh-import`
+  - primary manual import entrypoint for handing a vacancy into the system
+- `POST /internal/hh-poll`
+  - follow-up incremental polling for already imported vacancy/job mappings
 - `node scripts/seed-playbooks.js`
   - ensure playbook definitions exist in management DB
 - `node scripts/admin-playbooks.js list <tenant>`
@@ -321,6 +354,93 @@ Important boundary:
 
 - sandbox loop and hh mock scripts validate development iterations
 - they do not replace production cutover checks against the real runtime
+
+## Manual Session Handoff Procedure
+
+For the current system shape, the operator session should hand the vacancy over like this.
+
+### 1. Set vacancy-to-job mapping
+
+The import path expects a mapping from hh vacancy to internal job:
+
+```bash
+export HH_VACANCY_JOB_MAP='[
+  {"hh_vacancy_id":"<hh_vacancy_id>","job_id":"<job_id>","collections":["response","phone_interview"]}
+]'
+```
+
+Interpretation:
+
+- `hh_vacancy_id` is the hh vacancy being imported
+- `job_id` is the internal job target shown in recruiter queue/UI
+- `collections` determines which hh collections are imported for that vacancy
+
+### 2. Set internal auth and environment mode
+
+```bash
+export INTERNAL_API_TOKEN="<token>"
+export HH_USE_MOCK="true"
+```
+
+Use `HH_USE_MOCK=true` only in sandbox/local validation, not for real production cutover against live hh.
+
+### 3. Verify import gating
+
+Before any import, confirm:
+
+- runtime has `hh_import=true`
+- internal API token is configured
+- vacancy mapping env is present and parses correctly
+
+If `hh_import` is disabled, import returns:
+
+- `skipped: true`
+
+### 4. Run the initial import window
+
+`window_start` is mandatory:
+
+```bash
+curl -X POST http://127.0.0.1:3000/internal/hh-import \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "window_start":"2026-04-15T00:00:00.000Z",
+    "window_end":"2026-04-16T00:00:00.000Z"
+  }'
+```
+
+Use this as the first catch-up import for the vacancy handoff session.
+
+### 5. Poll for new activity after import
+
+After the initial import, incremental updates should go through:
+
+```bash
+curl -X POST http://127.0.0.1:3000/internal/hh-poll \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN"
+```
+
+### 6. Hand the operator the queue URL
+
+After mapping/import, the operator should work from the internal queue:
+
+- `/recruiter/<recruiter_token>/queue?job_id=<job_id>`
+- or `/recruiter/<recruiter_token>` with vacancy selected manually
+
+This is the actual "transfer vacancy into the system" moment:
+
+- hh vacancy id becomes an internal `job_id` scoped workflow in recruiter UI
+
+## Short TL;DR For The Session
+
+If another session needs the shortest possible instruction set, give it this:
+
+- vacancies enter the system only through `HH_VACANCY_JOB_MAP -> job_id`
+- without `INTERNAL_API_TOKEN`, `import` and `poll` do not pass
+- `window_start` is mandatory for `POST /internal/hh-import`
+- `hh_import=true` must be enabled or import is skipped
+- in sandbox/mock, use `unread_only=true` to validate unread/new response behavior
 
 ## Production Readiness For Manual Migration
 
