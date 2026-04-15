@@ -148,9 +148,10 @@ jobs:
         run: |
           WS_HEALTH=$(curl -sf https://hiring-chat.recruiter-assistant.com/health-web-socket 2>/dev/null || echo '{}')
           echo "Websocket health: $WS_HEALTH"
-          node --input-type=module -e "
+          npx --yes --package ws node -e "
+          const { WebSocket } = require('ws');
           const url = 'wss://hiring-chat.recruiter-assistant.com/ws';
-          const result = await new Promise((resolve, reject) => {
+          const result = new Promise((resolve, reject) => {
             const ws = new WebSocket(url);
             let settled = false;
             const finish = (ok, detail) => {
@@ -162,14 +163,19 @@ jobs:
               else reject(new Error(detail));
             };
             const timeout = setTimeout(() => finish(false, 'timeout waiting for websocket response'), 5000);
-            ws.addEventListener('open', () => finish(true, 'upgrade accepted'));
-            ws.addEventListener('close', (event) => {
-              if (event.code === 4001) finish(true, 'unauthorized close ' + event.code);
-              else if (!settled) finish(false, 'unexpected close ' + event.code);
+            ws.on('open', () => finish(true, 'upgrade accepted'));
+            ws.on('close', (code) => {
+              if (code === 4001) finish(true, 'unauthorized close ' + code);
+              else if (!settled) finish(false, 'unexpected close ' + code);
             });
-            ws.addEventListener('error', () => {
+            ws.on('error', () => {
               if (!settled) finish(false, 'websocket connection failed');
             });
           });
-          console.log('Public websocket smoke ok: ' + result);
+          result.then((detail) => {
+            console.log('Public websocket smoke ok: ' + detail);
+          }).catch((error) => {
+            console.error(error.message);
+            process.exit(1);
+          });
           "
