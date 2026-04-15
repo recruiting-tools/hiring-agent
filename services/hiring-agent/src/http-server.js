@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import bcrypt from "bcryptjs";
 import { WebSocketServer } from "ws";
 import { createSession, getRecruiterByEmail, parseCookies, resolveSession } from "./auth.js";
+import { normalizeJsonResponseText } from "./json-response.js";
 import { TenantDbTimeoutError } from "./app.js";
 import {
   AccessContextError,
@@ -1009,6 +1010,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     let selectedVacancyJobId = null;
     let availableVacancies = [];
     let selectedVacancyTitle = '';
+    let activePlaybookKey = null;
     let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
@@ -1083,6 +1085,8 @@ const CHAT_HTML = `<!DOCTYPE html>
         }
 
         if (data.type === 'done' && currentAssistant) {
+          applyServerState(data);
+
           // Mark last step done
           const active = currentAssistant.stepsEl.querySelector('.progress-step.active');
           if (active) active.classList.replace('active', 'done');
@@ -1194,6 +1198,58 @@ const CHAT_HTML = `<!DOCTYPE html>
       return bubble;
     }
 
+    function clearActivePlaybookState() {
+      activePlaybookKey = null;
+    }
+
+    function upsertVacancyOption(vacancyId, title, jobId) {
+      if (!vacancyId) return;
+
+      const normalizedVacancyId = String(vacancyId);
+      const label = title || 'Новая вакансия';
+      let option = Array.from(vacancySelect.options).find((item) => String(item.value) === normalizedVacancyId);
+
+      if (!option) {
+        option = document.createElement('option');
+        option.value = normalizedVacancyId;
+        const createOption = Array.from(vacancySelect.options).find((item) => item.value === '__create__');
+        vacancySelect.insertBefore(option, createOption || null);
+      }
+
+      option.textContent = label;
+      vacancySelect.value = normalizedVacancyId;
+
+      const existing = availableVacancies.find((item) => String(item.vacancy_id) === normalizedVacancyId);
+      if (existing) {
+        existing.title = label;
+        existing.job_id = jobId || existing.job_id || null;
+        return;
+      }
+
+      availableVacancies.unshift({
+        vacancy_id: normalizedVacancyId,
+        job_id: jobId || null,
+        title: label
+      });
+    }
+
+    function applyServerState(data) {
+      if (data.playbookActive && data.playbookKey) {
+        activePlaybookKey = data.playbookKey;
+      } else {
+        clearActivePlaybookState();
+      }
+
+      if (!data.vacancyId) return;
+
+      selectedVacancyId = data.vacancyId;
+      selectedVacancyJobId = data.jobId || selectedVacancyJobId || null;
+      selectedVacancyTitle = data.vacancyTitle || selectedVacancyTitle || 'Новая вакансия';
+      localStorage.setItem(LAST_VACANCY_KEY, String(selectedVacancyId));
+      upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
+      syncContext();
+    }
+
     function sendMessage(text) {
       if (!text || !text.trim()) return;
       if (streaming) return;
@@ -1212,7 +1268,8 @@ const CHAT_HTML = `<!DOCTYPE html>
         type: 'message',
         text: text.trim(),
         vacancyId: selectedVacancyId,
-        jobId: selectedVacancyJobId || null
+        jobId: selectedVacancyJobId || null,
+        playbookKey: activePlaybookKey || null
       }));
     }
 
@@ -1286,6 +1343,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     });
 
     function onVacancySelected(vacancyId, title, jobId) {
+      clearActivePlaybookState();
       selectedVacancyId = vacancyId;
       selectedVacancyJobId = jobId || null;
       selectedVacancyTitle = title || '';
@@ -1329,6 +1387,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     function triggerCreateVacancy() {
+      clearActivePlaybookState();
       selectedVacancyId = null;
       selectedVacancyJobId = null;
       selectedVacancyTitle = '';
@@ -1644,13 +1703,13 @@ function tryParseStructuredReply(reply) {
     return null;
   }
 
-  const trimmed = reply.trim();
-  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+  const normalized = normalizeJsonResponseText(reply);
+  if (!normalized || (!normalized.startsWith("{") && !normalized.startsWith("["))) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(trimmed);
+    const parsed = JSON.parse(normalized);
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     return null;
@@ -1662,8 +1721,8 @@ async function handleChatWs(ws, msg, wsContext, app) {
     if (ws.readyState === 1) ws.send(JSON.stringify(obj));
   };
 
-  const { text, vacancyId, jobId } = msg;
-  console.log("[ws] message:", JSON.stringify({ text, vacancyId, jobId, tenantId: wsContext.tenantId }));
+  const { text, vacancyId, jobId, playbookKey } = msg;
+  console.log("[ws] message:", JSON.stringify({ text, vacancyId, jobId, playbookKey, tenantId: wsContext.tenantId }));
 
   try {
     send({ type: "progress", tool: "route_playbook", label: "Определяю плейбук" });
@@ -1673,6 +1732,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       tenantSql: wsContext.tenantSql,
       tenantId: wsContext.tenantId,
       recruiterId: wsContext.recruiterId,
+      playbook_key: playbookKey ?? null,
       vacancy_id: vacancyId,
       job_id: jobId ?? null,
     });
@@ -1683,7 +1743,17 @@ async function handleChatWs(ws, msg, wsContext, app) {
     send({ type: "progress", tool: "render", label: "Генерирую ответ" });
     const { markdown, actions } = replyToMarkdown(reply);
     send({ type: "chunk", text: markdown });
-    send({ type: "done", actions });
+    send({
+      type: "done",
+      actions,
+      playbookKey: result.body?.playbook_key ?? null,
+      playbookActive: Boolean(result.body?.playbook_active),
+      sessionId: result.body?.session_id ?? null,
+      vacancyId: result.body?.vacancy_id ?? null,
+      jobId: result.body?.job_id ?? null,
+      vacancyTitle: result.body?.vacancy_title ?? null,
+      replyKind: reply?.kind ?? null
+    });
 
   } catch (err) {
     console.error("[ws] error:", err?.message);

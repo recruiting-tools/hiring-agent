@@ -1,4 +1,5 @@
 import { getDemoRuntimeData } from "./demo-runtime-data.js";
+import { parseJsonResponse as parseRawJsonResponse } from "./json-response.js";
 import { executeWithDb, runCandidateFunnelPlaybook } from "./playbooks/candidate-funnel.js";
 import { runCommunicationPlanPlaybook } from "./playbooks/communication-plan.js";
 import { canBypassTenantPlaybookLock, canonicalizePlaybookKey } from "./playbooks/playbook-key-map.js";
@@ -210,8 +211,10 @@ export function createHiringAgentApp(options = {}) {
     }) {
       const requestedJobId = jobId ?? null;
       const requestedVacancyId = vacancyId ?? null;
+      const explicitPlaybookKey = canonicalizePlaybookKey(requestedPlaybookKey) || null;
+      const useMessageAsRecruiterInput = Boolean(explicitPlaybookKey);
 
-      let playbookKey = canonicalizePlaybookKey(
+      let playbookKey = explicitPlaybookKey ?? canonicalizePlaybookKey(
         action === "start_playbook" && requestedPlaybookKey
           ? requestedPlaybookKey
           : await routePlaybook(message, requestManagementSql)
@@ -365,12 +368,64 @@ export function createHiringAgentApp(options = {}) {
           vacancyId: effectiveVacancyId,
           jobId: effectiveJobId,
           llmAdapter,
-          recruiterInput: message,
+          recruiterInput: useMessageAsRecruiterInput ? (message ?? null) : null,
           llmConfig: communicationPlanLlmConfig
         });
         return {
           status: 200,
-          body: { reply: result.reply }
+          body: {
+            reply: result.reply,
+            playbook_key: playbook.playbook_key,
+            playbook_active: true,
+            vacancy_id: effectiveVacancyId,
+            job_id: effectiveJobId,
+            vacancy_title: identity.vacancy?.title ?? null
+          }
+        };
+      }
+
+      if (playbook.playbook_key === "view_vacancy") {
+        if (explicitVacancyMissing) {
+          return {
+            status: 404,
+            body: {
+              error: "vacancy_not_found"
+            }
+          };
+        }
+
+        if (explicitJobMissing) {
+          return {
+            status: 404,
+            body: {
+              error: "job_not_found"
+            }
+          };
+        }
+
+        if (!tenantSql || !effectiveVacancyId) {
+          return {
+            status: 200,
+            body: {
+              reply: {
+                kind: "fallback_text",
+                text: "Сначала выберите вакансию, чтобы показать её текст."
+              }
+            }
+          };
+        }
+
+        return {
+          status: 200,
+          body: {
+            reply: await withTenantDbTimeout(
+              () => buildVacancyTextReply({
+                tenantSql,
+                vacancyId: effectiveVacancyId
+              }),
+              { operation: "buildVacancyTextReply", timeoutMs: tenantDbTimeoutMs }
+            )
+          }
         };
       }
 
@@ -548,7 +603,7 @@ export function createHiringAgentApp(options = {}) {
         vacancyId: effectiveVacancyId,
         jobId: effectiveJobId,
         playbookKey,
-        recruiterInput: message ?? null,
+        recruiterInput: useMessageAsRecruiterInput ? (message ?? null) : null,
         llmAdapter,
         llmConfig: {
           createVacancy: createVacancyLlmConfig
@@ -557,6 +612,8 @@ export function createHiringAgentApp(options = {}) {
 
       const runtimeVacancyId = runtimeResult.vacancyId ?? effectiveVacancyId ?? null;
       const runtimeJobId = runtimeResult.jobId ?? effectiveJobId ?? null;
+      const runtimeVacancyTitle = runtimeResult.context?.vacancy?.title ?? identity.vacancy?.title ?? null;
+      const runtimePlaybookActive = runtimeResult.reply?.kind !== "completed";
       let reply = runtimeResult.reply;
 
       if (playbook.playbook_key === "create_vacancy") {
@@ -578,9 +635,12 @@ export function createHiringAgentApp(options = {}) {
         status: 200,
         body: {
           reply,
+          playbook_key: playbook.playbook_key,
+          playbook_active: runtimePlaybookActive,
           session_id: runtimeResult.sessionId,
           vacancy_id: runtimeVacancyId,
-          job_id: runtimeJobId
+          job_id: runtimeJobId,
+          vacancy_title: runtimeVacancyTitle
         }
       };
     },
@@ -1019,7 +1079,7 @@ async function routePlaybookWithLlm({ message, playbooks, llmAdapter }) {
 
   try {
     const raw = await llmAdapter.generate(prompt);
-    const parsed = parseJsonResponse(raw);
+    const parsed = safeParseJsonResponse(raw);
     const key = typeof parsed?.playbook_key === "string"
       ? parsed.playbook_key.trim()
       : null;
@@ -1032,17 +1092,9 @@ async function routePlaybookWithLlm({ message, playbooks, llmAdapter }) {
   }
 }
 
-function parseJsonResponse(raw) {
-  const text = String(raw ?? "").trim();
-  if (!text) return null;
-
-  const normalized = text
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-
+function safeParseJsonResponse(raw) {
   try {
-    return JSON.parse(normalized);
+    return parseRawJsonResponse(raw);
   } catch {
     return null;
   }

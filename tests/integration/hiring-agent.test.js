@@ -807,6 +807,180 @@ test("hiring-agent: create_vacancy starts from fallback steps when DB step_count
   }
 });
 
+test("hiring-agent: routed create_vacancy prompts first and explicit playbook_key resumes the flow", async () => {
+  clearPlaybookRegistryCache();
+  let sessionSequence = 0;
+  let activeSession = null;
+  let vacancyInsertCount = 0;
+
+  const managementSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (text.includes("FROM management.playbook_definitions d") && text.includes("d.keywords")) {
+      return [{
+        playbook_key: "create_vacancy",
+        keywords: ["создать вакансию"],
+        step_count: 1
+      }];
+    }
+
+    if (text.includes("FROM management.playbook_definitions d") && text.includes("d.name")) {
+      return [{
+        playbook_key: "create_vacancy",
+        name: "Создать новую вакансию",
+        trigger_description: "create vacancy",
+        status: "available",
+        sort_order: 1,
+        step_count: 1
+      }];
+    }
+
+    if (text.includes("FROM management.tenant_playbook_access")) {
+      return [];
+    }
+
+    if (text.includes("FROM management.playbook_steps")) {
+      return [{
+        step_key: "create_vacancy.1",
+        playbook_key: "create_vacancy",
+        step_order: 1,
+        name: "Загрузить материалы по вакансии",
+        step_type: "user_input",
+        user_message: "Загрузите материалы по вакансии",
+        prompt_template: null,
+        context_key: "raw_vacancy_text",
+        db_save_column: null,
+        next_step_order: null,
+        options: null,
+        routing: null,
+        notes: null,
+        created_at: new Date()
+      }];
+    }
+
+    if (text.includes("FROM management.playbook_sessions") && text.includes("status = 'active'")) {
+      return activeSession?.status === "active" ? [structuredClone(activeSession)] : [];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("status = 'aborted'")) {
+      return [];
+    }
+
+    if (text.includes("INSERT INTO management.playbook_sessions")) {
+      sessionSequence += 1;
+      activeSession = {
+        session_id: `sess-routed-${sessionSequence}`,
+        tenant_id: "tenant-alpha-001",
+        recruiter_id: "rec-alpha-001",
+        conversation_id: null,
+        playbook_key: "create_vacancy",
+        current_step_order: 1,
+        vacancy_id: null,
+        context: {},
+        call_stack: [],
+        status: "active",
+        started_at: new Date(),
+        updated_at: new Date(),
+        completed_at: null
+      };
+      return [structuredClone(activeSession)];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("status = 'completed'")) {
+      activeSession = {
+        ...activeSession,
+        current_step_order: null,
+        context: values[0] ? JSON.parse(values[0]) : activeSession.context,
+        vacancy_id: values[2] ?? activeSession.vacancy_id,
+        status: "completed",
+        updated_at: new Date(),
+        completed_at: new Date()
+      };
+      return [structuredClone(activeSession)];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("SET")) {
+      activeSession = {
+        ...activeSession,
+        current_step_order: values[0] ?? activeSession.current_step_order,
+        context: values[1] ? JSON.parse(values[1]) : activeSession.context,
+        vacancy_id: values[3] ?? activeSession.vacancy_id,
+        status: values[4] ?? activeSession.status,
+        updated_at: new Date()
+      };
+      return [structuredClone(activeSession)];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (text.includes("INSERT INTO chatbot.vacancies")) {
+      vacancyInsertCount += 1;
+      assert.deepEqual(values, [
+        "rec-alpha-001",
+        "Нужен менеджер по продажам",
+        "Нужен менеджер по продажам"
+      ]);
+      return [{
+        vacancy_id: "vac-routed-1",
+        job_id: "job-routed-1",
+        title: "Нужен менеджер по продажам",
+        status: "draft"
+      }];
+    }
+
+    throw new Error(`Unexpected tenant query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    managementSql
+  });
+
+  try {
+    const start = await app.postChatMessage({
+      message: "создать вакансию",
+      tenantId: "tenant-alpha-001",
+      recruiterId: "rec-alpha-001",
+      managementSql,
+      tenantSql
+    });
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.reply.kind, "user_input");
+    assert.equal(start.body.playbook_key, "create_vacancy");
+    assert.equal(start.body.playbook_active, true);
+    assert.equal(vacancyInsertCount, 0);
+
+    const resumed = await app.postChatMessage({
+      message: "Нужен менеджер по продажам",
+      playbook_key: "create_vacancy",
+      tenantId: "tenant-alpha-001",
+      recruiterId: "rec-alpha-001",
+      managementSql,
+      tenantSql
+    });
+
+    assert.equal(resumed.status, 200);
+    assert.equal(resumed.body.reply.kind, "completed");
+    assert.equal(resumed.body.playbook_key, "create_vacancy");
+    assert.equal(resumed.body.playbook_active, false);
+    assert.equal(resumed.body.vacancy_id, "vac-routed-1");
+    assert.equal(resumed.body.job_id, "job-routed-1");
+    assert.equal(resumed.body.vacancy_title, "Нужен менеджер по продажам");
+    assert.equal(vacancyInsertCount, 1);
+  } finally {
+    clearPlaybookRegistryCache();
+  }
+});
+
 test("hiring-agent: create_vacancy remains available when tenant override is disabled", async () => {
   clearPlaybookRegistryCache();
   let sessionSequence = 0;
@@ -3658,6 +3832,114 @@ test("hiring-agent: management-backed WebSocket forwards recruiterId to app", as
       ws.on("error", finish);
       setTimeout(() => finish(new Error("timeout")), 5000);
     });
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed WebSocket forwards explicit playbookKey and returns playbook metadata", async () => {
+  const app = {
+    getHealth() {
+      return { status: 200, body: { status: "ok" } };
+    },
+    async postChatMessage(input) {
+      assert.equal(input.playbook_key, "create_vacancy");
+      return {
+        status: 200,
+        body: {
+          reply: {
+            kind: "user_input",
+            message: "Загрузите материалы по вакансии"
+          },
+          playbook_key: "create_vacancy",
+          playbook_active: true,
+          session_id: "sess-ws-create-1",
+          vacancy_id: "vac-ws-create-1",
+          job_id: "job-ws-create-1",
+          vacancy_title: "Новая вакансия"
+        }
+      };
+    }
+  };
+
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return async () => [];
+      }
+    }
+  }).listen(0);
+
+  const port = server.address().port;
+  try {
+    const messages = await new Promise((resolve, reject) => {
+      const ws = new WsClient(`ws://localhost:${port}/ws`, {
+        headers: { cookie: "session=sess-alpha" }
+      });
+      const received = [];
+      let settled = false;
+
+      const finish = (value, isError = false) => {
+        if (settled) return;
+        settled = true;
+        ws.close();
+        if (isError) reject(value);
+        else resolve(value);
+      };
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({
+          type: "message",
+          text: "Материалы по вакансии",
+          playbookKey: "create_vacancy"
+        }));
+      });
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data);
+        received.push(msg);
+        if (msg.type === "done") finish(received);
+      });
+      ws.on("error", (error) => finish(error, true));
+      setTimeout(() => finish(new Error("timeout"), true), 5000);
+    });
+
+    const done = messages.find((item) => item.type === "done");
+    assert.ok(done, "should receive done message");
+    assert.equal(done.playbookKey, "create_vacancy");
+    assert.equal(done.playbookActive, true);
+    assert.equal(done.sessionId, "sess-ws-create-1");
+    assert.equal(done.vacancyId, "vac-ws-create-1");
+    assert.equal(done.jobId, "job-ws-create-1");
+    assert.equal(done.vacancyTitle, "Новая вакансия");
   } finally {
     server.close();
   }
