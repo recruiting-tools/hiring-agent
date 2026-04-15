@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import bcrypt from "bcryptjs";
 import { FakeLlmAdapter } from "./fake-llm-adapter.js";
 import { GeminiAdapter } from "./gemini-adapter.js";
 import { createCandidateChatbot } from "./handlers.js";
@@ -40,6 +41,21 @@ if (process.env.USE_REAL_DB === "true") {
   const seed = JSON.parse(await readFile(new URL("../../../tests/fixtures/iteration-1-seed.json", import.meta.url), "utf8"));
   store = new InMemoryHiringStore(seed);
   console.log("Using InMemoryHiringStore (in-memory)");
+}
+
+const demoPassword = process.env.CANDIDATE_CHATBOT_DEMO_PASSWORD ?? process.env.DEMO_PASSWORD ?? null;
+if (demoPassword && typeof store.setRecruiterPassword === "function") {
+  const demoRecruiterToken = process.env.DEMO_RECRUITER_TOKEN ?? "rec-tok-demo-001";
+  const demoRecruiterEmail = process.env.DEMO_RECRUITER_EMAIL ?? "recruiter@example.test";
+  const recruiter = await store.getRecruiterByToken(demoRecruiterToken)
+    ?? await store.getRecruiterByEmail(demoRecruiterEmail);
+  if (recruiter) {
+    const hash = await bcrypt.hash(String(demoPassword), 10);
+    await store.setRecruiterPassword(recruiter.recruiter_id, hash);
+    console.log(`Demo password configured for ${recruiter.email}`);
+  } else {
+    console.warn(`Demo password provided but recruiter not found (token=${demoRecruiterToken}, email=${demoRecruiterEmail})`);
+  }
 }
 
 const llmAdapter = process.env.GEMINI_API_KEY

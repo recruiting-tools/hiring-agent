@@ -726,11 +726,17 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhIm
           return;
         }
         const recruiter = await store.getRecruiterByEmail(email);
-        const validPassword = recruiter?.password_hash
-          ? await bcrypt.compare(String(password), recruiter.password_hash)
-          : false;
-        if (!recruiter || !validPassword) {
-          writeJson(response, 401, { error: "Invalid credentials" });
+        if (!recruiter) {
+          writeJson(response, 401, { error: "Неверный email или пароль", error_code: "invalid_credentials" });
+          return;
+        }
+        if (!recruiter.password_hash) {
+          writeJson(response, 401, { error: "Пароль не настроен", error_code: "password_not_set" });
+          return;
+        }
+        const validPassword = await bcrypt.compare(String(password), recruiter.password_hash);
+        if (!validPassword) {
+          writeJson(response, 401, { error: "Неверный email или пароль", error_code: "invalid_credentials" });
           return;
         }
         const sessionToken = await store.createSession(recruiter.recruiter_id);

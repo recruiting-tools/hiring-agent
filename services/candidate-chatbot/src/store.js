@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { getModerationAutoSendDelayMs } from "./config.js";
 
 export class InMemoryHiringStore {
@@ -31,6 +32,7 @@ export class InMemoryHiringStore {
     this.hhPollStates = new Map();    // hh_negotiation_id → pollState
     this.deliveryAttempts = [];       // flat array of delivery attempts
     this.oauthTokens = new Map();     // provider → token row
+    this.sessions = new Map();        // session_token → { recruiter_id, expires_at }
     this.featureFlags = new Map([
       ["hh_send", { flag: "hh_send", enabled: false, description: "Controls outbound HH sending" }],
       ["hh_import", { flag: "hh_import", enabled: false, description: "Controls HH applicant import and polling" }]
@@ -715,14 +717,30 @@ export class InMemoryHiringStore {
     return this.recruiters.find(r => r.email === email) ?? null;
   }
 
-  async setRecruiterPassword(_recruiterId, _passwordHash) {}
-
-  async createSession(_recruiterId) {
-    return null;
+  async setRecruiterPassword(recruiterId, passwordHash) {
+    const recruiter = this.recruiters.find((row) => row.recruiter_id === recruiterId);
+    if (!recruiter) return;
+    recruiter.password_hash = passwordHash;
   }
 
-  async getSessionRecruiter(_token) {
-    return null;
+  async createSession(recruiterId) {
+    const token = randomBytes(32).toString("hex");
+    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    this.sessions.set(token, {
+      recruiter_id: recruiterId,
+      expires_at: expiresAt
+    });
+    return token;
+  }
+
+  async getSessionRecruiter(token) {
+    const session = this.sessions.get(token);
+    if (!session) return null;
+    if (session.expires_at <= Date.now()) {
+      this.sessions.delete(token);
+      return null;
+    }
+    return this.recruiters.find((row) => row.recruiter_id === session.recruiter_id) ?? null;
   }
 
   async findPlannedMessage(plannedMessageId) {

@@ -42,6 +42,48 @@ jobs:
       # In CI: run tests only (no smoke — smoke requires a running server)
       - run: pnpm test:sandbox
 
+  moderation-smoke-optional:
+    runs-on: ubuntu-latest
+    needs: gate
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    env:
+      APP_ENV: sandbox
+      HH_USE_MOCK: "true"
+      DATABASE_URL: ${{ secrets.SANDBOX_DATABASE_URL }}
+      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: corepack enable pnpm
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - run: pnpm install --frozen-lockfile
+      - name: Run optional moderation smoke (warning-only)
+        env:
+          PORT: "3137"
+          DEMO_PASSWORD: "demo-ci-password"
+          RECRUITER_EMAIL: "recruiter@example.test"
+          RECRUITER_PASSWORD: "demo-ci-password"
+          RECRUITER_TOKEN: "rec-tok-demo-001"
+          MODERATION_CONVERSATION_ID: "conv-sales-001"
+          MODERATION_JOB_ID: "job-b2b-sales-manager"
+          MODERATION_JOB_TITLE: "Менеджер по продажам"
+        run: |
+          set -euo pipefail
+          PORT="$PORT" DEMO_PASSWORD="$DEMO_PASSWORD" node services/candidate-chatbot/src/index.js &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" || true' EXIT
+          sleep 2
+
+          export BASE_URL="http://127.0.0.1:${PORT}"
+          export MODERATION_BASE_URL="$BASE_URL"
+
+          pnpm smoke:moderation:auth -- --job-id "$MODERATION_JOB_ID" --job-title "$MODERATION_JOB_TITLE"
+          pnpm smoke:moderation:queue -- --job-id "$MODERATION_JOB_ID" --job-title "$MODERATION_JOB_TITLE" --conversation-id "$MODERATION_CONVERSATION_ID" --webhook-text "ci-smoke-queue"
+          pnpm smoke:moderation:block -- --job-id "$MODERATION_JOB_ID" --job-title "$MODERATION_JOB_TITLE" --conversation-id "$MODERATION_CONVERSATION_ID" --webhook-text "ci-smoke-block"
+          pnpm smoke:moderation:drain -- --job-id "$MODERATION_JOB_ID" --conversation-id "$MODERATION_CONVERSATION_ID"
+
   migration-check:
     runs-on: ubuntu-latest
     steps:
@@ -105,7 +147,7 @@ jobs:
 
   notify-session:
     runs-on: ubuntu-latest
-    needs: [gate, migration-check]
+    needs: [gate, migration-check, moderation-smoke-optional]
     if: always() && github.event_name == 'pull_request'
     continue-on-error: true
     steps:
