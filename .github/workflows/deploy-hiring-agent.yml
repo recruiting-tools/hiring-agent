@@ -105,7 +105,7 @@ jobs:
             set -euo pipefail
             WS_HEALTH=$(curl -sf http://127.0.0.1:3101/health-web-socket)
             echo "Local websocket health: $WS_HEALTH"
-            node --input-type=module <<'NODE'
+            node --input-type=module -e "
             const url = 'ws://127.0.0.1:3101/ws';
             const result = await new Promise((resolve, reject) => {
               const ws = new WebSocket(url);
@@ -121,15 +121,15 @@ jobs:
               const timeout = setTimeout(() => finish(false, 'timeout waiting for websocket response'), 5000);
               ws.addEventListener('open', () => finish(true, 'upgrade accepted'));
               ws.addEventListener('close', (event) => {
-                if (event.code === 4001) finish(true, `unauthorized close ${event.code}`);
-                else if (!settled) finish(false, `unexpected close ${event.code}`);
+                if (event.code === 4001) finish(true, 'unauthorized close ' + event.code);
+                else if (!settled) finish(false, 'unexpected close ' + event.code);
               });
               ws.addEventListener('error', () => {
                 if (!settled) finish(false, 'websocket connection failed');
               });
             });
-            console.log(`VM websocket smoke ok: ${result}`);
-            NODE
+            console.log('VM websocket smoke ok: ' + result);
+            "
           EOF
 
       - name: Post-deploy smoke
@@ -148,7 +148,7 @@ jobs:
         run: |
           WS_HEALTH=$(curl -sf https://hiring-chat.recruiter-assistant.com/health-web-socket 2>/dev/null || echo '{}')
           echo "Websocket health: $WS_HEALTH"
-          node --input-type=module <<'NODE'
+          node --input-type=module -e "
           const url = 'wss://hiring-chat.recruiter-assistant.com/ws';
           const result = await new Promise((resolve, reject) => {
             const ws = new WebSocket(url);
@@ -164,12 +164,12 @@ jobs:
             const timeout = setTimeout(() => finish(false, 'timeout waiting for websocket response'), 5000);
             ws.addEventListener('open', () => finish(true, 'upgrade accepted'));
             ws.addEventListener('close', (event) => {
-              if (event.code === 4001) finish(true, `unauthorized close ${event.code}`);
-              else if (!settled) finish(false, `unexpected close ${event.code}`);
+              if (event.code === 4001) finish(true, 'unauthorized close ' + event.code);
+              else if (!settled) finish(false, 'unexpected close ' + event.code);
             });
             ws.addEventListener('error', () => {
               if (!settled) finish(false, 'websocket connection failed');
             });
           });
-          console.log(`Public websocket smoke ok: ${result}`);
-          NODE
+          console.log('Public websocket smoke ok: ' + result);
+          "
