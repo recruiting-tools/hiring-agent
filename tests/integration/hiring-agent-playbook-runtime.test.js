@@ -107,6 +107,9 @@ if (!MANAGEMENT_DB_URL || !CHATBOT_DB_URL) {
       });
       assert.equal(workConditions.reply.kind, "display");
       assert.match(workConditions.reply.content, /условия работы/i);
+      assert.match(workConditions.reply.content, /Оплата за смену: 4 000 ₽/);
+      assert.match(workConditions.reply.content, /График: 5\/2/);
+      assert.doesNotMatch(workConditions.reply.content, /"pay_per_shift"|{"|"}|salary_range/);
 
       const applicationSteps = await dispatch({
         managementSql,

@@ -37,6 +37,7 @@ esac
 target_port="${3:-$(default_port_for_slot "$slot")}"
 
 gh workflow run "Deploy hiring-agent to sandbox slot" \
+  --ref "$ref" \
   -f slot="$slot" \
   -f deploy_ref="$ref" \
   -f target_port="$target_port"

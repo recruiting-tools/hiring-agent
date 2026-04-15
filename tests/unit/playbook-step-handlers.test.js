@@ -5,7 +5,7 @@ import { handleButtonsStep } from "../../services/hiring-agent/src/playbooks/ste
 import { handleDataFetchStep } from "../../services/hiring-agent/src/playbooks/step-handlers/data-fetch.js";
 import { handleDecisionStep } from "../../services/hiring-agent/src/playbooks/step-handlers/decision.js";
 import { handleDisplayStep } from "../../services/hiring-agent/src/playbooks/step-handlers/display.js";
-import { handleLlmExtractStep } from "../../services/hiring-agent/src/playbooks/step-handlers/llm-extract.js";
+import { buildJsonPrompt, handleLlmExtractStep } from "../../services/hiring-agent/src/playbooks/step-handlers/llm-extract.js";
 import { handleLlmGenerateStep } from "../../services/hiring-agent/src/playbooks/step-handlers/llm-generate.js";
 import { handleUserInputStep } from "../../services/hiring-agent/src/playbooks/step-handlers/user-input.js";
 import { dispatch } from "../../services/hiring-agent/src/playbooks/runtime.js";
@@ -247,6 +247,7 @@ test("playbook handler: llm_extract retries once, appends JSON instruction, and 
 
   const result = await handleLlmExtractStep({
     step: {
+      playbook_key: "create_vacancy",
       prompt_template: "Извлеки требования из {{context.raw_vacancy_text}}",
       context_key: "must_haves",
       db_save_column: "must_haves",
@@ -274,6 +275,21 @@ test("playbook handler: llm_extract retries once, appends JSON instruction, and 
   assert.deepEqual(result.context.must_haves, ["Опыт 1 год"]);
   assert.equal(prompts.length, 2);
   assert.match(prompts[0], /Return valid JSON only, no markdown\./);
+  assert.match(prompts[0], /ЛОГИЧЕСКИХ блокирующих требований/i);
+  assert.match(prompts[0], /Одна из специальностей/i);
+});
+
+test("playbook handler: buildJsonPrompt reinforces logical count for create_vacancy must_haves", () => {
+  const prompt = buildJsonPrompt({
+    playbook_key: "create_vacancy",
+    prompt_template: "Извлеки требования из {{context.raw_vacancy_text}}",
+    db_save_column: "must_haves"
+  }, {
+    raw_vacancy_text: "Высшее образование. Одна из специальностей: A, B или C."
+  });
+
+  assert.match(prompt, /Каждый элемент массива должен соответствовать одному логическому must-have/i);
+  assert.match(prompt, /Не раскладывай альтернативные специальности/i);
 });
 
 test("playbook handler: llm_extract parses fenced JSON responses", async () => {
