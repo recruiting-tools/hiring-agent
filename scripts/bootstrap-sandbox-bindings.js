@@ -6,6 +6,7 @@ const args = parseArgs(process.argv.slice(2));
 const sourceEnv = args["source-env"] ?? process.env.BINDINGS_SOURCE_ENV ?? "prod";
 const targetEnv = args["target-env"] ?? process.env.BINDINGS_TARGET_ENV ?? "sandbox";
 const managementDatabaseUrl = process.env.MANAGEMENT_DATABASE_URL;
+const demoTenantId = process.env.DEMO_CLIENT_ID ?? process.env.SANDBOX_DEMO_CLIENT_ID ?? "client-demo-001";
 
 if (!managementDatabaseUrl) {
   console.error("ERROR: MANAGEMENT_DATABASE_URL environment variable is required");
@@ -53,32 +54,80 @@ try {
 
   let updated = 0;
   for (const row of rows.rows) {
-    const bindingId = `bind-${row.tenant_id}-${targetEnv}`;
-    await client.query(`
-      INSERT INTO management.tenant_database_bindings (
-        binding_id,
-        tenant_id,
-        environment,
-        binding_kind,
-        db_alias,
-        schema_name,
-        is_primary
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, true)
-      ON CONFLICT (tenant_id, environment) WHERE is_primary = true
-      DO UPDATE SET
-        binding_kind = EXCLUDED.binding_kind,
-        db_alias = EXCLUDED.db_alias,
-        schema_name = EXCLUDED.schema_name,
-        is_primary = EXCLUDED.is_primary
-    `, [bindingId, row.tenant_id, targetEnv, row.binding_kind, row.db_alias, row.schema_name]);
+    await upsertPrimaryBinding(client, {
+      tenantId: row.tenant_id,
+      targetEnv,
+      bindingKind: row.binding_kind,
+      dbAlias: row.db_alias,
+      schemaName: row.schema_name
+    });
     updated += 1;
     console.log(`Ensured binding: tenant=${row.tenant_id} env=${targetEnv} db_alias=${row.db_alias}`);
+  }
+
+  const demoBindingRows = await client.query(`
+    SELECT tenant_id
+    FROM management.tenant_database_bindings
+    WHERE tenant_id = $1
+      AND environment = $2
+      AND is_primary = true
+    LIMIT 1
+  `, [demoTenantId, targetEnv]);
+
+  if (demoBindingRows.rows.length === 0) {
+    const fallbackBinding = await client.query(`
+      SELECT binding_kind, db_alias, schema_name
+      FROM management.tenant_database_bindings
+      WHERE environment IN ($1, $2)
+        AND is_primary = true
+      ORDER BY CASE WHEN environment = $2 THEN 0 ELSE 1 END, tenant_id ASC
+      LIMIT 1
+    `, [sourceEnv, targetEnv]);
+
+    if (fallbackBinding.rows[0]) {
+      await upsertPrimaryBinding(client, {
+        tenantId: demoTenantId,
+        targetEnv,
+        bindingKind: fallbackBinding.rows[0].binding_kind,
+        dbAlias: fallbackBinding.rows[0].db_alias,
+        schemaName: fallbackBinding.rows[0].schema_name
+      });
+      updated += 1;
+      console.log(`Ensured fallback demo binding: tenant=${demoTenantId} env=${targetEnv} db_alias=${fallbackBinding.rows[0].db_alias}`);
+    }
   }
 
   console.log(`Done. Ensured ${updated} primary binding(s) in '${targetEnv}' from '${sourceEnv}'.`);
 } finally {
   await client.end();
+}
+
+async function upsertPrimaryBinding(client, {
+  tenantId,
+  targetEnv,
+  bindingKind,
+  dbAlias,
+  schemaName
+}) {
+  const bindingId = `bind-${tenantId}-${targetEnv}`;
+  await client.query(`
+    INSERT INTO management.tenant_database_bindings (
+      binding_id,
+      tenant_id,
+      environment,
+      binding_kind,
+      db_alias,
+      schema_name,
+      is_primary
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, true)
+    ON CONFLICT (tenant_id, environment) WHERE is_primary = true
+    DO UPDATE SET
+      binding_kind = EXCLUDED.binding_kind,
+      db_alias = EXCLUDED.db_alias,
+      schema_name = EXCLUDED.schema_name,
+      is_primary = EXCLUDED.is_primary
+  `, [bindingId, tenantId, targetEnv, bindingKind, dbAlias, schemaName]);
 }
 
 function parseArgs(argv) {
