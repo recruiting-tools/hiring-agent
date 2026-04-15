@@ -279,6 +279,125 @@ test("hh connector: syncApplicants is idempotent on repeated import", async () =
   assert.equal(importedMessages.length, 1);
 });
 
+test("hh connector: syncApplicants returns explicit error when no vacancy mappings are configured", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot
+  });
+
+  const result = await connector.syncApplicants({ windowStart: "2026-04-08T00:00:00Z" });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "no_active_hh_mappings");
+  assert.equal(result.imported_negotiations, 0);
+  assert.equal(result.results.length, 0);
+});
+
+test("hh connector: syncApplicants validates missing job (dangling mapping)", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.addNegotiation("neg-bad-job", [
+    { id: "msg-1", author: "applicant", text: "Привет", created_at: "2026-04-12T10:00:00Z" }
+  ], {
+    hh_vacancy_id: "131345849",
+    updated_at: "2026-04-12T10:00:00Z",
+    resume: { id: "resume-bad-job", url: "https://api.hh.ru/resumes/resume-bad-job" },
+    vacancy: { id: "131345849", name: "Удаленная вакансия" }
+  });
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot
+  });
+
+  const result = await connector.syncApplicants({
+    windowStart: "2026-04-08T00:00:00Z",
+    vacancyMappings: [{ hh_vacancy_id: "131345849", job_id: "job-does-not-exist" }]
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.validation_errors.some((item) => item.code === "missing_job"), true);
+  assert.equal(result.imported_negotiations, 0);
+});
+
+test("hh connector: syncApplicants rejects tenant-mismatch mapping", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.addNegotiation("neg-tenant-mismatch", [
+    { id: "msg-1", author: "applicant", text: "Привет", created_at: "2026-04-12T10:00:00Z" }
+  ], {
+    hh_vacancy_id: "131345849",
+    updated_at: "2026-04-12T10:00:00Z",
+    resume: { id: "resume-tenant", url: "https://api.hh.ru/resumes/resume-tenant" },
+    vacancy: { id: "131345849", name: "Закупщик (Китай)" }
+  });
+  const tenantBoundJob = structuredClone(store.getJob("job-zakup-china"));
+  tenantBoundJob.job_id = "job-tenant-bound";
+  tenantBoundJob.client_id = "client-alpha-001";
+  store.jobs.set(tenantBoundJob.job_id, tenantBoundJob);
+
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot
+  });
+
+  const result = await connector.syncApplicants({
+    windowStart: "2026-04-08T00:00:00Z",
+    vacancyMappings: [{
+      hh_vacancy_id: "131345849",
+      job_id: "job-tenant-bound",
+      client_id: "client-beta-001"
+    }]
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.validation_errors.some((item) => item.code === "tenant_mismatch"), true);
+  assert.equal(result.imported_negotiations, 0);
+});
+
+test("hh connector: syncApplicants reports duplicate mappings and skips duplicate vacancy ids", async () => {
+  const store = new InMemoryHiringStore(seed);
+  const llmAdapter = new FakeLlmAdapter();
+  const chatbot = createCandidateChatbot({ store, llmAdapter });
+  const hhClient = await HhContractMock.create();
+  hhClient.addNegotiation("neg-duplicate", [
+    { id: "msg-1", author: "applicant", text: "Добрый день", created_at: "2026-04-12T10:00:00Z" }
+  ], {
+    hh_vacancy_id: "131345849",
+    updated_at: "2026-04-12T10:00:00Z",
+    resume: { id: "resume-dup", url: "https://api.hh.ru/resumes/resume-dup" },
+    vacancy: { id: "131345849", name: "Закупщик (Китай)" }
+  });
+  const connector = new HhConnector({
+    store,
+    hhClient,
+    chatbot
+  });
+
+  const result = await connector.syncApplicants({
+    windowStart: "2026-04-08T00:00:00Z",
+    vacancyMappings: [
+      { hh_vacancy_id: "131345849", job_id: "job-zakup-china" },
+      { hh_vacancy_id: "131345849", job_id: "job-zakup-china" }
+    ]
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.validation_errors.some((item) => item.code === "duplicate_mapping"), true);
+  assert.equal(result.imported_negotiations, 1);
+  assert.ok(await store.findHhNegotiation("neg-duplicate"));
+});
+
 test("hh connector: syncApplicants reconciles job and template when vacancy mapping changes on rerun", async () => {
   const store = new InMemoryHiringStore(seed);
   const llmAdapter = new FakeLlmAdapter();
