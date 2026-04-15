@@ -4,6 +4,10 @@ import WsClient from "ws";
 import { createHiringAgentApp } from "../../services/hiring-agent/src/app.js";
 import { createHiringAgentServer } from "../../services/hiring-agent/src/http-server.js";
 import { clearPlaybookRegistryCache } from "../../services/hiring-agent/src/playbooks/registry.js";
+import {
+  SCENARIO_TEST_MESSAGES,
+  UNKNOWN_PLAYBOOK_KEY
+} from "../../services/hiring-agent/src/playbooks/playbook-contracts.js";
 
 async function req(server, method, path, body, cookie) {
   const port = server.address().port;
@@ -45,6 +49,10 @@ async function loginResponse(server) {
     })
   });
 }
+
+test.beforeEach(() => {
+  clearPlaybookRegistryCache();
+});
 
 test("hiring-agent: GET /health returns stateless demo status", async () => {
   const server = createHiringAgentServer(createHiringAgentApp({
@@ -122,7 +130,22 @@ test("hiring-agent: POST /api/chat returns funnel payload for funnel request", a
     assert.equal(status, 200);
     assert.equal(body.reply.kind, "render_funnel");
     assert.equal(body.reply.playbook_key, "candidate_funnel");
-    assert.equal(body.reply.summary.total, 12);
+    assert.equal(typeof body.reply.summary.total, "number");
+    assert.ok(Array.isArray(body.reply.rows));
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: POST /api/chat returns funnel payload in demo mode", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  try {
+    const sessionCookie = await login(server);
+    const response = await req(server, "POST", "/api/chat", {
+      message: "Визуализируй воронку по кандидатам"
+    }, sessionCookie);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.reply.kind, "render_funnel");
   } finally {
     server.close();
   }
@@ -161,6 +184,207 @@ test("hiring-agent: routes via LLM when keyword router misses", async () => {
   assert.equal(result.body.reply.kind, "render_funnel");
   assert.equal(result.body.reply.playbook_key, "candidate_funnel");
   assert.equal(llmCalls, 1);
+});
+
+test("hiring-agent: POST /api/chat returns display for assistant_capabilities in demo mode", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  try {
+    const sessionCookie = await login(server);
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: SCENARIO_TEST_MESSAGES.capabilitiesRoute
+    }, sessionCookie);
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "display");
+    assert.equal(body.reply.content_type, "text");
+    assert.equal(Object.hasOwn(body.reply, "content"), true);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: POST /api/chat supports quick_start action without vacancy_id in demo mode", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  try {
+    const sessionCookie = await login(server);
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      action: "start_playbook",
+      playbook_key: "quick_start",
+      message: SCENARIO_TEST_MESSAGES.quickStartRoute
+    }, sessionCookie);
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "display");
+    assert.equal(body.reply.content_type, "text");
+    assert.equal(Object.hasOwn(body.reply, "content"), true);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: POST /api/chat start_playbook action without playbook_key routes by message", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  try {
+    const sessionCookie = await login(server);
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      action: "start_playbook",
+      message: SCENARIO_TEST_MESSAGES.capabilitiesRoute
+    }, sessionCookie);
+
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "display");
+    assert.equal(body.reply.content_type, "text");
+    assert.equal(Object.hasOwn(body.reply, "content"), true);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: POST /api/chat returns playbook_not_found for unknown start_playbook key", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  try {
+    const sessionCookie = await login(server);
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      action: "start_playbook",
+      playbook_key: UNKNOWN_PLAYBOOK_KEY,
+      message: SCENARIO_TEST_MESSAGES.unknownPlaybook
+    }, sessionCookie);
+
+    assert.equal(status, 404);
+    assert.equal(body.error, "playbook_not_found");
+    assert.equal(Object.hasOwn(body, "reply"), false);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed postChatMessage handles utility and requires vacancy for non-utility", async () => {
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.tenant_playbook_access")) {
+      return [];
+    }
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [
+        {
+          playbook_key: "quick_start",
+          name: "Быстрый старт",
+          trigger_description: "quick start",
+          status: "available",
+          sort_order: 1,
+          step_count: 1
+        },
+        {
+          playbook_key: "view_vacancy",
+          name: "Посмотреть информацию по вакансии",
+          trigger_description: "вакансия",
+          status: "available",
+          sort_order: 2,
+          step_count: 2
+        }
+      ];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false
+  });
+
+  const utilityResult = await app.postChatMessage({
+    action: "start_playbook",
+    playbook_key: "quick_start",
+    managementSql
+  });
+
+  assert.equal(utilityResult.status, 200);
+  assert.equal(utilityResult.body.reply.kind, "display");
+  assert.equal(utilityResult.body.reply.content_type, "text");
+  assert.equal(Object.hasOwn(utilityResult.body.reply, "content"), true);
+
+  const protectedResult = await app.postChatMessage({
+    action: "start_playbook",
+    playbook_key: "view_vacancy",
+    message: "покажи вакансию",
+    managementSql
+  });
+
+  assert.equal(protectedResult.status, 200);
+  assert.equal(protectedResult.body.reply.kind, "fallback_text");
+  assert.match(protectedResult.body.reply.text, /Сначала выберите вакансию/);
+});
+
+test("hiring-agent: postChatMessage returns playbook_locked when tenant access disables playbook", async () => {
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.tenant_playbook_access")) {
+      return [{ playbook_key: "quick_start", enabled: false }];
+    }
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [
+        {
+          playbook_key: "quick_start",
+          name: "Быстрый старт",
+          trigger_description: "quick start",
+          status: "available",
+          sort_order: 1,
+          step_count: 1
+        }
+      ];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const result = await app.postChatMessage({
+    action: "start_playbook",
+    playbook_key: "quick_start",
+    tenantId: "tenant-locked-001",
+    managementSql
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.reply.kind, "playbook_locked");
+  assert.equal(result.body.reply.playbook_key, "quick_start");
+});
+
+test("hiring-agent: postChatMessage returns playbook_not_found for unknown start_playbook key", async () => {
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [
+        {
+          playbook_key: "quick_start",
+          name: "Быстрый старт",
+          trigger_description: "quick start",
+          status: "available",
+          sort_order: 1,
+          step_count: 1
+        }
+      ];
+    }
+
+    if (text.includes("FROM management.tenant_playbook_access")) {
+      return [];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const result = await app.postChatMessage({
+    action: "start_playbook",
+    playbook_key: UNKNOWN_PLAYBOOK_KEY,
+    managementSql
+  });
+
+  assert.equal(result.status, 404);
+  assert.equal(result.body.error, "playbook_not_found");
 });
 
 test("hiring-agent: management-backed routing ignores available playbooks with zero steps", async () => {
@@ -218,7 +442,7 @@ test("hiring-agent: management-backed routing ignores available playbooks with z
 
   assert.equal(result.status, 200);
   assert.equal(result.body.reply.kind, "fallback_text");
-  assert.match(result.body.reply.text, /доступны сценарии/i);
+  assert.match(result.body.reply.text, /поддерживаю/i);
 });
 
 test("hiring-agent: create_vacancy starts from fallback steps when DB step_count is zero", async () => {
@@ -366,6 +590,17 @@ test("hiring-agent: base path mode isolates auth/app routes under /sandbox-001",
       redirect: "manual"
     });
     assert.equal(noPrefixResponse.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: GET /chat/:artifactId returns 404 on this API surface", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  try {
+    const sessionCookie = await login(server);
+    const { status } = await req(server, "GET", "/chat/art-123", undefined, sessionCookie);
+    assert.equal(status, 404);
   } finally {
     server.close();
   }

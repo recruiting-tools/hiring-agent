@@ -10,6 +10,14 @@ test("router: maps communication request to setup_communication", async () => {
   assert.equal(await routePlaybook("Подготовь план коммуникации по вакансии"), "setup_communication");
 });
 
+test("router: maps capabilities request to assistant_capabilities", async () => {
+  assert.equal(await routePlaybook("Расскажи, что ты вообще умеешь?"), "assistant_capabilities");
+});
+
+test("router: maps quick start request to quick_start", async () => {
+  assert.equal(await routePlaybook("Мне нужен быстрый старт"), "quick_start");
+});
+
 test("router: maps button click to setup_communication", async () => {
   assert.equal(await routePlaybook("настроить общение с кандидатами"), "setup_communication");
 });
@@ -60,7 +68,14 @@ test("router: maps simple mailing request to mass_broadcast", async () => {
 });
 
 test("router: maps vacancy request to view_vacancy", async () => {
-  assert.equal(await routePlaybook("карточка вакансии"), "view_vacancy");
+  const fakeManagementSql = async () => ([
+    {
+      playbook_key: "view_vacancy",
+      keywords: ["карточка вакансии"],
+      step_count: 2
+    }
+  ]);
+  assert.equal(await routePlaybook("карточка вакансии", fakeManagementSql), "view_vacancy");
 });
 
 test("router: returns null for unsupported requests", async () => {

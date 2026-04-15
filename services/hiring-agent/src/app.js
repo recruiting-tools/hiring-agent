@@ -4,8 +4,17 @@ import { runCommunicationPlanPlaybook } from "./playbooks/communication-plan.js"
 import { findPlaybook, getPlaybookRegistry } from "./playbooks/registry.js";
 import { dispatch } from "./playbooks/runtime.js";
 import { routePlaybook } from "./playbooks/router.js";
+import {
+  PLAYBOOKS_WITHOUT_VACANCY,
+  ROUTING_FALLBACK_TEXT,
+  STATIC_UTILITY_PLAYBOOK_KEYS,
+  buildStaticPlaybookReply
+} from "./playbooks/playbook-contracts.js";
 
 const TENANT_DB_TIMEOUT_MS = 5000;
+function canonicalizePlaybookKey(playbookKey) {
+  return playbookKey === "candidate_broadcast" ? "mass_broadcast" : playbookKey;
+}
 
 export function createHiringAgentApp(options = {}) {
   const demoMode = options.demoMode ?? true;
@@ -65,17 +74,20 @@ export function createHiringAgentApp(options = {}) {
     }) {
       const requestedJobId = jobId ?? null;
       const requestedVacancyId = vacancyId ?? null;
-      let playbookKey = action === "start_playbook" && requestedPlaybookKey
-        ? requestedPlaybookKey
-        : await routePlaybook(message, requestManagementSql);
+
+      let playbookKey = canonicalizePlaybookKey(
+        action === "start_playbook" && requestedPlaybookKey
+          ? requestedPlaybookKey
+          : await routePlaybook(message, requestManagementSql)
+      );
 
       if (!playbookKey) {
-        const registry = await getPlaybookRegistry(requestManagementSql);
-        playbookKey = await routePlaybookWithLlm({
+        const registry = await getPlaybookRegistry(requestManagementSql, tenantId);
+        playbookKey = canonicalizePlaybookKey(await routePlaybookWithLlm({
           message,
           playbooks: registry,
           llmAdapter
-        });
+        }));
       }
 
       if (!playbookKey) {
@@ -84,13 +96,13 @@ export function createHiringAgentApp(options = {}) {
           body: {
             reply: {
               kind: "fallback_text",
-              text: "Не понял запрос. Сейчас доступны сценарии по вакансии, воронке, настройке общения и массовой рассылке."
+              text: ROUTING_FALLBACK_TEXT
             }
           }
         };
       }
 
-      const playbook = await findPlaybook(playbookKey, requestManagementSql);
+      const playbook = await findPlaybook(playbookKey, requestManagementSql, tenantId);
       if (!playbook) {
         return {
           status: 404,
@@ -220,7 +232,14 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      if (playbook.playbook_key !== "create_vacancy" && !effectiveVacancyId) {
+      if (STATIC_UTILITY_PLAYBOOK_KEYS.has(playbookKey)) {
+        return {
+          status: 200,
+          body: { reply: buildStaticPlaybookReply(playbook.playbook_key, playbook) }
+        };
+      }
+
+      if (!PLAYBOOKS_WITHOUT_VACANCY.has(playbook.playbook_key) && !effectiveVacancyId) {
         return {
           status: 200,
           body: {
@@ -536,7 +555,7 @@ async function routePlaybookWithLlm({ message, playbooks, llmAdapter }) {
 
   const catalog = Array.isArray(playbooks)
     ? playbooks.map((playbook) => ({
-      playbook_key: playbook.playbook_key,
+      playbook_key: canonicalizePlaybookKey(playbook.playbook_key),
       name: playbook.name ?? playbook.title ?? playbook.playbook_key,
       trigger_description: playbook.trigger_description ?? "",
       enabled: Boolean(playbook.enabled)
@@ -565,9 +584,10 @@ async function routePlaybookWithLlm({ message, playbooks, llmAdapter }) {
     const key = typeof parsed?.playbook_key === "string"
       ? parsed.playbook_key.trim()
       : null;
+    const normalizedKey = canonicalizePlaybookKey(key);
 
-    if (!key) return null;
-    return catalog.some((item) => item.playbook_key === key) ? key : null;
+    if (!normalizedKey) return null;
+    return catalog.some((item) => item.playbook_key === normalizedKey) ? normalizedKey : null;
   } catch {
     return null;
   }
