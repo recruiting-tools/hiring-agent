@@ -271,6 +271,17 @@ jobs:
           HIRING_AGENT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
         run: |
           set -euo pipefail
+          EXPECTED_REDIRECT_PATH=$(printf '%s\n' "${HIRING_AGENT_BASE_URL%/}/" | sed -E 's#^https?://[^/]+##')
+          LOGIN_RESPONSE=$(curl -sf -X POST "${HIRING_AGENT_BASE_URL%/}/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${HIRING_AGENT_SMOKE_EMAIL}\",\"password\":\"${HIRING_AGENT_SMOKE_PASSWORD}\"}")
+          LOGIN_REDIRECT=$(echo "$LOGIN_RESPONSE" | jq -r '.redirect // empty')
+          [ "$LOGIN_REDIRECT" = "$EXPECTED_REDIRECT_PATH" ] || {
+            echo "Unexpected login redirect: ${LOGIN_REDIRECT:-<empty>}"
+            echo "Expected redirect: ${EXPECTED_REDIRECT_PATH:-<empty>}"
+            exit 1
+          }
+
           HEALTH=$(curl -sf "${HIRING_AGENT_BASE_URL%/}/health" 2>/dev/null || echo '{}')
           STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
           MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
