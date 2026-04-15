@@ -44,6 +44,17 @@ jobs:
           MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
         run: node scripts/migrate-management.js
 
+      - name: Run HH cutover readiness guard
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
+          HH_CLIENT_ID: ${{ secrets.HH_CLIENT_ID }}
+          HH_CLIENT_SECRET: ${{ secrets.HH_CLIENT_SECRET }}
+          HH_REDIRECT_URI: ${{ secrets.HH_REDIRECT_URI }}
+          HH_VACANCY_JOB_MAP: ${{ secrets.HH_VACANCY_JOB_MAP }}
+          HH_CUTOVER_STRICT: "true"
+        run: node scripts/check-hh-cutover-readiness.js
+
       - name: Deploy to Cloud Run
         env:
           SERVICE: candidate-chatbot-v2

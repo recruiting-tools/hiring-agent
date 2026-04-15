@@ -327,6 +327,9 @@ https://hh.ru/oauth/authorize?response_type=code&client_id=THFMPVJIDL4MHTM5EE4AF
 ```
 
 **Production readiness gate** (перед включением `hh_send=true`):
+- Перед production-выкатыванием обязательно пройдите:
+  - `pnpm check:hh-cutover-readiness`
+  - [`docs/hh-cutover-deploy-runbook-128.md`](docs/hh-cutover-deploy-runbook-128.md)
 - [ ] `/health` SHA верифицирован
 - [ ] Public entrypoint smoke: `GET /` возвращает 2xx/3xx и не `{"error":"not_found"}`, `GET /login` возвращает HTML 200
 - [ ] `pnpm test:all` зелёный
