@@ -1,42 +1,37 @@
-const CACHE_TTL_MS = 5 * 60 * 1000;
-const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
-  "candidate_funnel",
-  "setup_communication"
-]);
+import { ALWAYS_RUNNABLE_PLAYBOOK_KEYS, FALLBACK_PLAYBOOKS } from "./playbook-contracts.js";
 
-const FALLBACK_PLAYBOOKS = [
-  {
-    playbook_key: "candidate_funnel",
-    title: "Визуализация воронки",
-    name: "Визуализация воронки",
-    enabled: true,
-    status: "available"
-  },
-  {
-    playbook_key: "setup_communication",
-    title: "Настроить общение с кандидатами",
-    name: "Настроить общение с кандидатами",
-    enabled: true,
-    status: "available"
-  },
-  {
-    playbook_key: "candidate_broadcast",
-    title: "Выборочная рассылка кандидатам",
-    name: "Выборочная рассылка кандидатам",
-    enabled: false,
-    status: "coming_soon"
-  }
-];
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 let cachedPlaybooks = null;
 let cachedAt = 0;
 let cachePromise = null;
 
-export async function getPlaybookRegistry(managementSql = null) {
+export function clearPlaybookRegistryCache() {
+  cachedPlaybooks = null;
+  cachedAt = 0;
+  cachePromise = null;
+}
+
+export async function getPlaybookRegistry(managementSql = null, tenantId = null) {
   if (!managementSql) {
     return structuredClone(FALLBACK_PLAYBOOKS);
   }
 
+  const baseRegistry = await getBaseRegistry(managementSql);
+  if (!tenantId) {
+    return structuredClone(baseRegistry);
+  }
+
+  const tenantOverrides = await getTenantPlaybookOverrides(managementSql, tenantId).catch(() => new Map());
+  return structuredClone(baseRegistry.map((playbook) => ({
+    ...playbook,
+    enabled: tenantOverrides.has(playbook.playbook_key)
+      ? (playbook.enabled && tenantOverrides.get(playbook.playbook_key))
+      : playbook.enabled
+  })));
+}
+
+async function getBaseRegistry(managementSql) {
   if (cachedPlaybooks && (Date.now() - cachedAt) < CACHE_TTL_MS) {
     return structuredClone(cachedPlaybooks);
   }
@@ -72,11 +67,30 @@ export async function getPlaybookRegistry(managementSql = null) {
   return structuredClone(await cachePromise);
 }
 
-export async function findPlaybook(playbookKey, managementSql = null) {
-  const playbooks = await getPlaybookRegistry(managementSql);
+async function getTenantPlaybookOverrides(managementSql, tenantId) {
+  if (!tenantId) {
+    return new Map();
+  }
+
+  const rows = await managementSql`
+    SELECT playbook_key, enabled
+    FROM management.tenant_playbook_access
+    WHERE tenant_id = ${tenantId}
+  `;
+
+  const overrides = new Map();
+  for (const row of rows) {
+    overrides.set(row.playbook_key, row.enabled === true);
+  }
+
+  return overrides;
+}
+
+export async function findPlaybook(playbookKey, managementSql = null, tenantId = null) {
+  const playbooks = await getPlaybookRegistry(managementSql, tenantId);
   return playbooks.find((playbook) => playbook.playbook_key === playbookKey) ?? null;
 }
 
 function isRunnablePlaybook(playbookKey, stepCount) {
-  return ALWAYS_RUNNABLE_PLAYBOOKS.has(playbookKey) || Number(stepCount ?? 0) > 0;
+  return ALWAYS_RUNNABLE_PLAYBOOK_KEYS.has(playbookKey) || Number(stepCount ?? 0) > 0;
 }

@@ -1,23 +1,6 @@
-const CACHE_TTL_MS = 5 * 60 * 1000;
-const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
-  "candidate_funnel",
-  "setup_communication"
-]);
+import { ALWAYS_RUNNABLE_PLAYBOOK_KEYS, FALLBACK_ROUTES } from "./playbook-contracts.js";
 
-const FALLBACK_ROUTES = [
-  {
-    playbook_key: "candidate_funnel",
-    keywords: ["воронк", "статус кандидат", "funnel", "pipeline"]
-  },
-  {
-    playbook_key: "setup_communication",
-    keywords: ["план коммуникац", "скрининг", "communication plan", "настроить общение", "настройте общение"]
-  },
-  {
-    playbook_key: "candidate_broadcast",
-    keywords: ["всем кандидатам", "бродкаст", "массовое сообщение", "broadcast", "календарь"]
-  }
-];
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 const RUSSIAN_SUFFIXES = [
   "ироваться",
@@ -133,7 +116,7 @@ async function getDbRoutes(managementSql, options = {}) {
       ORDER BY d.sort_order ASC, d.playbook_key ASC
     `.then((rows) => {
       const filtered = rows.filter((row) => (
-        ALWAYS_RUNNABLE_PLAYBOOKS.has(row.playbook_key) || Number(row.step_count ?? 0) > 0
+        ALWAYS_RUNNABLE_PLAYBOOK_KEYS.has(row.playbook_key) || Number(row.step_count ?? 0) > 0
       ));
       cachedDefinitions = filtered;
       cachedAt = Date.now();

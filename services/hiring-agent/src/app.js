@@ -4,6 +4,12 @@ import { runCommunicationPlanPlaybook } from "./playbooks/communication-plan.js"
 import { findPlaybook, getPlaybookRegistry } from "./playbooks/registry.js";
 import { dispatch } from "./playbooks/runtime.js";
 import { routePlaybook } from "./playbooks/router.js";
+import {
+  PLAYBOOKS_WITHOUT_VACANCY,
+  ROUTING_FALLBACK_TEXT,
+  STATIC_UTILITY_PLAYBOOK_KEYS,
+  buildStaticPlaybookReply
+} from "./playbooks/playbook-contracts.js";
 
 const TENANT_DB_TIMEOUT_MS = 5000;
 
@@ -22,21 +28,33 @@ export function createHiringAgentApp(options = {}) {
   };
 
   return {
-    async getHealth() {
-      const playbooks = await getPlaybookRegistry(managementSql);
-      return {
-        status: 200,
-        body: {
-          service: "hiring-agent",
-          status: "ok",
-          mode: demoMode ? "stateless-demo" : "management-auth",
-          ...healthMetadata,
-          playbooks: playbooks.map((playbook) => ({
+    async getHealth({ includePlaybooks = false } = {}) {
+      const body = {
+        service: "hiring-agent",
+        status: "ok",
+        mode: demoMode ? "stateless-demo" : "management-auth",
+        ...healthMetadata
+      };
+
+      if (includePlaybooks) {
+        try {
+          const playbooks = await getPlaybookRegistry(managementSql);
+          body.playbooks = playbooks.map((playbook) => ({
             playbook_key: playbook.playbook_key,
             enabled: playbook.enabled,
             status: playbook.status
-          }))
+          }));
+          body.playbook_registry_status = "ok";
+        } catch (error) {
+          body.playbooks = [];
+          body.playbook_registry_status = "error";
+          body.playbook_registry_error = error instanceof Error ? error.message : String(error);
         }
+      }
+
+      return {
+        status: 200,
+        body
       };
     },
 
@@ -51,22 +69,32 @@ export function createHiringAgentApp(options = {}) {
       vacancy_id: vacancyId = null,
       managementSql: requestManagementSql = managementSql
     }) {
-      const playbookKey = action === "start_playbook" && requestedPlaybookKey
+      let playbookKey = action === "start_playbook" && requestedPlaybookKey
         ? requestedPlaybookKey
         : await routePlaybook(message, requestManagementSql);
+
+      if (!playbookKey) {
+        const registry = await getPlaybookRegistry(requestManagementSql, tenantId);
+        playbookKey = await routePlaybookWithLlm({
+          message,
+          playbooks: registry,
+          llmAdapter
+        });
+      }
+
       if (!playbookKey) {
         return {
           status: 200,
           body: {
             reply: {
               kind: "fallback_text",
-              text: "Я пока поддерживаю только визуализацию воронки, план коммуникации и выборочную рассылку."
+              text: ROUTING_FALLBACK_TEXT
             }
           }
         };
       }
 
-      const playbook = await findPlaybook(playbookKey, requestManagementSql);
+      const playbook = await findPlaybook(playbookKey, requestManagementSql, tenantId);
       if (!playbook) {
         return {
           status: 404,
@@ -146,7 +174,14 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      if (playbook.playbook_key !== "create_vacancy" && !vacancyId) {
+      if (STATIC_UTILITY_PLAYBOOK_KEYS.has(playbookKey)) {
+        return {
+          status: 200,
+          body: { reply: buildStaticPlaybookReply(playbook.playbook_key, playbook) }
+        };
+      }
+
+      if (!PLAYBOOKS_WITHOUT_VACANCY.has(playbook.playbook_key) && !vacancyId) {
         return {
           status: 200,
           body: {
@@ -258,4 +293,65 @@ async function getTenantJobById(tenantSql, tenantId, jobId) {
   `;
 
   return rows[0] ?? null;
+}
+
+async function routePlaybookWithLlm({ message, playbooks, llmAdapter }) {
+  if (!llmAdapter?.generate) return null;
+
+  const recruiterMessage = String(message ?? "").trim();
+  if (!recruiterMessage) return null;
+
+  const catalog = Array.isArray(playbooks)
+    ? playbooks.map((playbook) => ({
+      playbook_key: playbook.playbook_key,
+      name: playbook.name ?? playbook.title ?? playbook.playbook_key,
+      trigger_description: playbook.trigger_description ?? "",
+      enabled: Boolean(playbook.enabled)
+    }))
+    : [];
+
+  if (catalog.length === 0) return null;
+
+  const prompt = [
+    "Ты роутер recruiter-chat.",
+    "Выбери самый подходящий playbook по сообщению рекрутера.",
+    "Выбирай только из списка ниже. Если не уверен — верни null.",
+    "",
+    "Список playbook:",
+    JSON.stringify(catalog, null, 2),
+    "",
+    `Сообщение рекрутера: ${JSON.stringify(recruiterMessage)}`,
+    "",
+    "Верни JSON без markdown:",
+    "{\"playbook_key\": \"<key>\" | null}"
+  ].join("\n");
+
+  try {
+    const raw = await llmAdapter.generate(prompt);
+    const parsed = parseJsonResponse(raw);
+    const key = typeof parsed?.playbook_key === "string"
+      ? parsed.playbook_key.trim()
+      : null;
+
+    if (!key) return null;
+    return catalog.some((item) => item.playbook_key === key) ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonResponse(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+
+  const normalized = text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    return JSON.parse(normalized);
+  } catch {
+    return null;
+  }
 }
