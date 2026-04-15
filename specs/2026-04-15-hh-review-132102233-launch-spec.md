@@ -39,6 +39,31 @@ This means the correct near-term production mode is:
 - live operational use only for the parts that are already safe and implemented
 - remaining gaps closed iteratively after sandbox validation
 
+## Go-Live Status
+
+Current status for vacancy `132102233`:
+
+- `sandbox-contract-ready`: yes
+- `manual-migration-ready`: partial
+- `production-go-live-ready`: no
+
+This spec must not be read as "already approved for go-live".
+
+Current no-go blockers:
+
+1. The production runtime/tenant binding for this vacancy is not pinned in this document.
+2. The exact `HH_VACANCY_JOB_MAP` value for vacancy `132102233` is not pinned in this document.
+3. The selected routing mode for this vacancy is not pinned:
+   - `pre_routing`, or
+   - mapped internal `job_id` / `job_slug`
+4. The approved serialized playbook payload and storage location are not pinned.
+5. Production confirmation for HH runtime prerequisites is not pinned:
+   - `hh_import`
+   - internal token
+   - applied DB migrations
+
+Go-live is allowed only after all five are resolved explicitly.
+
 ## What Changed In The HH Review Sandbox Chain
 
 Useful confirmed updates from the current repo state:
@@ -66,8 +91,9 @@ Operational meaning:
 Required fields:
 - `vacancy_id`: `132102233`
 - `account_id`: hh employer/account identifier used by Clawd
-- `mode`: `pre_routing` initially unless a mapped internal `job_slug` already exists
-- `job_slug`: optional at launch, required later if this vacancy should merge into the normal pipeline
+- `mode`: must be chosen explicitly as either `pre_routing` or `mapped_job`
+- `job_id`: required for current import-based production path
+- `job_slug`: optional only if `mapped_job` mode later needs internal semantic linkage
 - `tenant`: production hiring-agent tenant that will own this vacancy workflow
 - `owner_session_type`: `manual_migration` for the first production session
 
@@ -225,6 +251,61 @@ The production session should capture the vacancy in a structured payload equiva
 
 The exact storage schema can still evolve, but this business payload should remain stable.
 
+Until a dedicated persisted storage path is implemented, go-live requires one concrete serialized payload artifact checked into the rollout materials or inserted into config storage verbatim.
+
+### Executable Payload Draft
+
+```json
+{
+  "playbook_id": "hh_review_132102233",
+  "playbook_version": "v1",
+  "channel": "hh",
+  "vacancy_id": "132102233",
+  "opening_message_template": "Здравствуйте! Подскажите, пожалуйста: у вас есть профильное высшее образование и диплом? Есть СНИЛС? Госуслуги привязаны? Готовы официально участвовать через подписание на Госуслугах? Готовы к оплате 7500 (2500 + 2500 + 2500)? Понимаете, что ревью может быть критичным и разным по жесткости?",
+  "question_order": [
+    "has_relevant_degree",
+    "has_diploma",
+    "has_snils",
+    "has_gosuslugi",
+    "accepts_gosuslugi_signing",
+    "accepts_price_7500",
+    "accepts_hard_review_conditions"
+  ],
+  "qualification_checks": [
+    "has_relevant_degree",
+    "has_diploma",
+    "has_snils",
+    "has_gosuslugi",
+    "accepts_gosuslugi_signing",
+    "accepts_price_7500",
+    "accepts_hard_review_conditions"
+  ],
+  "rejection_reason_codes": [
+    "rejected_no_diploma",
+    "rejected_no_gosuslugi",
+    "rejected_no_snils",
+    "rejected_price_mismatch",
+    "rejected_declined_signing",
+    "rejected_declined_review_conditions"
+  ],
+  "handoff_channel": {
+    "type": "telegram",
+    "value": "@kobzevvv"
+  },
+  "quota_policy": {
+    "max_useful_contacts": 6,
+    "pause_outreach_when_reached": true,
+    "reserve_candidates_when_paused": true,
+    "resume_outreach_if_qualified_count_drops_below": 4
+  }
+}
+```
+
+Required storage decision before go-live:
+
+- save this payload in production config storage, or
+- pin it as the approved operator-owned artifact referenced by the runtime
+
 ## Suggested Launch Configuration For Vacancy 132102233
 
 These values reflect the current understanding from the manual pass and can be adjusted before launch.
@@ -238,6 +319,21 @@ These values reflect the current understanding from the manual pass and can be a
 - `collections`: `response`
 - `unread_only`: `false` for the first full catch-up pass, then `true` for incremental passes
 
+## Vacancy-Specific Decisions Required Before Go-Live
+
+The following values are still unresolved in this repo and must be filled explicitly before production launch:
+
+- `tenant = <REQUIRED>`
+- `account_id = <REQUIRED>`
+- `job_id = <REQUIRED>`
+- `mode = <REQUIRED: pre_routing | mapped_job>`
+- `job_slug = <OPTIONAL unless mapped_job rollout requires it>`
+- `HH_VACANCY_JOB_MAP = <REQUIRED>`
+- `playbook_storage_location = <REQUIRED>`
+- `responsible_owner = <REQUIRED>`
+
+If any one of these stays unresolved, launch remains `no-go`.
+
 ## Human-Led Production Session Plan
 
 This is the plan for a session that currently reviews candidates manually and now wants to move this vacancy onto our system.
@@ -248,9 +344,12 @@ Do in production first:
 
 1. Identify the production `tenant` that owns vacancy `132102233`.
 2. Confirm the hh `account_id` / employer binding used by Clawd for that vacancy.
-3. Decide whether the vacancy stays in `pre_routing` mode or is immediately linked to a `job_slug`.
-4. Create or update the vacancy record in our production system so the vacancy exists as a first-class object, not just an hh id in operator notes.
-5. Save the vacancy-specific playbook/config from this document as versioned data.
+3. Choose one routing mode for this vacancy and record it in this document:
+   - `pre_routing`, or
+   - `mapped_job`
+4. If current production launch goes through `/internal/hh-import`, resolve the concrete internal `job_id`.
+5. Create or update the vacancy record in our production system so the vacancy exists as a first-class object, not just an hh id in operator notes.
+6. Save the vacancy-specific playbook/config from this document as versioned data.
 
 The key migration rule:
 
@@ -268,6 +367,7 @@ Before the session relies on hiring-agent playbooks, verify production prerequis
 6. migration `services/candidate-chatbot/migrations/009_hh_oauth_and_flags.sql` is applied in the target environment
 7. feature flag `hh_import` can actually be read and enabled in production
 8. internal auth token for `/internal/hh-import` and `/internal/hh-poll` is present
+9. production deploy/config actually exposes the import path in the intended runtime
 
 Repo assets relevant to this:
 
@@ -355,6 +455,43 @@ Important boundary:
 - sandbox loop and hh mock scripts validate development iterations
 - they do not replace production cutover checks against the real runtime
 
+## Runtime Contract For Manual Import Path
+
+The current production import path is valid only if all of the following are true at runtime:
+
+- endpoint `POST /internal/hh-import` is reachable in the deployed `candidate-chatbot` runtime
+- endpoint `POST /internal/hh-poll` is reachable in the deployed `candidate-chatbot` runtime
+- env var `INTERNAL_API_TOKEN` is configured
+- env var `HH_VACANCY_JOB_MAP` is configured
+- feature flag `hh_import` is enabled
+- required DB migrations for HH flags/tokens are applied
+
+Required request contract for initial import:
+
+- method: `POST`
+- path: `/internal/hh-import`
+- auth: `Authorization: Bearer $INTERNAL_API_TOKEN`
+- content-type: `application/json`
+- body:
+  - `window_start` required ISO datetime
+  - `window_end` optional ISO datetime
+
+Success criteria for initial import:
+
+- HTTP `200`
+- response body `ok: true`
+- response body does not include `skipped: true`
+- imported collections / negotiations / messages are consistent with the selected window
+
+Failure / no-go signals:
+
+- HTTP `401`
+- HTTP `503`
+- response `skipped: true`
+- `invalid_window_start`
+- unresolved vacancy mapping
+- unresolved `job_id`
+
 ## Manual Session Handoff Procedure
 
 For the current system shape, the operator session should hand the vacancy over like this.
@@ -365,7 +502,7 @@ The import path expects a mapping from hh vacancy to internal job:
 
 ```bash
 export HH_VACANCY_JOB_MAP='[
-  {"hh_vacancy_id":"<hh_vacancy_id>","job_id":"<job_id>","collections":["response","phone_interview"]}
+  {"hh_vacancy_id":"132102233","job_id":"<REQUIRED_JOB_ID>","collections":["response","phone_interview"]}
 ]'
 ```
 
@@ -441,6 +578,17 @@ If another session needs the shortest possible instruction set, give it this:
 - `window_start` is mandatory for `POST /internal/hh-import`
 - `hh_import=true` must be enabled or import is skipped
 - in sandbox/mock, use `unread_only=true` to validate unread/new response behavior
+
+## Explicit No-Go Conditions
+
+Do not start production launch for vacancy `132102233` if any of the following are true:
+
+1. `job_id` is still unknown.
+2. `HH_VACANCY_JOB_MAP` still contains placeholders.
+3. The chosen routing mode is still ambiguous.
+4. The serialized playbook payload is not pinned to a concrete storage location.
+5. `hh_import` cannot be enabled in production.
+6. `POST /internal/hh-import` is not confirmed reachable in the actual deployed runtime.
 
 ## Production Readiness For Manual Migration
 
