@@ -369,6 +369,7 @@ Per-task cycle: Claude describes task → Codex implements → Claude reviews �
 
 - **Delegation + coordinator rules**: [`/Users/vova/Documents/GitHub/claude-session-manager/docs/delegation-guide.md`](../claude-session-manager/docs/delegation-guide.md)
 - **Risky schema changes**: before merging, create an ephemeral Neon branch via `scripts/create-feature-branch.sh <pr-N>`, run migrations + targeted tests, then delete the branch. See [`docs/neon-sandbox-runbook.md`](docs/neon-sandbox-runbook.md).
+- **Session isolation**: start each coding session in a dedicated Git worktree from `origin/main`: `scripts/new-session-worktree.sh <slug> [branch-name]`. This prevents mixing in-progress edits between parallel sessions.
 - **Sandbox gate**: before promoting to production, all of `pnpm test:all`, `pnpm test:sandbox`, `pnpm smoke:sandbox` must pass on a seeded sandbox. CI enforces this via `.github/workflows/sandbox-release-gate.yml`.
 
 ### Документы спеки
