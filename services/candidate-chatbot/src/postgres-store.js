@@ -633,18 +633,13 @@ export class PostgresHiringStore {
     channel_message_id,
     occurred_at
   }) {
-    const existing = await this.sql`
-      SELECT message_id, conversation_id, candidate_id, direction, message_type, body, channel, channel_message_id, occurred_at, received_at
-      FROM chatbot.messages
-      WHERE conversation_id = ${conversation_id} AND channel_message_id = ${channel_message_id}
-      LIMIT 1
-    `;
-    if (existing[0]) return null;
+    if (!channel_message_id) return null;
 
     const rows = await this.sql`
       INSERT INTO chatbot.messages
         (message_id, conversation_id, candidate_id, direction, message_type, body, channel, channel_message_id, occurred_at)
       VALUES (${randomUUID()}, ${conversation_id}, ${candidate_id}, ${direction}, 'text', ${body}, ${channel}, ${channel_message_id}, ${occurred_at})
+      ON CONFLICT (conversation_id, channel_message_id) DO NOTHING
       RETURNING *
     `;
     return rows[0];
@@ -657,8 +652,28 @@ export class PostgresHiringStore {
       SELECT pm.*, c.channel_thread_id
       FROM chatbot.planned_messages pm
       LEFT JOIN chatbot.conversations c ON c.conversation_id = pm.conversation_id
+      LEFT JOIN LATERAL (
+        SELECT da.status, da.attempted_at, da.next_retry_at
+        FROM chatbot.message_delivery_attempts da
+        WHERE da.planned_message_id = pm.planned_message_id
+        ORDER BY da.attempted_at DESC, da.attempt_id DESC
+        LIMIT 1
+      ) da ON TRUE
       WHERE pm.review_status IN ('pending', 'approved')
         AND pm.auto_send_after <= ${now.toISOString()}
+        AND (
+          da.status IS NULL
+          OR da.status = 'failed'
+          OR (
+            da.status = 'sending'
+            AND (da.attempted_at <= now() - interval '5 minutes')
+          )
+        )
+        AND (
+          da.status <> 'failed'
+          OR da.next_retry_at IS NULL
+          OR da.next_retry_at <= ${now.toISOString()}
+        )
         AND pm.sent_at IS NULL
     `;
     for (const row of rows) {
@@ -671,12 +686,19 @@ export class PostgresHiringStore {
 
   // ─── Delivery Attempts ───────────────────────────────────────────────────────
 
-  async recordDeliveryAttempt({ attempt_id, planned_message_id, hh_negotiation_id, status }) {
+  async recordDeliveryAttempt({
+    attempt_id,
+    planned_message_id,
+    hh_negotiation_id,
+    status,
+    retry_count = 0,
+    next_retry_at = null
+  }) {
     try {
       const rows = await this.sql`
         INSERT INTO chatbot.message_delivery_attempts
-          (attempt_id, planned_message_id, hh_negotiation_id, status)
-        VALUES (${attempt_id}, ${planned_message_id}, ${hh_negotiation_id}, ${status})
+          (attempt_id, planned_message_id, hh_negotiation_id, status, retry_count, next_retry_at)
+        VALUES (${attempt_id}, ${planned_message_id}, ${hh_negotiation_id}, ${status}, ${retry_count}, ${next_retry_at})
         RETURNING *
       `;
       return rows[0];
@@ -695,6 +717,15 @@ export class PostgresHiringStore {
     }
   }
 
+  async getDeliveryAttempts(plannedMessageId) {
+    const rows = await this.sql`
+      SELECT * FROM chatbot.message_delivery_attempts
+      WHERE planned_message_id = ${plannedMessageId}
+      ORDER BY attempted_at DESC, attempt_id DESC
+    `;
+    return rows;
+  }
+
   async getSuccessfulDeliveryAttempt(plannedMessageId) {
     const rows = await this.sql`
       SELECT * FROM chatbot.message_delivery_attempts
@@ -707,15 +738,18 @@ export class PostgresHiringStore {
   async markDeliveryAttemptDelivered({ attempt_id, hh_message_id }) {
     await this.sql`
       UPDATE chatbot.message_delivery_attempts
-      SET status = 'delivered', hh_message_id = ${hh_message_id}
+      SET status = 'delivered', hh_message_id = ${hh_message_id}, next_retry_at = NULL
       WHERE attempt_id = ${attempt_id}
     `;
   }
 
-  async markDeliveryAttemptFailed({ attempt_id, error_body }) {
+  async markDeliveryAttemptFailed({ attempt_id, error_body, nextRetryAt = null, retryCount = null }) {
     await this.sql`
       UPDATE chatbot.message_delivery_attempts
-      SET status = 'failed', error_body = ${error_body}
+      SET status = 'failed',
+          error_body = ${error_body},
+          next_retry_at = ${nextRetryAt ?? null},
+          retry_count = COALESCE(${retryCount}, retry_count, 0)
       WHERE attempt_id = ${attempt_id}
     `;
   }
@@ -733,6 +767,21 @@ export class PostgresHiringStore {
         WHERE planned_message_id = ${planned_message_id} AND status = 'delivered'
       `;
     }
+  }
+
+  async markPlannedMessageBlockedForDlq(plannedMessageId, { reason }) {
+    const blockedReason = reason ? `DLQ: ${reason}` : "DLQ";
+    await this.sql`
+      UPDATE chatbot.planned_messages
+      SET review_status = 'blocked',
+          reason = CASE
+            WHEN reason IS NULL OR reason = '' THEN ${blockedReason}
+            WHEN reason LIKE '%DLQ:%' THEN reason
+            ELSE reason || ' ' || ${blockedReason}
+          END,
+          updated_at = now()
+      WHERE planned_message_id = ${plannedMessageId}
+    `;
   }
 
   // ─── Alert ───────────────────────────────────────────────────────────────────

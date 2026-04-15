@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { HhImporter } from "./hh-importer.js";
 
 export class HhConnector {
@@ -20,15 +21,43 @@ export class HhConnector {
   // Poll all negotiations where next_poll_at <= now
   async pollAll() {
     const due = await this.store.getHhNegotiationsDue();
+    const results = [];
+    let processed = 0;
+    let failed = 0;
+
     for (const neg of due) {
-      await this.pollNegotiation(neg.hh_negotiation_id);
+      try {
+        const result = await this.pollNegotiation(neg.hh_negotiation_id);
+        processed += 1;
+        results.push({ hh_negotiation_id: neg.hh_negotiation_id, ...result });
+      } catch (err) {
+        failed += 1;
+        results.push({
+          hh_negotiation_id: neg.hh_negotiation_id,
+          processed: false,
+          error: err instanceof Error ? err.message : String(err)
+        });
+      }
     }
+    console.info("[hh-connector] pollAll_summary", {
+      imported_collections: 0,
+      due_count: due.length,
+      processed,
+      failed
+    });
+    return { due_count: due.length, processed, failed, results };
   }
 
   // Poll a single negotiation
   async pollNegotiation(hhNegotiationId) {
+    const traceId = randomUUID();
     // 1. Get messages from HH (order not guaranteed)
     const messages = await this.hhClient.getMessages(hhNegotiationId);
+    console.info("[hh-connector] pollNegotiation_start", {
+      trace_id: traceId,
+      hh_negotiation_id: hhNegotiationId,
+      raw_messages: messages.length
+    });
 
     // 2. Sort by created_at before any logic (known HH API quirk)
     const sorted = [...messages].sort(
@@ -73,5 +102,14 @@ export class HhConnector {
       awaiting_reply: isAwaitingReply,
       next_poll_at: new Date(Date.now() + pollIntervalMs).toISOString()
     });
+
+    console.info("[hh-connector] pollNegotiation_checkpoint", {
+      trace_id: traceId,
+      hh_negotiation_id: hhNegotiationId,
+      new_messages: newMessages.length,
+      awaiting_reply: isAwaitingReply,
+      next_poll_in_ms: pollIntervalMs
+    });
+    return { processed: true, new_messages: newMessages.length, awaiting_reply: isAwaitingReply };
   }
 }
