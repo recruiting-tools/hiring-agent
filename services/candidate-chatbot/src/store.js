@@ -35,6 +35,9 @@ export class InMemoryHiringStore {
     this.deliveryAttempts = [];       // flat array of delivery attempts
     this.oauthTokens = new Map();     // provider → token row
     this.sessions = new Map();        // session_token → { recruiter_id, expires_at }
+    this.hhVacancyJobMappings = Array.isArray(seed.hh_vacancy_job_mappings)
+      ? seed.hh_vacancy_job_mappings.map(normalizeHhVacancyJobMapping)
+      : [];
     this.featureFlags = new Map([
       ["hh_send", { flag: "hh_send", enabled: false, description: "Controls outbound HH sending" }],
       ["hh_import", { flag: "hh_import", enabled: false, description: "Controls HH applicant import and polling" }]
@@ -718,6 +721,11 @@ export class InMemoryHiringStore {
     return this.oauthTokens.get(provider) ?? null;
   }
 
+  async getHhVacancyJobMappings({ enabledOnly = true } = {}) {
+    const mappings = this.hhVacancyJobMappings.filter((mapping) => !enabledOnly || mapping.enabled);
+    return mappings.map((mapping) => structuredClone(mapping));
+  }
+
   async setHhOAuthTokens(provider = "hh", tokens) {
     const existing = this.oauthTokens.get(provider) ?? null;
     const row = {
@@ -976,6 +984,18 @@ function summarizeText(value, maxLength) {
   const compact = String(value ?? "").replace(/\s+/g, " ").trim();
   if (compact.length <= maxLength) return compact;
   return `${compact.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function normalizeHhVacancyJobMapping(raw) {
+  return {
+    hh_vacancy_id: String(raw.hh_vacancy_id ?? "").trim(),
+    job_id: String(raw.job_id ?? "").trim(),
+    client_id: raw.client_id != null ? String(raw.client_id).trim() : null,
+    collections: Array.isArray(raw.collections) ? raw.collections.slice() : null,
+    enabled: raw.enabled !== false,
+    created_at: raw.created_at ?? null,
+    updated_at: raw.updated_at ?? null
+  };
 }
 
 // Determine starting pipeline step for an imported HH candidate based on HH collection.

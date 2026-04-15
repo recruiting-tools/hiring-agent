@@ -29,6 +29,7 @@ export class PostgresHiringStore {
         management.feature_flags,
         management.oauth_tokens,
         management.recruiter_subscriptions,
+        chatbot.hh_vacancy_job_mappings,
         chatbot.message_delivery_attempts,
         chatbot.hh_poll_state,
         chatbot.hh_negotiations,
@@ -74,6 +75,28 @@ export class PostgresHiringStore {
       `;
 
       this._jobs.set(job.job_id, { ...job });
+    }
+
+    for (const mapping of seedData.hh_vacancy_job_mappings ?? []) {
+      await this.sql`
+        INSERT INTO chatbot.hh_vacancy_job_mappings
+          (hh_vacancy_id, job_id, client_id, collections, enabled, created_at, updated_at)
+        VALUES (
+          ${mapping.hh_vacancy_id},
+          ${mapping.job_id},
+          ${mapping.client_id ?? null},
+          ${JSON.stringify(mapping.collections ?? ["response", "phone_interview"])},
+          ${mapping.enabled ?? true},
+          ${mapping.created_at ?? new Date().toISOString()},
+          ${mapping.updated_at ?? new Date().toISOString()}
+        )
+        ON CONFLICT (hh_vacancy_id) DO UPDATE SET
+          job_id = EXCLUDED.job_id,
+          client_id = EXCLUDED.client_id,
+          collections = EXCLUDED.collections,
+          enabled = EXCLUDED.enabled,
+          updated_at = EXCLUDED.updated_at
+      `;
     }
 
     for (const fixture of seedData.candidate_fixtures) {
@@ -1095,6 +1118,16 @@ export class PostgresHiringStore {
     return rows[0] ?? null;
   }
 
+  async getHhVacancyJobMappings({ enabledOnly = true } = {}) {
+    const rows = await this.sql`
+      SELECT hh_vacancy_id, job_id, client_id, collections, enabled, created_at, updated_at
+      FROM chatbot.hh_vacancy_job_mappings
+      WHERE ${enabledOnly ? this.sql`enabled = true` : this.sql`TRUE = TRUE`}
+      ORDER BY hh_vacancy_job_mapping_id
+    `;
+    return rows.map(normalizeHhVacancyJobMappingRow);
+  }
+
   async setHhOAuthTokens(provider = "hh", tokens) {
     const rows = await this.sql`
       INSERT INTO management.oauth_tokens
@@ -1160,6 +1193,18 @@ function buildResumeText(resume) {
     resume.email ? `Email: ${resume.email}` : null
   ].filter(Boolean);
   return parts.join("\n");
+}
+
+function normalizeHhVacancyJobMappingRow(row) {
+  return {
+    hh_vacancy_id: row.hh_vacancy_id,
+    job_id: row.job_id,
+    client_id: row.client_id ?? null,
+    collections: row.collections,
+    enabled: row.enabled ?? true,
+    created_at: row.created_at ?? null,
+    updated_at: row.updated_at ?? null
+  };
 }
 
 function normalizeStepState(row) {
