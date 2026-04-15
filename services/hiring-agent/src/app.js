@@ -112,7 +112,8 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      if (!playbook.enabled) {
+      const canBypassLockedState = playbook.playbook_key === "create_vacancy";
+      if (!playbook.enabled && !canBypassLockedState) {
         return {
           status: 200,
           body: {
@@ -295,13 +296,32 @@ export function createHiringAgentApp(options = {}) {
         }
       });
 
+      const runtimeVacancyId = runtimeResult.vacancyId ?? effectiveVacancyId ?? null;
+      const runtimeJobId = runtimeResult.jobId ?? effectiveJobId ?? null;
+      let reply = runtimeResult.reply;
+
+      if (playbook.playbook_key === "create_vacancy") {
+        const followUpReply = await resolveCreateVacancyFollowUp({
+          tenantSql,
+          llmAdapter,
+          communicationPlanLlmConfig,
+          runtimeReply: runtimeResult.reply,
+          runtimeContext: runtimeResult.context,
+          vacancyId: runtimeVacancyId,
+          jobId: runtimeJobId
+        });
+        if (followUpReply) {
+          reply = followUpReply;
+        }
+      }
+
       return {
         status: 200,
         body: {
-          reply: runtimeResult.reply,
+          reply,
           session_id: runtimeResult.sessionId,
-          vacancy_id: runtimeResult.vacancyId ?? effectiveVacancyId ?? null,
-          job_id: runtimeResult.jobId ?? effectiveJobId ?? null
+          vacancy_id: runtimeVacancyId,
+          job_id: runtimeJobId
         }
       };
     },
@@ -607,4 +627,162 @@ function parseJsonResponse(raw) {
   } catch {
     return null;
   }
+}
+
+async function resolveCreateVacancyFollowUp({
+  tenantSql,
+  llmAdapter,
+  communicationPlanLlmConfig,
+  runtimeReply,
+  runtimeContext,
+  vacancyId,
+  jobId
+}) {
+  if (runtimeReply?.kind !== "completed") {
+    return null;
+  }
+
+  const action = detectCreateVacancyNextAction(runtimeContext?.next_action);
+  if (action === "setup_communication") {
+    const result = await runCommunicationPlanPlaybook({
+      tenantSql,
+      vacancyId,
+      jobId,
+      llmAdapter,
+      recruiterInput: null,
+      llmConfig: communicationPlanLlmConfig
+    });
+    return result.reply;
+  }
+
+  if (action === "compare_vacancies") {
+    return await buildVacancyComparisonReply({
+      tenantSql,
+      vacancyId
+    });
+  }
+
+  return null;
+}
+
+function detectCreateVacancyNextAction(rawAction) {
+  const action = String(rawAction ?? "").trim().toLowerCase();
+  if (!action) return null;
+
+  if (
+    action.includes("распланировать общение")
+    || action.includes("настроить общение")
+  ) {
+    return "setup_communication";
+  }
+
+  if (action.includes("сравнить") && action.includes("ваканси")) {
+    return "compare_vacancies";
+  }
+
+  return null;
+}
+
+async function buildVacancyComparisonReply({ tenantSql, vacancyId }) {
+  if (!tenantSql) {
+    return {
+      kind: "fallback_text",
+      text: "Сравнение вакансий доступно только при подключенной базе данных."
+    };
+  }
+
+  if (!vacancyId) {
+    return {
+      kind: "fallback_text",
+      text: "Не удалось определить текущую вакансию для сравнения."
+    };
+  }
+
+  const currentRows = await tenantSql`
+    SELECT
+      vacancy_id,
+      title,
+      status,
+      extraction_status,
+      must_haves,
+      application_steps,
+      communication_plan
+    FROM chatbot.vacancies
+    WHERE vacancy_id = ${vacancyId}
+    LIMIT 1
+  `;
+  const current = currentRows[0] ?? null;
+  if (!current) {
+    return {
+      kind: "fallback_text",
+      text: "Текущая вакансия не найдена, сравнение недоступно."
+    };
+  }
+
+  const otherRows = await tenantSql`
+    SELECT
+      vacancy_id,
+      title,
+      status,
+      extraction_status,
+      must_haves,
+      application_steps,
+      communication_plan
+    FROM chatbot.vacancies
+    WHERE vacancy_id <> ${vacancyId}
+      AND status <> 'archived'
+    ORDER BY updated_at DESC NULLS LAST, created_at DESC
+    LIMIT 5
+  `;
+
+  const rows = [current, ...otherRows];
+  const table = rows
+    .map((row, index) => {
+      const title = index === 0
+        ? `${escapeMarkdownTableCell(row.title ?? "Без названия")} (текущая)`
+        : escapeMarkdownTableCell(row.title ?? "Без названия");
+      const status = escapeMarkdownTableCell(formatVacancyStatus(row));
+      const mustHaves = escapeMarkdownTableCell(formatMustHaves(row.must_haves));
+      const stepsCount = Array.isArray(row.application_steps) ? row.application_steps.length : 0;
+      const communicationState = row.communication_plan ? "Настроено" : "Нет";
+      return `| ${title} | ${status} | ${mustHaves} | ${stepsCount} | ${communicationState} |`;
+    })
+    .join("\n");
+
+  return {
+    kind: "fallback_text",
+    text: [
+      "## Сравнение с другими вакансиями",
+      "",
+      "| Вакансия | Статус | Маст-хэвы | Шагов найма | Коммуникация |",
+      "|---|---|---|---:|---|",
+      table,
+      "",
+      otherRows.length === 0
+        ? "_Других активных вакансий для сравнения пока нет._"
+        : "_Показал до 5 последних вакансий из базы._"
+    ].join("\n")
+  };
+}
+
+function formatVacancyStatus(row) {
+  const status = String(row?.status ?? "unknown");
+  const extraction = String(row?.extraction_status ?? "unknown");
+  return `${status}/${extraction}`;
+}
+
+function formatMustHaves(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return "—";
+  }
+
+  const top = raw
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  return top.length ? top.join(", ") : "—";
+}
+
+function escapeMarkdownTableCell(value) {
+  return String(value ?? "—").replace(/\|/g, "\\|");
 }

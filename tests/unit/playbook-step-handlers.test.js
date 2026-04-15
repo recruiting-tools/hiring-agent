@@ -130,14 +130,14 @@ test("playbook handler: buttons prompt and accept known option", async () => {
     user_message: "Что хотите сделать?",
     context_key: "next_action",
     next_step_order: null,
-    options: "Настроить общение с кандидатами;Готово"
+    options: "Распланировать общение с кандидатами;Сравнить с другими вакансиями;Готово"
   };
 
   const prompt = await handleButtonsStep({ step, context: {}, recruiterInput: null });
   assert.deepEqual(prompt.reply, {
     kind: "buttons",
     message: "Что хотите сделать?",
-    options: ["Настроить общение с кандидатами", "Готово"],
+    options: ["Распланировать общение с кандидатами", "Сравнить с другими вакансиями", "Готово"],
     step_key: "create_vacancy.14"
   });
   assert.equal(prompt.awaitingInput, true);

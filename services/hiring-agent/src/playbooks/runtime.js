@@ -106,6 +106,7 @@ export async function dispatch({
           sessionId: session.session_id,
           vacancyId: identity.vacancyId,
           jobId: identity.jobId,
+          context,
           reply: { kind: "completed", message: "Playbook completed." }
         };
       }
@@ -143,6 +144,7 @@ export async function dispatch({
           sessionId: session.session_id,
           vacancyId: identity.vacancyId,
           jobId: identity.jobId,
+          context,
           reply: result.reply
         };
       }
@@ -156,6 +158,7 @@ export async function dispatch({
           sessionId: session.session_id,
           vacancyId: identity.vacancyId,
           jobId: identity.jobId,
+          context,
           reply: result.reply ?? { kind: "completed", message: "Playbook completed." }
         };
       }
@@ -174,6 +177,7 @@ export async function dispatch({
           sessionId: session.session_id,
           vacancyId: identity.vacancyId,
           jobId: identity.jobId,
+          context,
           reply: result.reply
         };
       }
@@ -189,6 +193,7 @@ export async function dispatch({
           sessionId: session.session_id,
           vacancyId: identity.vacancyId,
           jobId: identity.jobId,
+          context,
           reply: {
             kind: "fallback_text",
             text: "Не удалось выполнить LLM-шаг. Попробуйте ещё раз позже."

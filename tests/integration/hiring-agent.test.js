@@ -527,6 +527,426 @@ test("hiring-agent: create_vacancy starts from fallback steps when DB step_count
   }
 });
 
+test("hiring-agent: create_vacancy remains available when tenant override is disabled", async () => {
+  clearPlaybookRegistryCache();
+  let sessionSequence = 0;
+  const managementSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [
+        {
+          playbook_key: "create_vacancy",
+          name: "Создать новую вакансию",
+          trigger_description: "create vacancy",
+          status: "available",
+          sort_order: 1,
+          step_count: 0
+        }
+      ];
+    }
+
+    if (text.includes("FROM management.tenant_playbook_access")) {
+      return [
+        {
+          playbook_key: "create_vacancy",
+          enabled: false
+        }
+      ];
+    }
+
+    if (text.includes("FROM management.playbook_steps")) {
+      return [];
+    }
+
+    if (text.includes("FROM management.playbook_sessions") && text.includes("status = 'active'")) {
+      return [];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("status = 'aborted'")) {
+      return [];
+    }
+
+    if (text.includes("INSERT INTO management.playbook_sessions")) {
+      sessionSequence += 1;
+      return [{
+        session_id: `sess-override-${sessionSequence}`,
+        tenant_id: "tenant-alpha-001",
+        recruiter_id: "rec-alpha-001",
+        conversation_id: null,
+        playbook_key: "create_vacancy",
+        current_step_order: 1,
+        vacancy_id: null,
+        context: {},
+        call_stack: [],
+        status: "active",
+        started_at: new Date(),
+        updated_at: new Date(),
+        completed_at: null
+      }];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("SET")) {
+      return [];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    managementSql
+  });
+
+  try {
+    const result = await app.postChatMessage({
+      action: "start_playbook",
+      playbook_key: "create_vacancy",
+      tenantId: "tenant-alpha-001",
+      recruiterId: "rec-alpha-001",
+      managementSql
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.reply.kind, "user_input");
+    assert.match(result.body.reply.message, /Загрузите материалы по вакансии/i);
+  } finally {
+    clearPlaybookRegistryCache();
+  }
+});
+
+test("hiring-agent: create_vacancy follow-up runs setup_communication when recruiter selected planning action", async () => {
+  clearPlaybookRegistryCache();
+  let sessionSequence = 0;
+  const managementSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [{
+        playbook_key: "create_vacancy",
+        name: "Создать новую вакансию",
+        trigger_description: "create vacancy",
+        status: "available",
+        sort_order: 1,
+        step_count: 1
+      }];
+    }
+
+    if (text.includes("FROM management.playbook_steps")) {
+      return [{
+        step_key: "create_vacancy.14",
+        playbook_key: "create_vacancy",
+        step_order: 1,
+        name: "Что делаем дальше?",
+        step_type: "buttons",
+        user_message: "Что хотите сделать?",
+        prompt_template: null,
+        context_key: "next_action",
+        db_save_column: null,
+        next_step_order: null,
+        options: "Распланировать общение с кандидатами;Сравнить с другими вакансиями;Готово",
+        routing: null,
+        notes: null,
+        created_at: new Date()
+      }];
+    }
+
+    if (text.includes("FROM management.playbook_sessions") && text.includes("status = 'active'")) {
+      return [];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("status = 'aborted'")) {
+      return [];
+    }
+
+    if (text.includes("INSERT INTO management.playbook_sessions")) {
+      sessionSequence += 1;
+      return [{
+        session_id: `sess-followup-${sessionSequence}`,
+        tenant_id: null,
+        recruiter_id: null,
+        conversation_id: null,
+        playbook_key: "create_vacancy",
+        current_step_order: 1,
+        vacancy_id: "vac-plan-1",
+        context: { vacancy_id: "vac-plan-1" },
+        call_stack: [],
+        status: "active",
+        started_at: new Date(),
+        updated_at: new Date(),
+        completed_at: null
+      }];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("status = 'completed'")) {
+      return [{
+        session_id: "sess-followup-1",
+        tenant_id: null,
+        recruiter_id: null,
+        conversation_id: null,
+        playbook_key: "create_vacancy",
+        current_step_order: null,
+        vacancy_id: "vac-plan-1",
+        context: {
+          vacancy_id: "vac-plan-1",
+          next_action: "Распланировать общение с кандидатами"
+        },
+        call_stack: [],
+        status: "completed",
+        started_at: new Date(),
+        updated_at: new Date(),
+        completed_at: new Date()
+      }];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (/FROM chatbot\.vacancies/.test(text) && /must_haves/.test(text) && /WHERE vacancy_id = \$1/.test(text)) {
+      assert.deepEqual(values, ["vac-plan-1"]);
+      return [{
+        vacancy_id: "vac-plan-1",
+        title: "Менеджер по продажам",
+        must_haves: ["B2B продажи", "CRM"],
+        nice_haves: [],
+        work_conditions: { salary_range: { min: 150000, max: 220000 } },
+        application_steps: [
+          { name: "Приветствие", in_our_scope: true, is_target: false },
+          { name: "Созвон", in_our_scope: true, is_target: true }
+        ],
+        communication_plan: null,
+        communication_plan_draft: null,
+        communication_examples: [],
+        communication_examples_plan_hash: null
+      }];
+    }
+
+    if (/FROM chatbot\.vacancies/.test(text) && /WHERE vacancy_id = \$1/.test(text)) {
+      assert.deepEqual(values, ["vac-plan-1"]);
+      return [{
+        vacancy_id: "vac-plan-1",
+        job_id: "job-plan-1",
+        title: "Менеджер по продажам",
+        status: "draft",
+        extraction_status: "done"
+      }];
+    }
+
+    if (/UPDATE chatbot\.vacancies/.test(text) && /communication_plan_draft/.test(text)) {
+      assert.equal(values.at(-1), "vac-plan-1");
+      return [];
+    }
+
+    throw new Error(`Unexpected tenant query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    managementSql,
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify({
+          scenario_title: "План для менеджера по продажам",
+          goal: "Договоренность о собеседовании",
+          steps: [
+            { step: "Приветствие и вопрос мотивации?", reminders_count: 1, comment: "Открываем диалог" },
+            { step: "Проверка релевантного опыта", reminders_count: 1, comment: "Скрининг по опыту" },
+            { step: "Сверка условий", reminders_count: 1, comment: "Снимаем риски" },
+            { step: "Короткий рассказ о роли", reminders_count: 0, comment: "Контекст вакансии" },
+            { step: "Приглашение на собеседование", reminders_count: 2, comment: "Фиксируем следующий шаг" }
+          ]
+        });
+      }
+    }
+  });
+
+  try {
+    const result = await app.postChatMessage({
+      action: "start_playbook",
+      playbook_key: "create_vacancy",
+      message: "Распланировать общение с кандидатами",
+      vacancy_id: "vac-plan-1",
+      tenantSql,
+      managementSql
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.reply.kind, "communication_plan");
+    assert.equal(result.body.reply.scenario_title, "План для менеджера по продажам");
+    assert.equal(result.body.reply.steps.length, 5);
+  } finally {
+    clearPlaybookRegistryCache();
+  }
+});
+
+test("hiring-agent: create_vacancy follow-up compares current vacancy with others", async () => {
+  clearPlaybookRegistryCache();
+  let sessionSequence = 0;
+  const managementSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [{
+        playbook_key: "create_vacancy",
+        name: "Создать новую вакансию",
+        trigger_description: "create vacancy",
+        status: "available",
+        sort_order: 1,
+        step_count: 1
+      }];
+    }
+
+    if (text.includes("FROM management.playbook_steps")) {
+      return [{
+        step_key: "create_vacancy.14",
+        playbook_key: "create_vacancy",
+        step_order: 1,
+        name: "Что делаем дальше?",
+        step_type: "buttons",
+        user_message: "Что хотите сделать?",
+        prompt_template: null,
+        context_key: "next_action",
+        db_save_column: null,
+        next_step_order: null,
+        options: "Распланировать общение с кандидатами;Сравнить с другими вакансиями;Готово",
+        routing: null,
+        notes: null,
+        created_at: new Date()
+      }];
+    }
+
+    if (text.includes("FROM management.playbook_sessions") && text.includes("status = 'active'")) {
+      return [];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("status = 'aborted'")) {
+      return [];
+    }
+
+    if (text.includes("INSERT INTO management.playbook_sessions")) {
+      sessionSequence += 1;
+      return [{
+        session_id: `sess-compare-${sessionSequence}`,
+        tenant_id: null,
+        recruiter_id: null,
+        conversation_id: null,
+        playbook_key: "create_vacancy",
+        current_step_order: 1,
+        vacancy_id: "vac-current",
+        context: { vacancy_id: "vac-current" },
+        call_stack: [],
+        status: "active",
+        started_at: new Date(),
+        updated_at: new Date(),
+        completed_at: null
+      }];
+    }
+
+    if (text.includes("UPDATE management.playbook_sessions") && text.includes("status = 'completed'")) {
+      return [{
+        session_id: "sess-compare-1",
+        tenant_id: null,
+        recruiter_id: null,
+        conversation_id: null,
+        playbook_key: "create_vacancy",
+        current_step_order: null,
+        vacancy_id: "vac-current",
+        context: {
+          vacancy_id: "vac-current",
+          next_action: "Сравнить с другими вакансиями"
+        },
+        call_stack: [],
+        status: "completed",
+        started_at: new Date(),
+        updated_at: new Date(),
+        completed_at: new Date()
+      }];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (/SELECT\s+vacancy_id,\s*job_id,\s*title,\s*status,\s*extraction_status/i.test(text)) {
+      assert.deepEqual(values, ["vac-current"]);
+      return [{
+        vacancy_id: "vac-current",
+        job_id: "job-current",
+        title: "Менеджер по продажам",
+        status: "draft",
+        extraction_status: "done"
+      }];
+    }
+
+    if (/SELECT\s+vacancy_id,\s*title,\s*status,\s*extraction_status,\s*must_haves/i.test(text) && /WHERE vacancy_id = \$1/i.test(text)) {
+      assert.deepEqual(values, ["vac-current"]);
+      return [{
+        vacancy_id: "vac-current",
+        title: "Менеджер по продажам",
+        status: "draft",
+        extraction_status: "done",
+        must_haves: ["B2B продажи", "CRM"],
+        application_steps: [{ name: "Скрининг" }, { name: "Созвон" }],
+        communication_plan: { scenario_title: "Базовый" }
+      }];
+    }
+
+    if (/SELECT\s+vacancy_id,\s*title,\s*status,\s*extraction_status,\s*must_haves/i.test(text) && /WHERE vacancy_id <> \$1/i.test(text)) {
+      assert.deepEqual(values, ["vac-current"]);
+      return [{
+        vacancy_id: "vac-other-1",
+        title: "Менеджер по работе с ключевыми клиентами",
+        status: "active",
+        extraction_status: "done",
+        must_haves: ["B2B", "переговоры", "CRM"],
+        application_steps: [{ name: "Скрининг" }],
+        communication_plan: null
+      }];
+    }
+
+    throw new Error(`Unexpected tenant query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    managementSql
+  });
+
+  try {
+    const result = await app.postChatMessage({
+      action: "start_playbook",
+      playbook_key: "create_vacancy",
+      message: "Сравнить с другими вакансиями",
+      vacancy_id: "vac-current",
+      tenantSql,
+      managementSql
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.reply.kind, "fallback_text");
+    assert.match(result.body.reply.text, /Сравнение с другими вакансиями/);
+    assert.match(result.body.reply.text, /\| Вакансия \| Статус \| Маст-хэвы \| Шагов найма \| Коммуникация \|/);
+    assert.match(result.body.reply.text, /Менеджер по продажам \(текущая\)/);
+  } finally {
+    clearPlaybookRegistryCache();
+  }
+});
+
 test("hiring-agent: GET / serves HTML shell after auth", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {
@@ -2053,6 +2473,229 @@ test("hiring-agent: WebSocket renders communication_plan as markdown table and r
     assert.deepEqual(
       done.actions.map((item) => item.label),
       ["Сохранить", "Запустить", "Поправить"]
+    );
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: WebSocket parses stringified communication_plan reply and renders actions", async () => {
+  const app = {
+    getHealth() {
+      return { status: 200, body: { status: "ok" } };
+    },
+    async postChatMessage() {
+      return {
+        status: 200,
+        body: {
+          reply: JSON.stringify({
+            kind: "communication_plan",
+            scenario_title: "Первичный контакт",
+            goal: "Назначить интервью",
+            steps: [
+              { step: "Приветствие и первый вопрос", reminders_count: 1, comment: "Открыть диалог" },
+              { step: "Проверка релевантного опыта", reminders_count: 1, comment: "Сверить fit" },
+              { step: "Сверка ожиданий по условиям", reminders_count: 1, comment: "Снять риски" },
+              { step: "Приглашение на интервью", reminders_count: 2, comment: "Договориться о слоте" }
+            ],
+            examples: [],
+            note: "Черновик сценария готов.",
+            actions: [
+              { label: "Сохранить", message: "настроить общение: сохранить настройку коммуникаций" },
+              { label: "Запустить", message: "настроить общение: запустить сценарий коммуникаций" },
+              { label: "Поправить", message: "настроить общение: поправить сценарий коммуникаций" }
+            ]
+          })
+        }
+      };
+    }
+  };
+
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return async () => [];
+      }
+    }
+  }).listen(0);
+
+  const port = server.address().port;
+  try {
+    const messages = await new Promise((resolve, reject) => {
+      const ws = new WsClient(`ws://localhost:${port}/ws`, {
+        headers: { cookie: "session=sess-alpha" }
+      });
+      const received = [];
+      let settled = false;
+
+      const settle = (val, isErr) => {
+        if (settled) return;
+        settled = true;
+        ws.close();
+        isErr ? reject(val) : resolve(val);
+      };
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({
+          type: "message",
+          text: "настроить общение с кандидатами",
+          vacancyId: "vac-test-1"
+        }));
+      });
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data);
+        received.push(msg);
+        if (msg.type === "done") settle(received, false);
+      });
+      ws.on("error", (err) => settle(err, true));
+      ws.on("close", (code) => {
+        if (code === 4001) settle(new Error("Unauthorized 4001"), true);
+      });
+      setTimeout(() => settle(new Error("timeout"), true), 5000);
+    });
+
+    const chunk = messages.find((m) => m.type === "chunk");
+    const done = messages.find((m) => m.type === "done");
+    assert.ok(chunk, "should receive chunk message");
+    assert.ok(done, "should receive done message");
+    assert.match(chunk.text, /## План коммуникации/);
+    assert.ok(!chunk.text.includes("```json"), "should not dump raw JSON");
+    assert.deepEqual(
+      done.actions.map((item) => item.label),
+      ["Сохранить", "Запустить", "Поправить"]
+    );
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: WebSocket renders playbook buttons reply as action chips", async () => {
+  const app = {
+    getHealth() {
+      return { status: 200, body: { status: "ok" } };
+    },
+    async postChatMessage() {
+      return {
+        status: 200,
+        body: {
+          reply: {
+            kind: "buttons",
+            message: "Вакансия готова. Что дальше?",
+            options: ["Распланировать общение с кандидатами", "Сравнить с другими вакансиями", "Готово"]
+          }
+        }
+      };
+    }
+  };
+
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return async () => [];
+      }
+    }
+  }).listen(0);
+
+  const port = server.address().port;
+  try {
+    const messages = await new Promise((resolve, reject) => {
+      const ws = new WsClient(`ws://localhost:${port}/ws`, {
+        headers: { cookie: "session=sess-alpha" }
+      });
+      const received = [];
+      let settled = false;
+
+      const settle = (val, isErr) => {
+        if (settled) return;
+        settled = true;
+        ws.close();
+        isErr ? reject(val) : resolve(val);
+      };
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({
+          type: "message",
+          text: "создать вакансию"
+        }));
+      });
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data);
+        received.push(msg);
+        if (msg.type === "done") settle(received, false);
+      });
+      ws.on("error", (err) => settle(err, true));
+      ws.on("close", (code) => {
+        if (code === 4001) settle(new Error("Unauthorized 4001"), true);
+      });
+      setTimeout(() => settle(new Error("timeout"), true), 5000);
+    });
+
+    const chunk = messages.find((m) => m.type === "chunk");
+    const done = messages.find((m) => m.type === "done");
+    assert.ok(chunk, "should receive chunk message");
+    assert.ok(done, "should receive done message");
+    assert.match(chunk.text, /Вакансия готова\. Что дальше\?/);
+    assert.deepEqual(
+      done.actions.map((item) => item.label),
+      ["Распланировать общение с кандидатами", "Сравнить с другими вакансиями", "Готово"]
     );
   } finally {
     server.close();

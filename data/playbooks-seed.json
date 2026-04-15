@@ -240,8 +240,8 @@
       "context_key": "next_action",
       "db_save_column": null,
       "next_step_order": null,
-      "options": "Настроить общение с кандидатами;Готово",
-      "notes": "«Настроить общение» → запускает setup_communication как subroutine с vacancy_id из context. Agent also sets vacancy.status='active'."
+      "options": "Распланировать общение с кандидатами;Сравнить с другими вакансиями;Готово",
+      "notes": "«Распланировать общение» запускает setup_communication для этой вакансии. «Сравнить с другими вакансиями» показывает короткую сравнительную таблицу."
     },
 
     // ── setup_communication ──────────────────────────────────────────────────
