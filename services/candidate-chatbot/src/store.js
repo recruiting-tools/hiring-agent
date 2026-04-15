@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { getModerationAutoSendDelayMs } from "./config.js";
 
+const STALE_SENDING_WINDOW_MS = 5 * 60 * 1000;
+
 export class InMemoryHiringStore {
   constructor(seed) {
     // Support both single recruiter (old format) and array (new format)
@@ -96,6 +98,16 @@ export class InMemoryHiringStore {
     return `${prefix}-${String(next).padStart(4, "0")}`;
   }
 
+  _nowIso() {
+    return new Date().toISOString();
+  }
+
+  _getDeliveryAttemptsForMessage(plannedMessageId) {
+    return this.deliveryAttempts
+      .filter((attempt) => attempt.planned_message_id === plannedMessageId)
+      .sort((a, b) => new Date(b.attempted_at) - new Date(a.attempted_at));
+  }
+
   getJob(jobId) {
     const job = this.jobs.get(jobId);
     if (!job) {
@@ -174,7 +186,7 @@ export class InMemoryHiringStore {
       channel: request.channel,
       channel_message_id: request.channel_message_id,
       occurred_at: request.occurred_at,
-      received_at: new Date().toISOString()
+      received_at: this._nowIso()
     };
     this.messages.push(message);
     return message;
@@ -540,6 +552,7 @@ export class InMemoryHiringStore {
     channel_message_id,
     occurred_at
   }) {
+    if (!channel_message_id) return null;
     const existing = this.messages.find(
       (message) => message.conversation_id === conversation_id && message.channel_message_id === channel_message_id
     );
@@ -570,6 +583,19 @@ export class InMemoryHiringStore {
         if (!pm.auto_send_after) return false;
         return new Date(pm.auto_send_after) <= now;
       })
+      .filter((pm) => {
+        const attempts = this._getDeliveryAttemptsForMessage(pm.planned_message_id);
+        if (attempts.length === 0) return true;
+
+        const latest = attempts[0];
+        if (latest.status === "sending") {
+          return new Date(latest.attempted_at).getTime() < now.getTime() - STALE_SENDING_WINDOW_MS;
+        }
+        if (latest.status === "failed" && latest.next_retry_at) {
+          return new Date(latest.next_retry_at).getTime() <= now.getTime();
+        }
+        return latest.status === "failed" && !latest.next_retry_at;
+      })
       .map((pm) => {
         const conv = this.conversations.get(pm.conversation_id);
         if (!conv) throw new Error(`Missing conversation for planned_message ${pm.planned_message_id}`);
@@ -591,11 +617,17 @@ export class InMemoryHiringStore {
       hh_negotiation_id,
       status,
       hh_message_id: null,
-      attempted_at: new Date().toISOString(),
-      error_body: null
+      attempted_at: this._nowIso(),
+      error_body: null,
+      retry_count: 0,
+      next_retry_at: null
     };
     this.deliveryAttempts.push(attempt);
     return attempt;
+  }
+
+  async getDeliveryAttempts(plannedMessageId) {
+    return this._getDeliveryAttemptsForMessage(plannedMessageId);
   }
 
   async getSuccessfulDeliveryAttempt(plannedMessageId) {
@@ -612,11 +644,13 @@ export class InMemoryHiringStore {
     }
   }
 
-  async markDeliveryAttemptFailed({ attempt_id, error_body }) {
+  async markDeliveryAttemptFailed({ attempt_id, error_body, nextRetryAt = null, retryCount = null }) {
     const attempt = this.deliveryAttempts.find((a) => a.attempt_id === attempt_id);
     if (attempt) {
       attempt.status = "failed";
       attempt.error_body = error_body;
+      attempt.retry_count = retryCount ?? (attempt.retry_count ?? 0);
+      attempt.next_retry_at = nextRetryAt ? nextRetryAt.toISOString() : null;
     }
   }
 
@@ -632,6 +666,17 @@ export class InMemoryHiringStore {
       );
       if (attempt) attempt.hh_message_id = hh_message_id;
     }
+  }
+
+  async markPlannedMessageBlockedForDlq(plannedMessageId, { reason }) {
+    const plannedMessage = this.plannedMessages.find((m) => m.planned_message_id === plannedMessageId);
+    if (!plannedMessage) return;
+
+    plannedMessage.review_status = "blocked";
+    plannedMessage.reason = plannedMessage.reason
+      ? `${plannedMessage.reason}\nDLQ: ${reason}`
+      : `DLQ: ${reason}`;
+    plannedMessage.blocked_at = this._nowIso();
   }
 
   // ─── Alert ───────────────────────────────────────────────────────────────────
