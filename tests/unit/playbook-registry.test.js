@@ -109,11 +109,11 @@ test("registry: disables tenant playbook when tenant override is false", async (
   assert.equal(playbook.enabled, false);
 });
 
-test("registry: canonicalizes write_vacancy_text and ignores stale tenant lock override", async () => {
+test("registry: canonicalizes vacancy-text and ignores stale tenant lock override", async () => {
   const managementSql = createFakeManagementSql({
     definitions: [
       {
-        playbook_key: "write_vacancy_text",
+        playbook_key: "vacancy-text",
         name: "Показать текст вакансии",
         trigger_description: "vacancy text",
         status: "available",
@@ -121,7 +121,7 @@ test("registry: canonicalizes write_vacancy_text and ignores stale tenant lock o
         step_count: 0
       }
     ],
-    access: [{ playbook_key: "write_vacancy_text", enabled: false }]
+    access: [{ playbook_key: "vacancy-text", enabled: false }]
   });
 
   const playbook = await findPlaybook("view_vacancy", managementSql, "tenant-legacy-1");

@@ -562,18 +562,18 @@ test("hiring-agent: postChatMessage returns playbook_locked when tenant access d
   assert.equal(result.body.reply.playbook_key, "quick_start");
 });
 
-test("hiring-agent: legacy write_vacancy_text routes to view_vacancy and bypasses stale lock", async () => {
+test("hiring-agent: legacy vacancy-text routes to view_vacancy and bypasses stale lock", async () => {
   const managementSql = async (strings) => {
     const text = strings.join("");
 
     if (text.includes("FROM management.tenant_playbook_access")) {
-      return [{ playbook_key: "write_vacancy_text", enabled: false }];
+      return [{ playbook_key: "vacancy-text", enabled: false }];
     }
 
     if (text.includes("FROM management.playbook_definitions d")) {
       return [
         {
-          playbook_key: "write_vacancy_text",
+          playbook_key: "vacancy-text",
           name: "Показать текст вакансии",
           trigger_description: "vacancy text",
           status: "available",
@@ -618,7 +618,7 @@ test("hiring-agent: legacy write_vacancy_text routes to view_vacancy and bypasse
   const app = createHiringAgentApp({ demoMode: false });
   const result = await app.postChatMessage({
     action: "start_playbook",
-    playbook_key: "write_vacancy_text",
+    playbook_key: "vacancy-text",
     tenantId: "tenant-legacy-001",
     vacancy_id: "vac-legacy-001",
     managementSql,

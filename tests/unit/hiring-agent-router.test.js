@@ -101,6 +101,17 @@ test("router: canonicalizes legacy write_vacancy_text to view_vacancy", async ()
   assert.equal(await routePlaybook("покажи текст вакансии", fakeManagementSql), "view_vacancy");
 });
 
+test("router: canonicalizes legacy vacancy-text to view_vacancy", async () => {
+  const fakeManagementSql = async () => ([
+    {
+      playbook_key: "vacancy-text",
+      keywords: ["текст вакансии"],
+      step_count: 0
+    }
+  ]);
+  assert.equal(await routePlaybook("покажи текст вакансии", fakeManagementSql), "view_vacancy");
+});
+
 test("router: returns null for unsupported requests", async () => {
   assert.equal(await routePlaybook("Сделай что-нибудь умное"), null);
 });
