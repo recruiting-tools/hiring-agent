@@ -1,4 +1,5 @@
 import { interpolate } from "../context-interpolation.js";
+import { parseJsonResponse } from "../../json-response.js";
 import { PlaybookLlmError, saveVacancyField } from "./llm-extract.js";
 
 export async function handleLlmGenerateStep({ step, context, tenantSql, llmAdapter }) {
@@ -35,7 +36,7 @@ export async function handleLlmGenerateStep({ step, context, tenantSql, llmAdapt
 
 function parseMaybeJson(raw) {
   try {
-    return JSON.parse(raw);
+    return parseJsonResponse(raw);
   } catch {
     return raw;
   }

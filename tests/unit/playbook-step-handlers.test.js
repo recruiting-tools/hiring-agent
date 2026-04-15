@@ -214,6 +214,27 @@ test("playbook handler: llm_extract retries once, appends JSON instruction, and 
   assert.match(prompts[0], /Return valid JSON only, no markdown\./);
 });
 
+test("playbook handler: llm_extract parses fenced JSON responses", async () => {
+  const result = await handleLlmExtractStep({
+    step: {
+      prompt_template: "Извлеки требования из {{context.raw_vacancy_text}}",
+      context_key: "must_haves",
+      next_step_order: 4
+    },
+    context: {
+      raw_vacancy_text: "Нужен плиточник"
+    },
+    llmAdapter: {
+      async generate() {
+        return "```json\n[\"Опыт плиточника\"]\n```";
+      }
+    }
+  });
+
+  assert.equal(result.nextStepOrder, 4);
+  assert.deepEqual(result.context.must_haves, ["Опыт плиточника"]);
+});
+
 test("playbook handler: llm_extract uses model override for create_vacancy application_steps", async () => {
   const models = [];
   const result = await handleLlmExtractStep({
@@ -298,6 +319,27 @@ test("playbook handler: llm_generate stores parsed JSON and returns UI payload",
     content: "[{\"q\":\"Какая зарплата?\",\"a\":\"200 тыс.\"}]",
     content_type: "text"
   });
+});
+
+test("playbook handler: llm_generate parses fenced JSON responses", async () => {
+  const result = await handleLlmGenerateStep({
+    step: {
+      prompt_template: "Сгенерируй FAQ по {{context.raw_vacancy_text}}",
+      context_key: "faq",
+      next_step_order: 13
+    },
+    context: {
+      raw_vacancy_text: "Текст вакансии"
+    },
+    llmAdapter: {
+      async generate() {
+        return "```json\n[{\"q\":\"Есть ли обучение?\",\"a\":\"Да\"}]\n```";
+      }
+    }
+  });
+
+  assert.equal(result.nextStepOrder, 13);
+  assert.deepEqual(result.context.faq, [{ q: "Есть ли обучение?", a: "Да" }]);
 });
 
 test("playbook handler: display renders templated content and optional buttons", async () => {

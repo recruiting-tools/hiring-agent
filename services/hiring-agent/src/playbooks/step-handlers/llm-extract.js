@@ -1,4 +1,5 @@
 import { interpolate } from "../context-interpolation.js";
+import { parseJsonResponse } from "../../json-response.js";
 
 export class PlaybookLlmError extends Error {}
 
@@ -6,7 +7,12 @@ export async function handleLlmExtractStep({ step, context, tenantSql, llmAdapte
   const prompt = buildJsonPrompt(step.prompt_template, context);
   const model = resolveExtractModelOverride(step, llmConfig);
   const raw = await generateWithRetry(llmAdapter, prompt, { model });
-  const parsed = JSON.parse(raw);
+  let parsed;
+  try {
+    parsed = parseJsonResponse(raw);
+  } catch (error) {
+    throw new PlaybookLlmError(error instanceof Error ? error.message : "Invalid JSON response");
+  }
   const nextContext = step.context_key
     ? { ...context, [step.context_key]: parsed }
     : context;
