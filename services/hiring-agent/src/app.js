@@ -12,6 +12,144 @@ import {
 } from "./playbooks/playbook-contracts.js";
 
 const TENANT_DB_TIMEOUT_MS = 5000;
+const DATA_RETENTION_CONFIRMATION_TEXT = "delete all my data";
+const ACCOUNT_ACCESS_PLAYBOOK_KEY = "account_access";
+const DATA_RETENTION_PLAYBOOK_KEY = "data_retention";
+const DATA_RETENTION_TRIGGER_TEXT = `Введите ровно: ${DATA_RETENTION_CONFIRMATION_TEXT}`;
+
+const ACCOUNT_ACCESS_QUERY = {
+  oauthTokensRemoved: {
+    label: "oauth_tokens_removed",
+    run: (sql) => sql`
+      DELETE FROM management.oauth_tokens
+      WHERE provider ILIKE 'hh%'
+      RETURNING 1
+    `
+  },
+  featureFlagsDisabled: {
+    label: "feature_flags_disabled",
+    run: (sql) => sql`
+      UPDATE management.feature_flags
+        SET enabled = false
+      WHERE flag IN ('hh_send', 'hh_import')
+      RETURNING 1
+    `
+  }
+};
+
+const MANAGEMENT_TENANT_DATA_QUERIES = [
+  {
+    key: "tenant_playbook_access_removed",
+    query: (sql, tenantId) => sql`
+      DELETE FROM management.tenant_playbook_access
+      WHERE tenant_id = ${tenantId}
+      RETURNING 1
+    `
+  },
+  {
+    key: "playbook_sessions_removed",
+    query: (sql, tenantId) => sql`
+      DELETE FROM management.playbook_sessions
+      WHERE tenant_id = ${tenantId}
+      RETURNING 1
+    `
+  },
+  {
+    key: "recruiter_subscriptions_removed",
+    query: (sql, tenantId) => sql`
+      DELETE FROM management.recruiter_subscriptions
+      WHERE recruiter_id IN (
+        SELECT recruiter_id
+        FROM management.recruiters
+        WHERE tenant_id = ${tenantId}
+      )
+      RETURNING 1
+    `
+  },
+  {
+    key: "sessions_removed",
+    query: (sql, tenantId) => sql`
+      DELETE FROM management.sessions
+      WHERE recruiter_id IN (
+        SELECT recruiter_id
+        FROM management.recruiters
+        WHERE tenant_id = ${tenantId}
+      )
+      RETURNING 1
+    `
+  },
+  {
+    key: "recruiters_removed",
+    query: (sql, tenantId) => sql`
+      DELETE FROM management.recruiters
+      WHERE tenant_id = ${tenantId}
+      RETURNING 1
+    `
+  }
+];
+
+const TENANT_DB_DATA_QUERIES = [
+  {
+    key: "message_delivery_attempts_removed",
+    query: (sql) => sql`DELETE FROM chatbot.message_delivery_attempts RETURNING 1`
+  },
+  {
+    key: "planned_messages_removed",
+    query: (sql) => sql`DELETE FROM chatbot.planned_messages RETURNING 1`
+  },
+  {
+    key: "messages_removed",
+    query: (sql) => sql`DELETE FROM chatbot.messages RETURNING 1`
+  },
+  {
+    key: "pipeline_step_state_removed",
+    query: (sql) => sql`DELETE FROM chatbot.pipeline_step_state RETURNING 1`
+  },
+  {
+    key: "pipeline_events_removed",
+    query: (sql) => sql`DELETE FROM chatbot.pipeline_events RETURNING 1`
+  },
+  {
+    key: "hh_poll_state_removed",
+    query: (sql) => sql`DELETE FROM chatbot.hh_poll_state RETURNING 1`
+  },
+  {
+    key: "hh_negotiations_removed",
+    query: (sql) => sql`DELETE FROM chatbot.hh_negotiations RETURNING 1`
+  },
+  {
+    key: "pipeline_runs_removed",
+    query: (sql) => sql`DELETE FROM chatbot.pipeline_runs RETURNING 1`
+  },
+  {
+    key: "vacancies_removed",
+    query: (sql) => sql`DELETE FROM chatbot.vacancies RETURNING 1`
+  },
+  {
+    key: "conversations_removed",
+    query: (sql) => sql`DELETE FROM chatbot.conversations RETURNING 1`
+  },
+  {
+    key: "pipeline_templates_removed",
+    query: (sql) => sql`DELETE FROM chatbot.pipeline_templates RETURNING 1`
+  },
+  {
+    key: "sessions_removed",
+    query: (sql) => sql`DELETE FROM chatbot.sessions RETURNING 1`
+  },
+  {
+    key: "recruiters_removed",
+    query: (sql) => sql`DELETE FROM chatbot.recruiters RETURNING 1`
+  },
+  {
+    key: "candidates_removed",
+    query: (sql) => sql`DELETE FROM chatbot.candidates RETURNING 1`
+  },
+  {
+    key: "jobs_removed",
+    query: (sql) => sql`DELETE FROM chatbot.jobs RETURNING 1`
+  }
+];
 function canonicalizePlaybookKey(playbookKey) {
   return playbookKey === "candidate_broadcast" ? "mass_broadcast" : playbookKey;
 }
@@ -230,6 +368,79 @@ export function createHiringAgentApp(options = {}) {
         return {
           status: 200,
           body: { reply: result.reply }
+        };
+      }
+
+      if (playbook.playbook_key === ACCOUNT_ACCESS_PLAYBOOK_KEY) {
+        if (!requestManagementSql) {
+          return {
+            status: 200,
+            body: {
+              reply: {
+                kind: "fallback_text",
+                text: "Для управления доступом требуется подключенный management DB."
+              }
+            }
+          };
+        }
+
+        return {
+          status: 200,
+          body: {
+            reply: await performAccountAccessRevocation({
+              managementSql: requestManagementSql
+            })
+          }
+        };
+      }
+
+      if (playbook.playbook_key === DATA_RETENTION_PLAYBOOK_KEY) {
+        if (!tenantId) {
+          return {
+            status: 200,
+            body: {
+              reply: {
+                kind: "fallback_text",
+                text: "Для очистки данных откройте сценарий в контексте вашего аккаунта tenant."
+              }
+            }
+          };
+        }
+
+        if (!tenantSql || !requestManagementSql) {
+          return {
+            status: 200,
+            body: {
+              reply: {
+                kind: "fallback_text",
+                text: "Для очистки данных нужны tenant SQL и management SQL."
+              }
+            }
+          };
+        }
+
+        if (!isDeleteDataConfirmation(message)) {
+          return {
+            status: 200,
+            body: {
+              reply: {
+                kind: "display",
+                content_type: "text",
+                content: buildDataRetentionPrompt()
+              }
+            }
+          };
+        }
+
+        return {
+          status: 200,
+          body: {
+            reply: await performTenantDataRetention({
+              managementSql: requestManagementSql,
+              tenantSql,
+              tenantId
+            })
+          }
         };
       }
 
@@ -565,6 +776,93 @@ function hasExplicitVacancyMiss({ requestedVacancyId, effectiveJobId, requestedV
     && !requestedVacancyFound
     && requestedVacancyId !== (effectiveJobId ?? null)
   );
+}
+
+function isDeleteDataConfirmation(rawMessage) {
+  return normalizeText(rawMessage) === DATA_RETENTION_CONFIRMATION_TEXT;
+}
+
+function normalizeText(text) {
+  return String(text ?? "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[^\p{L}\p{N} ]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildDataRetentionPrompt() {
+  return [
+    "Для очистки данных введите ровно:",
+    DATA_RETENTION_TRIGGER_TEXT
+  ].join("\n");
+}
+
+async function performAccountAccessRevocation({ managementSql }) {
+  const accessResetSummary = await runAccountAccessRevocation({ managementSql });
+  const tokenCount = accessResetSummary[ACCOUNT_ACCESS_QUERY.oauthTokensRemoved.label];
+  const flagCount = accessResetSummary[ACCOUNT_ACCESS_QUERY.featureFlagsDisabled.label];
+  const allGood = tokenCount > 0 || flagCount > 0;
+
+  return {
+    kind: "display",
+    content_type: "text",
+    content: [
+      "Доступ к hh.ru отключён.",
+      `Удалено OAuth-записей: ${tokenCount}`,
+      `Отключено флагов hh_send/hh_import: ${flagCount}`,
+      allGood
+        ? "Действия выполнены. Для новой интеграции можно снова пройти OAuth-подключение."
+        : "Подключение уже было отключено или уже пусто."
+    ].join("\n")
+  };
+}
+
+async function performTenantDataRetention({ managementSql, tenantSql, tenantId }) {
+  const accessSummary = await runAccountAccessRevocation({ managementSql });
+  const managementStats = {
+    ...accessSummary,
+    ...(await runManagementTenantCleanup({ managementSql, tenantId }))
+  };
+  const tenantStats = await runTenantDataCleanup(tenantSql);
+
+  return {
+    kind: "display",
+    content_type: "text",
+    content: [
+      "Очистка данных выполнена.",
+      `Management: oauth_tokens=${managementStats.oauth_tokens_removed}, feature_flags=${managementStats.feature_flags_disabled}, recruiter_access=${managementStats.tenant_playbook_access_removed}, playbook_sessions=${managementStats.playbook_sessions_removed}, recruiter_subscriptions=${managementStats.recruiter_subscriptions_removed}, sessions=${managementStats.sessions_removed}, recruiters=${managementStats.recruiters_removed}`,
+      `Tenant DB: pipeline_templates=${tenantStats.pipeline_templates_removed}, message_delivery_attempts=${tenantStats.message_delivery_attempts_removed}, hh_poll_state=${tenantStats.hh_poll_state_removed}, messages=${tenantStats.messages_removed}, planned_messages=${tenantStats.planned_messages_removed}, pipeline_step_state=${tenantStats.pipeline_step_state_removed}, pipeline_events=${tenantStats.pipeline_events_removed}, hh_negotiations=${tenantStats.hh_negotiations_removed}, pipeline_runs=${tenantStats.pipeline_runs_removed}, conversations=${tenantStats.conversations_removed}, vacancies=${tenantStats.vacancies_removed}, recruiters=${tenantStats.recruiters_removed}, sessions=${tenantStats.sessions_removed}, candidates=${tenantStats.candidates_removed}, jobs=${tenantStats.jobs_removed}`
+    ].join("\n")
+  };
+}
+
+async function runAccountAccessRevocation({ managementSql }) {
+  const revokedTokens = await ACCOUNT_ACCESS_QUERY.oauthTokensRemoved.run(managementSql);
+  const disabledFlags = await ACCOUNT_ACCESS_QUERY.featureFlagsDisabled.run(managementSql);
+
+  return {
+    [ACCOUNT_ACCESS_QUERY.oauthTokensRemoved.label]: revokedTokens.length,
+    [ACCOUNT_ACCESS_QUERY.featureFlagsDisabled.label]: disabledFlags.length
+  };
+}
+
+async function runManagementTenantCleanup({ managementSql, tenantId }) {
+  const entries = {};
+  for (const cleanup of MANAGEMENT_TENANT_DATA_QUERIES) {
+    const rows = await cleanup.query(managementSql, tenantId);
+    entries[cleanup.key] = rows.length;
+  }
+  return entries;
+}
+
+async function runTenantDataCleanup(tenantSql) {
+  const entries = {};
+  for (const cleanup of TENANT_DB_DATA_QUERIES) {
+    const rows = await cleanup.query(tenantSql);
+    entries[cleanup.key] = rows.length;
+  }
+  return entries;
 }
 
 async function routePlaybookWithLlm({ message, playbooks, llmAdapter }) {

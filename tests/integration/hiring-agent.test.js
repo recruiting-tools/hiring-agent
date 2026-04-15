@@ -220,6 +220,208 @@ test("hiring-agent: POST /api/chat supports quick_start action without vacancy_i
   }
 });
 
+test("hiring-agent: account_access returns fallback when management DB is unavailable", async () => {
+  const app = createHiringAgentApp();
+  const result = await app.postChatMessage({
+    action: "start_playbook",
+    playbook_key: "account_access",
+    message: "отключить hh"
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.reply.kind, "fallback_text");
+  assert.match(result.body.reply.text, /management DB/i);
+});
+
+test("hiring-agent: account_access revokes hh oauth access and feature flags", async () => {
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [
+        {
+          playbook_key: "account_access",
+          name: "Управление доступом к hh.ru",
+          trigger_description: "revoke hh access",
+          status: "available",
+          sort_order: 1,
+          step_count: 0
+        }
+      ];
+    }
+
+    if (text.includes("FROM management.tenant_playbook_access")) {
+      return [];
+    }
+
+    if (text.includes("DELETE FROM management.oauth_tokens")) {
+      return [{ ok: 1 }, { ok: 1 }];
+    }
+
+    if (text.includes("UPDATE management.feature_flags")) {
+      return [{ ok: 1 }];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const result = await app.postChatMessage({
+    action: "start_playbook",
+    playbook_key: "account_access",
+    managementSql
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.reply.kind, "display");
+  assert.match(result.body.reply.content, /Доступ к hh\.ru отключен|Доступ к hh\.ru отключён/i);
+  assert.match(result.body.reply.content, /OAuth-записей: 2/);
+  assert.match(result.body.reply.content, /hh_send\/hh_import: 1/);
+});
+
+test("hiring-agent: data_retention asks confirmation before destructive cleanup", async () => {
+  let tenantDeleteCalls = 0;
+  let managementDeleteCalls = 0;
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [
+        {
+          playbook_key: "data_retention",
+          name: "Очистка данных аккаунта",
+          trigger_description: "wipe data",
+          status: "available",
+          sort_order: 1,
+          step_count: 0
+        }
+      ];
+    }
+
+    if (text.includes("FROM management.tenant_playbook_access")) {
+      return [];
+    }
+
+    if (text.includes("DELETE FROM management.") || text.includes("UPDATE management.feature_flags")) {
+      managementDeleteCalls += 1;
+      return [];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+  const tenantSql = async (strings) => {
+    const text = strings.join("");
+    if (text.includes("DELETE FROM chatbot.")) {
+      tenantDeleteCalls += 1;
+      return [];
+    }
+    throw new Error(`Unexpected tenant query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const result = await app.postChatMessage({
+    action: "start_playbook",
+    playbook_key: "data_retention",
+    message: "удали все данные",
+    tenantId: "tenant-alpha-001",
+    managementSql,
+    tenantSql
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.reply.kind, "display");
+  assert.match(result.body.reply.content, /delete all my data/);
+  assert.equal(managementDeleteCalls, 0);
+  assert.equal(tenantDeleteCalls, 0);
+});
+
+test("hiring-agent: data_retention removes tenant and access data after exact confirmation", async () => {
+  const tenantCountByTable = new Map([
+    ["chatbot.message_delivery_attempts", 2],
+    ["chatbot.planned_messages", 3],
+    ["chatbot.messages", 4],
+    ["chatbot.pipeline_step_state", 5],
+    ["chatbot.pipeline_events", 6],
+    ["chatbot.hh_poll_state", 1],
+    ["chatbot.hh_negotiations", 2],
+    ["chatbot.pipeline_runs", 3],
+    ["chatbot.vacancies", 2],
+    ["chatbot.conversations", 2],
+    ["chatbot.pipeline_templates", 1],
+    ["chatbot.sessions", 1],
+    ["chatbot.recruiters", 1],
+    ["chatbot.candidates", 2],
+    ["chatbot.jobs", 1]
+  ]);
+  const managementCountByQuery = new Map([
+    ["DELETE FROM management.oauth_tokens", 1],
+    ["UPDATE management.feature_flags", 2],
+    ["DELETE FROM management.tenant_playbook_access", 3],
+    ["DELETE FROM management.playbook_sessions", 4],
+    ["DELETE FROM management.recruiter_subscriptions", 5],
+    ["DELETE FROM management.sessions", 6],
+    ["DELETE FROM management.recruiters", 7]
+  ]);
+
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [
+        {
+          playbook_key: "data_retention",
+          name: "Очистка данных аккаунта",
+          trigger_description: "wipe data",
+          status: "available",
+          sort_order: 1,
+          step_count: 0
+        }
+      ];
+    }
+
+    if (text.includes("FROM management.tenant_playbook_access")) {
+      return [];
+    }
+
+    for (const [pattern, count] of managementCountByQuery.entries()) {
+      if (text.includes(pattern)) {
+        return Array.from({ length: count }, (_, i) => ({ id: i + 1 }));
+      }
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const tenantSql = async (strings) => {
+    const text = strings.join("");
+    for (const [pattern, count] of tenantCountByTable.entries()) {
+      if (text.includes(`DELETE FROM ${pattern}`)) {
+        return Array.from({ length: count }, (_, i) => ({ id: i + 1 }));
+      }
+    }
+
+    throw new Error(`Unexpected tenant query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const result = await app.postChatMessage({
+    action: "start_playbook",
+    playbook_key: "data_retention",
+    message: "delete all my data",
+    tenantId: "tenant-alpha-001",
+    managementSql,
+    tenantSql
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.reply.kind, "display");
+  assert.match(result.body.reply.content, /Очистка данных выполнена/);
+  assert.match(result.body.reply.content, /Management: oauth_tokens=1, feature_flags=2/);
+  assert.match(result.body.reply.content, /Tenant DB: pipeline_templates=1/);
+  assert.match(result.body.reply.content, /message_delivery_attempts=2/);
+  assert.match(result.body.reply.content, /jobs=1/);
+});
+
 test("hiring-agent: POST /api/chat start_playbook action without playbook_key routes by message", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {

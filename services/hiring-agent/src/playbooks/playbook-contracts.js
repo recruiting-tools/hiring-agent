@@ -2,6 +2,8 @@ export const ALWAYS_RUNNABLE_PLAYBOOK_KEYS = Object.freeze(
   new Set([
     "candidate_funnel",
     "setup_communication",
+    "account_access",
+    "data_retention",
     "assistant_capabilities",
     "quick_start"
   ])
@@ -36,6 +38,33 @@ export const FALLBACK_ROUTES = Object.freeze([
   {
     playbook_key: "mass_broadcast",
     keywords: ["рассылк", "всем кандидатам", "бродкаст", "массовое сообщение", "broadcast", "календарь"]
+  },
+  {
+    playbook_key: "account_access",
+    keywords: [
+      "отозвать доступ",
+      "отключить hh",
+      "удалить доступ",
+      "разъединить hh",
+      "revoke hh",
+      "отписаться",
+      "убрать доступ к hh",
+      "отключить hh-интеграцию",
+      "хочу отключить hh"
+    ]
+  },
+  {
+    playbook_key: "data_retention",
+    keywords: [
+      "удалить все данные",
+      "стереть данные",
+      "очистить данные",
+      "очистить историю",
+      "erase data",
+      "wipe data",
+      "очистить аккаунт",
+      "удаление данных"
+    ]
   }
 ]);
 
@@ -81,6 +110,20 @@ export const FALLBACK_PLAYBOOKS = Object.freeze([
     name: "Карточка вакансии",
     enabled: true,
     status: "available"
+  },
+  {
+    playbook_key: "account_access",
+    title: "Управление доступом к hh.ru",
+    name: "Управление доступом к hh.ru",
+    enabled: true,
+    status: "available"
+  },
+  {
+    playbook_key: "data_retention",
+    title: "Очистка данных аккаунта",
+    name: "Очистка данных аккаунта",
+    enabled: true,
+    status: "available"
   }
 ]);
 
@@ -97,11 +140,13 @@ export const PLAYBOOKS_WITHOUT_VACANCY = Object.freeze(
     "setup_communication",
     "assistant_capabilities",
     "quick_start",
-    "create_vacancy"
+    "create_vacancy",
+    "account_access",
+    "data_retention"
   ])
 );
 
-export const ROUTING_FALLBACK_TEXT = "Я пока поддерживаю воронку по кандидатам, план коммуникации, выборочную рассылку, а также полезные справочные сценарии.";
+export const ROUTING_FALLBACK_TEXT = "Я пока поддерживаю воронку по кандидатам, план коммуникации, выборочную рассылку, управление доступом к hh.ru, очистку данных и полезные справочные сценарии.";
 
 export const STATIC_UTILITY_REPLIES = Object.freeze({
   assistant_capabilities: Object.freeze({
@@ -124,6 +169,25 @@ export const STATIC_UTILITY_REPLIES = Object.freeze({
       "2. Напишите задачу в чат: воронка, рассылка, коммуникация или подготовка вакансии.",
       "3. Подтверждайте шаги, если ассистент просит уточнить детали.",
       "4. Для справки вызывайте «что ты умеешь» или «быстрый старт»."
+    ]
+  }),
+  account_access: Object.freeze({
+    kind: "display",
+    content_type: "text",
+    lines: [
+      "Могу помочь с интеграцией hh.ru:",
+      "• Отозвать текущий доступ к hh.ru.",
+      "• Поддерживать отключение/включение hh-сценариев после безопасной проверки.",
+      "• Для полной очистки данных используйте сценарий «удалить все данные»."
+    ]
+  }),
+  data_retention: Object.freeze({
+    kind: "display",
+    content_type: "text",
+    lines: [
+      "Сценарий очистки удаляет данные аккаунта.",
+      "Для начала введите ровно: `delete all my data`",
+      "После ввода выполню подтвержденное удаление и сообщу сводку."
     ]
   })
 });

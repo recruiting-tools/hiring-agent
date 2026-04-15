@@ -39,6 +39,35 @@
       "keywords": ["воронка", "статистика", "funnel", "кандидаты", "pipeline"],
       "status": "available",
       "sort_order": 5
+    },
+    {
+      "playbook_key": "account_access",
+      "name": "Управление доступом к hh.ru",
+      "trigger_description": "Рекрутер хочет отозвать или изменить доступ к hh.ru",
+      "keywords": [
+        "отозвать доступ к hh",
+        "удалить доступ к hh",
+        "отключить hh",
+        "разъединить hh",
+        "revoke hh access",
+        "хочу отключить hh"
+      ],
+      "status": "available",
+      "sort_order": 6
+    },
+    {
+      "playbook_key": "data_retention",
+      "name": "Очистка данных аккаунта",
+      "trigger_description": "Рекрутер хочет удалить данные аккаунта и очистить историю",
+      "keywords": [
+        "удалить все данные",
+        "очистить данные",
+        "стереть данные",
+        "очистить историю",
+        "удаление данных"
+      ],
+      "status": "available",
+      "sort_order": 7
     }
   ],
 
