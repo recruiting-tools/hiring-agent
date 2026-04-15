@@ -31,7 +31,8 @@ export async function runCommunicationPlanPlaybook({
   jobId = null,
   llmAdapter,
   recruiterInput = null,
-  llmConfig = {}
+  llmConfig = {},
+  clientContext = null
 }) {
   if (!tenantSql) {
     return {
@@ -68,16 +69,26 @@ export async function runCommunicationPlanPlaybook({
   const action = detectAction(recruiterInput);
   const savedPlan = normalizePlan(vacancy.communication_plan);
   const draftPlan = normalizePlan(vacancy.communication_plan_draft);
+  const transientContext = normalizeTransientContext(clientContext);
+  const transientDraftPlan = transientContext?.plan ?? null;
+  const effectiveDraftPlan = draftPlan ?? transientDraftPlan;
   const examples = normalizeExamples(vacancy.communication_examples);
   const savedExamples = resolveExamplesForPlan({
     plan: savedPlan,
     examples,
     examplesPlanHash: vacancy.communication_examples_plan_hash
   });
+  const effectiveDraftExamples = draftPlan
+    ? resolveExamplesForPlan({
+      plan: draftPlan,
+      examples,
+      examplesPlanHash: vacancy.communication_examples_plan_hash
+    })
+    : (transientContext?.examples ?? []);
   const savedExampleSets = splitExamples(savedExamples);
 
   if (action === ACTION_SAVE) {
-    if (!draftPlan) {
+    if (!effectiveDraftPlan) {
       if (savedPlan) {
         return {
           reply: buildCommunicationPlanReply({
@@ -98,18 +109,14 @@ export async function runCommunicationPlanPlaybook({
       };
     }
 
-    const draftHash = computePlanHash(draftPlan);
-    const syncedExamples = resolveExamplesForPlan({
-      plan: draftPlan,
-      examples,
-      examplesPlanHash: vacancy.communication_examples_plan_hash
-    });
+    const draftHash = computePlanHash(effectiveDraftPlan);
+    const syncedExamples = effectiveDraftExamples;
 
     try {
       await tenantSql`
         UPDATE chatbot.vacancies
         SET
-          communication_plan = ${JSON.stringify(draftPlan)}::jsonb,
+          communication_plan = ${JSON.stringify(effectiveDraftPlan)}::jsonb,
           communication_plan_updated_at = now(),
           communication_plan_draft = NULL,
           communication_examples = ${JSON.stringify(syncedExamples)}::jsonb,
@@ -121,7 +128,7 @@ export async function runCommunicationPlanPlaybook({
       if (isCommunicationPlanContractError(error)) {
         return {
           reply: buildCommunicationPlanReply({
-            plan: draftPlan,
+            plan: effectiveDraftPlan,
             firstMessageExamples: splitExamples(syncedExamples).firstMessageExamples,
             conversationExamples: splitExamples(syncedExamples).conversationExamples,
             note: "Сценарий собран, но сохранить настройку в базе не удалось. Попробуйте снова через минуту.",
@@ -135,7 +142,7 @@ export async function runCommunicationPlanPlaybook({
 
     return {
       reply: buildCommunicationPlanReply({
-        plan: draftPlan,
+        plan: effectiveDraftPlan,
         firstMessageExamples: splitExamples(syncedExamples).firstMessageExamples,
         conversationExamples: splitExamples(syncedExamples).conversationExamples,
         note: "Настройка сохранена в базе для этой вакансии.",
@@ -146,7 +153,7 @@ export async function runCommunicationPlanPlaybook({
   }
 
   if (action === ACTION_START) {
-    const planForExamples = draftPlan ?? savedPlan;
+    const planForExamples = effectiveDraftPlan ?? savedPlan;
     if (!planForExamples) {
       return {
         reply: {
@@ -171,11 +178,9 @@ export async function runCommunicationPlanPlaybook({
       llmConfig.examplesModel
     );
     const generatedExampleSets = splitExamples(normalizeExamples(parseJsonPayload(rawExamples)));
-    const currentExampleSets = splitExamples(resolveExamplesForPlan({
-      plan: planForExamples,
-      examples,
-      examplesPlanHash: vacancy.communication_examples_plan_hash
-    }));
+    const currentExampleSets = splitExamples(
+      effectiveDraftPlan ? effectiveDraftExamples : savedExamples
+    );
     const mergedExamples = [
       ...generatedExampleSets.firstMessageExamples,
       ...currentExampleSets.conversationExamples
@@ -196,14 +201,14 @@ export async function runCommunicationPlanPlaybook({
         firstMessageExamples: generatedExampleSets.firstMessageExamples,
         conversationExamples: currentExampleSets.conversationExamples,
         note: "Сгенерировал примеры первого сообщения по текущему сценарию.",
-        isConfigured: Boolean(savedPlan) && !draftPlan,
+        isConfigured: Boolean(savedPlan) && !effectiveDraftPlan,
         vacancyId: resolvedVacancyId
       })
     };
   }
 
   if (action === ACTION_GENERATE_CONVERSATIONS) {
-    const planForExamples = draftPlan ?? savedPlan;
+    const planForExamples = effectiveDraftPlan ?? savedPlan;
     if (!planForExamples) {
       return {
         reply: {
@@ -228,11 +233,9 @@ export async function runCommunicationPlanPlaybook({
       llmConfig.examplesModel
     );
     const generatedExampleSets = splitExamples(normalizeExamples(parseJsonPayload(rawExamples)));
-    const currentExampleSets = splitExamples(resolveExamplesForPlan({
-      plan: planForExamples,
-      examples,
-      examplesPlanHash: vacancy.communication_examples_plan_hash
-    }));
+    const currentExampleSets = splitExamples(
+      effectiveDraftPlan ? effectiveDraftExamples : savedExamples
+    );
     const mergedExamples = [
       ...currentExampleSets.firstMessageExamples,
       ...generatedExampleSets.conversationExamples
@@ -253,7 +256,23 @@ export async function runCommunicationPlanPlaybook({
         firstMessageExamples: currentExampleSets.firstMessageExamples,
         conversationExamples: generatedExampleSets.conversationExamples,
         note: "Сгенерировал тренировочные примеры общения с кандидатом по этому сценарию.",
-        isConfigured: Boolean(savedPlan) && !draftPlan,
+        isConfigured: Boolean(savedPlan) && !effectiveDraftPlan,
+        vacancyId: resolvedVacancyId
+      })
+    };
+  }
+
+  if (effectiveDraftPlan && action !== ACTION_EDIT) {
+    const draftExampleSets = splitExamples(effectiveDraftExamples);
+    return {
+      reply: buildCommunicationPlanReply({
+        plan: effectiveDraftPlan,
+        firstMessageExamples: draftExampleSets.firstMessageExamples,
+        conversationExamples: draftExampleSets.conversationExamples,
+        note: draftPlan
+          ? "Показываю текущий черновик сценария. Проверьте и сохраните, если подходит."
+          : "Показываю черновик из предыдущего ответа. Его ещё нужно сохранить в базе.",
+        isConfigured: false,
         vacancyId: resolvedVacancyId
       })
     };
@@ -284,6 +303,8 @@ export async function runCommunicationPlanPlaybook({
   const prompt = buildPlanPrompt({
     vacancy,
     existingPlan: savedPlan,
+    draftPlan: effectiveDraftPlan,
+    recruiterInput,
     isEdit: action === ACTION_EDIT
   });
   const { draft } = await generatePlanDraft({
@@ -355,13 +376,16 @@ export async function runCommunicationPlanPlaybook({
   };
 }
 
-function buildPlanPrompt({ vacancy, existingPlan, isEdit }) {
+function buildPlanPrompt({ vacancy, existingPlan, draftPlan, recruiterInput, isEdit }) {
   const mustHaves = formatList(vacancy.must_haves);
   const niceHaves = formatList(vacancy.nice_haves);
   const conditions = formatConditions(vacancy.work_conditions);
   const inScopeSteps = formatApplicationSteps(vacancy.application_steps);
   const firstStepScript = getFirstStepScript(vacancy.application_steps);
   const existing = existingPlan ? formatExistingPlan(existingPlan) : "— нет сохраненного сценария";
+  const draft = draftPlan ? formatExistingPlan(draftPlan) : "— нет черновика";
+  const recruiterRequest = cleanText(recruiterInput, "— нет дополнительного запроса");
+  const sourceMaterials = formatSourceMaterials(vacancy);
   const editInstruction = isEdit
     ? "Есть запрос на правки. Улучши текущий сценарий с учетом сохраненной версии."
     : "Сформируй новый сценарий с нуля.";
@@ -428,7 +452,16 @@ ${inScopeSteps}
 ${firstStepScript ? `\nСкрипт первого шага:\n${firstStepScript}` : ""}
 
 Текущий сохраненный сценарий:
-${existing}`;
+${existing}
+
+Текущий черновик сценария:
+${draft}
+
+Последний запрос рекрутера:
+${recruiterRequest}
+
+Материалы вакансии:
+${sourceMaterials}`;
 }
 
 function buildExamplesPrompt(vacancy, plan) {
@@ -729,6 +762,13 @@ function cleanText(value, fallback) {
   return text.length > 0 ? text : fallback;
 }
 
+function truncateForPrompt(value, maxLength) {
+  const text = cleanText(value, "");
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 function hasValidBoundarySteps(steps) {
   if (!Array.isArray(steps) || steps.length === 0) return false;
   const first = `${steps[0].step} ${steps[0].comment}`.toLowerCase();
@@ -747,6 +787,26 @@ function resolveExamplesForPlan({ plan, examples, examplesPlanHash }) {
   if (!plan || !Array.isArray(examples) || examples.length === 0) return [];
   if (!examplesPlanHash) return [];
   return computePlanHash(plan) === String(examplesPlanHash) ? examples : [];
+}
+
+function normalizeTransientContext(rawContext) {
+  if (!rawContext || typeof rawContext !== "object") return null;
+
+  const rawPlan = rawContext.plan
+    ?? rawContext.communication_plan
+    ?? (rawContext.kind === "communication_plan" ? rawContext : null);
+  const plan = normalizePlan(rawPlan);
+  if (!plan) return null;
+
+  const examples = normalizeExamples([
+    ...(Array.isArray(rawContext.examples) ? rawContext.examples : []),
+    ...(Array.isArray(rawContext.conversation_examples) ? rawContext.conversation_examples : [])
+  ]);
+
+  return {
+    plan,
+    examples
+  };
 }
 
 function isCommunicationPlanDraftConstraintError(error) {
@@ -912,6 +972,33 @@ function formatConditions(conditions) {
     parts.push(`Бонусы: ${conditions.perks.join(", ")}`);
   }
   return parts.length > 0 ? parts.join("\n") : "— не указано";
+}
+
+function formatSourceMaterials(vacancy) {
+  const sections = [];
+  const rawText = cleanText(vacancy?.raw_text, "");
+  if (rawText) {
+    sections.push(`Текст вакансии:\n${truncateForPrompt(rawText, 2500)}`);
+  }
+
+  const sourceMaterials = vacancy?.source_materials;
+  if (sourceMaterials && typeof sourceMaterials === "object" && !Array.isArray(sourceMaterials)) {
+    const materialLines = Object.entries(sourceMaterials)
+      .map(([key, value]) => {
+        const serialized = typeof value === "string" ? value : JSON.stringify(value);
+        const text = cleanText(serialized, "");
+        if (!text) return null;
+        return `${key}: ${truncateForPrompt(text, 800)}`;
+      })
+      .filter(Boolean)
+      .slice(0, 8);
+
+    if (materialLines.length > 0) {
+      sections.push(`Структурированные материалы:\n- ${materialLines.join("\n- ")}`);
+    }
+  }
+
+  return sections.length > 0 ? sections.join("\n\n") : "— не указано";
 }
 
 function formatApplicationSteps(steps) {

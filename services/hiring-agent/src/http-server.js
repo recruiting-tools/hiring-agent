@@ -993,6 +993,9 @@ const CHAT_HTML = `<!DOCTYPE html>
     const LOGIN_PATH = withBasePath('/login');
     const CHATBOT_MODERATION_BASE = '__CHATBOT_MODERATION_BASE__';
     const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
+    const CHAT_STATE_QUERY_PARAM = 'state';
+    const CHAT_STATE_STORAGE_KEY = 'hiring-agent:chat-state:' + (APP_BASE_PATH || 'root');
+    const CHAT_STATE_VERSION = 1;
     const STEP_LABELS = {
       auto_fetch:    'Загружаю данные вакансии',
       route_playbook:'Определяю плейбук',
@@ -1011,7 +1014,10 @@ const CHAT_HTML = `<!DOCTYPE html>
     let availableVacancies = [];
     let selectedVacancyTitle = '';
     let activePlaybookKey = null;
+    let activePlaybookContext = null;
     let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
+    let chatHistory = [];
+    let pendingInitialChatState = loadInitialChatState();
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
     const chatLog        = document.getElementById('chat-log');
@@ -1086,6 +1092,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
         if (data.type === 'done' && currentAssistant) {
           applyServerState(data);
+          activePlaybookContext = data.reply || null;
 
           // Mark last step done
           const active = currentAssistant.stepsEl.querySelector('.progress-step.active');
@@ -1106,6 +1113,12 @@ const CHAT_HTML = `<!DOCTYPE html>
             });
           }
 
+          pushChatHistoryEntry({
+            kind: 'assistant',
+            markdown: currentAssistant.text,
+            actions: Array.isArray(data.actions) ? data.actions : []
+          });
+
           currentAssistant = null;
           streaming = false;
           updateSendEnabled();
@@ -1120,6 +1133,11 @@ const CHAT_HTML = `<!DOCTYPE html>
             errEl.style.fontSize = '13px';
             errEl.textContent = '❌ ' + (data.message || 'Ошибка сервера');
             currentAssistant.contentEl.appendChild(errEl);
+            pushChatHistoryEntry({
+              kind: 'assistant',
+              markdown: (currentAssistant.text || '') + '\n\n❌ ' + (data.message || 'Ошибка сервера'),
+              actions: []
+            });
             currentAssistant = null;
           }
           streaming = false;
@@ -1146,7 +1164,17 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     // ── Messages ──────────────────────────────────────────────────────────────
-    function addUserBubble(text) {
+    function pushChatHistoryEntry(entry) {
+      chatHistory.push(entry);
+      persistChatState();
+    }
+
+    function clearChatHistory() {
+      chatHistory = [];
+      persistChatState();
+    }
+
+    function addUserBubble(text, options = {}) {
       const row = document.createElement('div');
       row.className = 'msg-row user';
       const bubble = document.createElement('div');
@@ -1155,6 +1183,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       row.appendChild(bubble);
       chatLog.appendChild(row);
       scrollBottom();
+      if (options.record !== false) {
+        pushChatHistoryEntry({ kind: 'user', text: String(text ?? '') });
+      }
     }
 
     function addAssistantBubble() {
@@ -1183,7 +1214,44 @@ const CHAT_HTML = `<!DOCTYPE html>
       return { bubbleEl: bubble, stepsEl, contentEl, actionsEl, text: '' };
     }
 
-    function addSystemMessage(markdown) {
+    function addRenderedAssistantMessage(markdown, actions, options = {}) {
+      const row = document.createElement('div');
+      row.className = 'msg-row assistant';
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble assistant-bubble';
+      const contentEl = document.createElement('div');
+      contentEl.className = 'bubble-content';
+      const actionsEl = document.createElement('div');
+      actionsEl.className = 'actions';
+      renderMarkdown(contentEl, markdown);
+      bubble.appendChild(contentEl);
+
+      (Array.isArray(actions) ? actions : []).forEach(({ label, message }) => {
+        const btn = document.createElement('button');
+        btn.className = 'action-btn';
+        btn.textContent = label;
+        btn.dataset.msg = message;
+        btn.addEventListener('click', () => sendMessage(message));
+        actionsEl.appendChild(btn);
+      });
+
+      bubble.appendChild(actionsEl);
+      row.appendChild(bubble);
+      chatLog.appendChild(row);
+      scrollBottom();
+
+      if (options.record !== false) {
+        pushChatHistoryEntry({
+          kind: 'assistant',
+          markdown: String(markdown ?? ''),
+          actions: Array.isArray(actions) ? actions : []
+        });
+      }
+
+      return bubble;
+    }
+
+    function addSystemMessage(markdown, options = {}) {
       const row = document.createElement('div');
       row.className = 'msg-row assistant';
       const bubble = document.createElement('div');
@@ -1195,11 +1263,61 @@ const CHAT_HTML = `<!DOCTYPE html>
       row.appendChild(bubble);
       chatLog.appendChild(row);
       scrollBottom();
+
+      if (options.record !== false) {
+        pushChatHistoryEntry({
+          kind: 'system',
+          markdown: String(markdown ?? ''),
+          welcome: options.welcome === true
+        });
+      }
+
       return bubble;
+    }
+
+    function attachWelcomeChips(bubbleEl) {
+      const PLAYBOOKS = [
+        { label: 'Настройте общение', msg: 'настроить общение с кандидатами' },
+        { label: 'Воронка', msg: 'покажи воронку по кандидатам' },
+      ];
+
+      const chipsEl = document.createElement('div');
+      chipsEl.className = 'playbook-chips';
+      PLAYBOOKS.forEach(({ label, msg }) => {
+        const chip = document.createElement('button');
+        chip.className = 'playbook-chip';
+        chip.textContent = label;
+        chip.addEventListener('click', () => sendMessage(msg));
+        chipsEl.appendChild(chip);
+      });
+      bubbleEl.appendChild(chipsEl);
+    }
+
+    function renderChatHistoryEntry(entry) {
+      if (!entry || typeof entry !== 'object') return;
+
+      if (entry.kind === 'user') {
+        addUserBubble(entry.text || '', { record: false });
+        return;
+      }
+
+      if (entry.kind === 'assistant') {
+        addRenderedAssistantMessage(entry.markdown || '', entry.actions || [], { record: false });
+        return;
+      }
+
+      const bubbleEl = addSystemMessage(entry.markdown || '', {
+        record: false,
+        welcome: entry.welcome === true
+      });
+      if (entry.welcome) {
+        attachWelcomeChips(bubbleEl);
+      }
     }
 
     function clearActivePlaybookState() {
       activePlaybookKey = null;
+      activePlaybookContext = null;
     }
 
     function upsertVacancyOption(vacancyId, title, jobId) {
@@ -1248,6 +1366,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       localStorage.setItem(LAST_VACANCY_KEY, String(selectedVacancyId));
       upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
       syncContext();
+      persistChatState();
     }
 
     function sendMessage(text) {
@@ -1269,7 +1388,8 @@ const CHAT_HTML = `<!DOCTYPE html>
         text: text.trim(),
         vacancyId: selectedVacancyId,
         jobId: selectedVacancyJobId || null,
-        playbookKey: activePlaybookKey || null
+        playbookKey: activePlaybookKey || null,
+        clientContext: activePlaybookContext || null
       }));
     }
 
@@ -1314,6 +1434,12 @@ const CHAT_HTML = `<!DOCTYPE html>
         createOpt.textContent = '+ Создать вакансию';
         vacancySelect.appendChild(createOpt);
 
+        if (pendingInitialChatState) {
+          restoreChatState(pendingInitialChatState);
+          pendingInitialChatState = null;
+          return;
+        }
+
         const savedMatch = jobs.find((job) => String(job.vacancy_id) === savedVacancyId);
         if (savedMatch) {
           vacancySelect.value = savedMatch.vacancy_id;
@@ -1354,6 +1480,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       // Clear chat
       chatLog.innerHTML = '';
+      clearChatHistory();
 
       if (!vacancyId) {
         chatLog.appendChild(emptyState);
@@ -1366,24 +1493,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     function showWelcome(vacancyId, title) {
-      const bubbleEl = addSystemMessage('Вакансия: **' + escapeText(title) + '**');
-
-      // Add playbook chips
-      const PLAYBOOKS = [
-        { label: 'Настройте общение', msg: 'настроить общение с кандидатами' },
-        { label: 'Воронка', msg: 'покажи воронку по кандидатам' },
-      ];
-
-      const chipsEl = document.createElement('div');
-      chipsEl.className = 'playbook-chips';
-      PLAYBOOKS.forEach(({ label, msg }) => {
-        const chip = document.createElement('button');
-        chip.className = 'playbook-chip';
-        chip.textContent = label;
-        chip.addEventListener('click', () => sendMessage(msg));
-        chipsEl.appendChild(chip);
-      });
-      bubbleEl.appendChild(chipsEl);
+      const bubbleEl = addSystemMessage('Вакансия: **' + escapeText(title) + '**', { welcome: true });
+      attachWelcomeChips(bubbleEl);
     }
 
     function triggerCreateVacancy() {
@@ -1394,6 +1505,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       vacancySelect.value = '';
       syncContext();
       chatLog.innerHTML = '';
+      clearChatHistory();
       updateSendEnabled();
       sendMessage('создать вакансию');
     }
@@ -1441,6 +1553,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
 
       syncShortcuts();
+      persistChatState();
     }
 
     function syncShortcuts() {
@@ -1484,6 +1597,155 @@ const CHAT_HTML = `<!DOCTYPE html>
     function escapeText(s) {
       // For use inside markdown (not HTML)
       return String(s ?? '').replace(/[\\*_[\]()]/g, '\\$&');
+    }
+
+    function serializeChatState() {
+      return {
+        version: CHAT_STATE_VERSION,
+        vacancyId: selectedVacancyId ? String(selectedVacancyId) : null,
+        jobId: selectedVacancyJobId ? String(selectedVacancyJobId) : null,
+        vacancyTitle: selectedVacancyTitle || '',
+        playbookKey: activePlaybookKey || null,
+        playbookContext: activePlaybookContext || null,
+        history: chatHistory
+      };
+    }
+
+    function encodeChatState(state) {
+      try {
+        const json = JSON.stringify(state);
+        const bytes = new TextEncoder().encode(json);
+        let binary = '';
+        bytes.forEach((byte) => {
+          binary += String.fromCharCode(byte);
+        });
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+      } catch {
+        return '';
+      }
+    }
+
+    function decodeChatState(raw) {
+      if (!raw) return null;
+
+      try {
+        const normalized = raw.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+        const binary = atob(padded);
+        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        return normalizeChatState(JSON.parse(new TextDecoder().decode(bytes)));
+      } catch {
+        return null;
+      }
+    }
+
+    function normalizeChatState(state) {
+      if (!state || typeof state !== 'object') return null;
+
+      const normalizedHistory = Array.isArray(state.history)
+        ? state.history
+          .filter((entry) => entry && typeof entry === 'object')
+          .map((entry) => ({
+            kind: entry.kind === 'user' ? 'user' : (entry.kind === 'assistant' ? 'assistant' : 'system'),
+            text: typeof entry.text === 'string' ? entry.text : '',
+            markdown: typeof entry.markdown === 'string' ? entry.markdown : '',
+            welcome: entry.welcome === true,
+            actions: Array.isArray(entry.actions)
+              ? entry.actions
+                .filter((action) => action && typeof action === 'object')
+                .map((action) => ({
+                  label: String(action.label ?? ''),
+                  message: String(action.message ?? '')
+                }))
+              : []
+          }))
+        : [];
+
+      return {
+        version: Number(state.version) || CHAT_STATE_VERSION,
+        vacancyId: state.vacancyId ? String(state.vacancyId) : null,
+        jobId: state.jobId ? String(state.jobId) : null,
+        vacancyTitle: typeof state.vacancyTitle === 'string' ? state.vacancyTitle : '',
+        playbookKey: typeof state.playbookKey === 'string' ? state.playbookKey : null,
+        playbookContext: state.playbookContext && typeof state.playbookContext === 'object' ? state.playbookContext : null,
+        history: normalizedHistory
+      };
+    }
+
+    function persistChatState() {
+      const state = serializeChatState();
+      const hasMeaningfulState = Boolean(
+        state.vacancyId
+        || state.playbookKey
+        || state.history.length > 0
+      );
+      const encoded = hasMeaningfulState ? encodeChatState(state) : '';
+
+      try {
+        if (hasMeaningfulState) {
+          sessionStorage.setItem(CHAT_STATE_STORAGE_KEY, JSON.stringify(state));
+        } else {
+          sessionStorage.removeItem(CHAT_STATE_STORAGE_KEY);
+        }
+      } catch {}
+
+      const nextUrl = new URL(window.location.href);
+      if (encoded) {
+        nextUrl.searchParams.set(CHAT_STATE_QUERY_PARAM, encoded);
+      } else {
+        nextUrl.searchParams.delete(CHAT_STATE_QUERY_PARAM);
+      }
+      history.replaceState(null, '', nextUrl.toString());
+    }
+
+    function loadInitialChatState() {
+      const fromUrl = decodeChatState(new URLSearchParams(window.location.search).get(CHAT_STATE_QUERY_PARAM));
+      if (fromUrl) return fromUrl;
+
+      try {
+        return normalizeChatState(JSON.parse(sessionStorage.getItem(CHAT_STATE_STORAGE_KEY) || 'null'));
+      } catch {
+        return null;
+      }
+    }
+
+    function restoreChatState(state) {
+      const normalized = normalizeChatState(state);
+      if (!normalized) return;
+
+      clearActivePlaybookState();
+      activePlaybookKey = normalized.playbookKey;
+      activePlaybookContext = normalized.playbookContext;
+      selectedVacancyId = normalized.vacancyId;
+      selectedVacancyJobId = normalized.jobId;
+      selectedVacancyTitle = normalized.vacancyTitle || '';
+
+      if (selectedVacancyId) {
+        localStorage.setItem(LAST_VACANCY_KEY, String(selectedVacancyId));
+        if (selectedVacancyTitle) {
+          upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
+        } else {
+          vacancySelect.value = String(selectedVacancyId);
+        }
+      } else {
+        localStorage.removeItem(LAST_VACANCY_KEY);
+        vacancySelect.value = '';
+      }
+
+      syncContext();
+      chatLog.innerHTML = '';
+      chatHistory = normalized.history;
+
+      if (!selectedVacancyId) {
+        chatLog.appendChild(emptyState);
+      } else if (chatHistory.length > 0) {
+        chatHistory.forEach((entry) => renderChatHistoryEntry(entry));
+      } else {
+        showWelcome(selectedVacancyId, selectedVacancyTitle || 'Новая вакансия');
+      }
+
+      updateSendEnabled();
+      persistChatState();
     }
 
     // ── Init ──────────────────────────────────────────────────────────────────
@@ -1721,7 +1983,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
     if (ws.readyState === 1) ws.send(JSON.stringify(obj));
   };
 
-  const { text, vacancyId, jobId, playbookKey } = msg;
+  const { text, vacancyId, jobId, playbookKey, clientContext } = msg;
   console.log("[ws] message:", JSON.stringify({ text, vacancyId, jobId, playbookKey, tenantId: wsContext.tenantId }));
 
   try {
@@ -1735,6 +1997,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       playbook_key: playbookKey ?? null,
       vacancy_id: vacancyId,
       job_id: jobId ?? null,
+      client_context: clientContext ?? null,
     });
 
     const reply = result.body?.reply ?? result.body;
@@ -1752,7 +2015,8 @@ async function handleChatWs(ws, msg, wsContext, app) {
       vacancyId: result.body?.vacancy_id ?? null,
       jobId: result.body?.job_id ?? null,
       vacancyTitle: result.body?.vacancy_title ?? null,
-      replyKind: reply?.kind ?? null
+      replyKind: reply?.kind ?? null,
+      reply
     });
 
   } catch (err) {
@@ -1935,6 +2199,7 @@ export function createHiringAgentServer(app, options = {}) {
           message: body.message,
           action: body.action,
           playbook_key: body.playbook_key,
+          client_context: body.client_context,
           tenantSql: accessContext.tenantSql,
           tenantId: accessContext.tenantId,
           recruiterId: accessContext.recruiterId,

@@ -202,6 +202,7 @@ export function createHiringAgentApp(options = {}) {
       message,
       action = null,
       playbook_key: requestedPlaybookKey = null,
+      client_context: clientContext = null,
       tenantSql = null,
       tenantId = null,
       recruiterId = null,
@@ -369,7 +370,8 @@ export function createHiringAgentApp(options = {}) {
           jobId: effectiveJobId,
           llmAdapter,
           recruiterInput: useMessageAsRecruiterInput ? (message ?? null) : null,
-          llmConfig: communicationPlanLlmConfig
+          llmConfig: communicationPlanLlmConfig,
+          clientContext
         });
         return {
           status: 200,
