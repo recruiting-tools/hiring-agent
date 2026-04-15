@@ -1,0 +1,32 @@
+{
+  "negotiation_id": "5232040892",
+  "vacancy_id": "132102233",
+  "collection": "response",
+  "hh_status": "active",
+  "last_activity_at": "2026-04-15T10:20:00.000Z",
+  "resume": {
+    "id": "resume-5232040892",
+    "full_name": "Иван Петров",
+    "title": "Главный технолог деревообработка",
+    "education": "Высшее",
+    "education_confirmed": true
+  },
+  "messages": [
+    {
+      "id": "m-5232040892-1",
+      "text": "Добрый день! Видел вакансию, готов обсудить.",
+      "created_at": "2026-04-15T10:18:00.000Z",
+      "author": {
+        "participant_type": "applicant"
+      }
+    },
+    {
+      "id": "m-5232040892-2",
+      "text": "Отправьте, пожалуйста, более точные требования к графику.",
+      "created_at": "2026-04-15T10:20:00.000Z",
+      "author": {
+        "participant_type": "applicant"
+      }
+    }
+  ]
+}

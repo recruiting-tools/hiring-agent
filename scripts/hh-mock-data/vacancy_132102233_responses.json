@@ -1,0 +1,51 @@
+{
+  "vacancy_id": "132102233",
+  "source_synced_at": "2026-04-15T06:40:00.000Z",
+  "items": [
+    {
+      "negotiation_id": "5232040892",
+      "vacancy_id": "132102233",
+      "hh_status": "active",
+      "collection": "response",
+      "candidate_id": "cand-5232040892",
+      "resume_preview": {
+        "name": "Иван Петров",
+        "title": "Главный технолог деревообработка",
+        "education": "Высшее"
+      },
+      "last_message_preview": "Добрый день! Готов(а) по условиям?",
+      "last_activity_at": "2026-04-15T10:20:00.000Z",
+      "resume_id": "resume-5232040892"
+    },
+    {
+      "negotiation_id": "5231410351",
+      "vacancy_id": "132102233",
+      "hh_status": "active",
+      "collection": "response",
+      "candidate_id": "cand-5231410351",
+      "resume_preview": {
+        "name": "Алина Кузнецова",
+        "title": "Инженер-конструктор",
+        "education": "Высшее"
+      },
+      "last_message_preview": "Давайте обсудим условия?",
+      "last_activity_at": "2026-04-15T10:15:00.000Z",
+      "resume_id": "resume-5231410351"
+    },
+    {
+      "negotiation_id": "5230781549",
+      "vacancy_id": "132102233",
+      "hh_status": "active",
+      "collection": "response",
+      "candidate_id": "cand-5230781549",
+      "resume_preview": {
+        "name": "Сергей Волков",
+        "title": "Конструктор технолог корпусной мебели в Базис-мебельщик",
+        "education": "Не указано"
+      },
+      "last_message_preview": "Коротко по навыкам: AutoCAD, Inventor.",
+      "last_activity_at": "2026-04-15T10:05:00.000Z",
+      "resume_id": "resume-5230781549"
+    }
+  ]
+}
