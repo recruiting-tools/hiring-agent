@@ -86,6 +86,31 @@ test("hiring-agent: GET /health exposes configured app env in management mode", 
   }
 });
 
+test("hiring-agent: GET /health includes playbook registry only when details=1", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp({
+    demoMode: true,
+    appEnv: "local",
+    deploySha: "test-sha-health-details",
+    startedAt: "2026-04-13T00:00:00.000Z",
+    port: 0
+  })).listen(0);
+
+  try {
+    const base = await req(server, "GET", "/health");
+    assert.equal(base.status, 200);
+    assert.equal(Object.hasOwn(base.body, "playbooks"), false);
+    assert.equal(Object.hasOwn(base.body, "playbook_registry_status"), false);
+
+    const detailed = await req(server, "GET", "/health?details=1");
+    assert.equal(detailed.status, 200);
+    assert.equal(detailed.body.playbook_registry_status, "ok");
+    assert.ok(Array.isArray(detailed.body.playbooks));
+    assert.ok(detailed.body.playbooks.length >= 1);
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: POST /api/chat returns funnel payload for funnel request", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {

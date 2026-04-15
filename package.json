@@ -32,6 +32,7 @@
     "gate:sandbox": "pnpm test:sandbox && pnpm smoke:sandbox",
     "smoke:sandbox": "node scripts/smoke-sandbox.js",
     "smoke:sandbox:cloud": "BASE_URL=${SANDBOX_URL:?SANDBOX_URL is required for smoke:sandbox:cloud} node scripts/smoke-sandbox.js",
+    "monitor:hiring-agent": "node scripts/monitor-hiring-agent.js",
     "report:legacy": "node scripts/legacy-pipeline-report.js",
     "report:evaluation": "node scripts/generate-evaluation-report.js"
   },
