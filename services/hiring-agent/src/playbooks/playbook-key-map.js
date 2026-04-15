@@ -1,6 +1,8 @@
 const LEGACY_PLAYBOOK_KEY_ALIASES = Object.freeze({
   candidate_broadcast: "mass_broadcast",
-  write_vacancy_text: "view_vacancy"
+  write_vacancy_text: "view_vacancy",
+  "vacancy-text": "view_vacancy",
+  vacancy_text: "view_vacancy"
 });
 
 const TENANT_LOCK_BYPASS_PLAYBOOK_KEYS = Object.freeze(
