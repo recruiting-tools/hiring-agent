@@ -283,50 +283,7 @@ jobs:
           SANDBOX_DEMO_PASSWORD: ${{ steps.demo_creds.outputs.password }}
         run: |
           set -euo pipefail
-          LOGIN_RESPONSE=$(curl -sf -X POST "${SANDBOX_PUBLIC_URL%/}/auth/login" \
-            -H "Content-Type: application/json" \
-            -d "{\"email\":\"${SANDBOX_DEMO_EMAIL}\",\"password\":\"${SANDBOX_DEMO_PASSWORD}\"}")
-          LOGIN_REDIRECT=$(echo "$LOGIN_RESPONSE" | jq -r '.redirect // empty')
-          [ "$LOGIN_REDIRECT" = "/recruiter/rec-tok-demo-001" ] || {
-            echo "Unexpected login redirect: ${LOGIN_REDIRECT:-<empty>}"
-            exit 1
-          }
-
-          COOKIE=$(curl -is -X POST "${SANDBOX_PUBLIC_URL%/}/auth/login" \
-            -H "Content-Type: application/json" \
-            -d "{\"email\":\"${SANDBOX_DEMO_EMAIL}\",\"password\":\"${SANDBOX_DEMO_PASSWORD}\"}" \
-            | awk 'BEGIN{IGNORECASE=1} /^set-cookie:/ {print $2}' | tr -d '\r' | cut -d';' -f1 | tail -1)
-          [ -n "$COOKIE" ] || {
-            echo "Missing session cookie after login"
-            exit 1
-          }
-
-          CREATE_REPLY=$(curl -sf -X POST "${SANDBOX_PUBLIC_URL%/}/api/chat" \
-            -H "Content-Type: application/json" \
-            -H "Cookie: $COOKIE" \
-            -d '{"message":"создать вакансию"}')
-          CREATE_KIND=$(echo "$CREATE_REPLY" | jq -r '.reply.kind // empty')
-          CREATE_MESSAGE=$(echo "$CREATE_REPLY" | jq -r '.reply.message // empty')
-          [ "$CREATE_KIND" = "user_input" ] || {
-            echo "Unexpected create_vacancy reply kind: ${CREATE_KIND:-<empty>}"
-            echo "$CREATE_REPLY"
-            exit 1
-          }
-          case "$CREATE_MESSAGE" in
-            *"Загрузите материалы"* ) ;;
-            *)
-              echo "Unexpected create_vacancy message: $CREATE_MESSAGE"
-              exit 1
-              ;;
-          esac
-
-          HEALTH=$(curl -sf "${SANDBOX_PUBLIC_URL%/}/health" 2>/dev/null || echo '{}')
-          STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
-          MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
-          DEPLOY_SHA=$(echo "$HEALTH" | jq -r '.deploy_sha // "unknown"')
-          APP_ENV=$(echo "$HEALTH" | jq -r '.app_env // "unknown"')
-          echo "Health: $STATUS / $MODE / sha=$DEPLOY_SHA / env=$APP_ENV"
-          [ "$STATUS" = "ok" ] || exit 1
-          [ "$MODE" = "management-auth" ] || exit 1
-          [ "$APP_ENV" = "sandbox" ] || exit 1
-          [ "$DEPLOY_SHA" = "${{ steps.resolve_sha.outputs.sha }}" ] || exit 1
+          HIRING_AGENT_BASE_URL="${SANDBOX_PUBLIC_URL%/}" \
+          HIRING_AGENT_SMOKE_EMAIL="$SANDBOX_DEMO_EMAIL" \
+          HIRING_AGENT_SMOKE_PASSWORD="$SANDBOX_DEMO_PASSWORD" \
+          node scripts/smoke-hiring-agent-create-vacancy.js
