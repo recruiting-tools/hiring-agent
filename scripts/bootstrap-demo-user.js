@@ -67,22 +67,30 @@ try {
 async function upsertDemoRecruiter(client, { recruiterId, tenantId, email, password, recruiterToken, label }) {
   const passwordHash = await bcrypt.hash(password, 10);
   const existing = await client.query(
-    "SELECT recruiter_id, tenant_id FROM management.recruiters WHERE recruiter_id = $1",
-    [recruiterId]
+    `
+      SELECT recruiter_id, tenant_id, email
+      FROM management.recruiters
+      WHERE recruiter_id = $1 OR lower(email) = lower($2)
+      ORDER BY CASE WHEN recruiter_id = $1 THEN 0 ELSE 1 END
+      LIMIT 1
+    `,
+    [recruiterId, email]
   );
 
   if (existing.rows.length > 0) {
+    const targetRecruiterId = existing.rows[0].recruiter_id;
     const existingTenantId = existing.rows[0].tenant_id;
     await client.query(`
       UPDATE management.recruiters
-      SET email = $2,
-          password_hash = $3,
+      SET tenant_id = COALESCE($2, tenant_id),
+          email = $3,
+          password_hash = $4,
           status = 'active',
           role = 'recruiter'
       WHERE recruiter_id = $1
-    `, [recruiterId, email, passwordHash]);
-    console.log(`Updated ${label.toLowerCase()} recruiter ${recruiterId}`);
-    console.log(`${label} tenant: ${existingTenantId}`);
+    `, [targetRecruiterId, tenantId, email, passwordHash]);
+    console.log(`Updated ${label.toLowerCase()} recruiter ${targetRecruiterId}`);
+    console.log(`${label} tenant: ${tenantId ?? existingTenantId}`);
     if (recruiterToken) {
       console.log(`${label} token (static env value): ${recruiterToken}`);
     }
