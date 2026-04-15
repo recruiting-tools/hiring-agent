@@ -40,9 +40,9 @@ jobs:
       VM_USER: ${{ secrets.VM_USER }}
       DEPLOY_REF: ${{ inputs.deploy_ref }}
       SANDBOX_PUBLIC_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
-      SANDBOX_DEMO_EMAIL: demo@hiring-agent.app
+      SANDBOX_DEMO_EMAIL: ${{ secrets.HIRING_AGENT_SANDBOX_DEMO_EMAIL }}
+      SANDBOX_DEMO_PASSWORD: ${{ secrets.HIRING_AGENT_SANDBOX_DEMO_PASSWORD }}
       SANDBOX_DEMO_RECRUITER_ID: recruiter-demo-001
-      SANDBOX_DEMO_RECRUITER_TOKEN: rec-tok-demo-001
       SANDBOX_DEMO_CLIENT_ID: client-demo-001
 
     steps:
@@ -105,6 +105,8 @@ jobs:
           [ -n "${{ secrets.VM_SSH_KEY }}" ] || { echo "Missing secret: VM_SSH_KEY"; exit 1; }
           [ -n "${{ secrets.MANAGEMENT_DATABASE_URL }}" ] || { echo "Missing secret: MANAGEMENT_DATABASE_URL"; exit 1; }
           [ -n "${{ secrets.OPENROUTER_API_KEY }}" ] || { echo "Missing secret: OPENROUTER_API_KEY"; exit 1; }
+          [ -n "${{ secrets.HIRING_AGENT_SANDBOX_DEMO_EMAIL }}" ] || { echo "Missing secret: HIRING_AGENT_SANDBOX_DEMO_EMAIL"; exit 1; }
+          [ -n "${{ secrets.HIRING_AGENT_SANDBOX_DEMO_PASSWORD }}" ] || { echo "Missing secret: HIRING_AGENT_SANDBOX_DEMO_PASSWORD"; exit 1; }
           [ "${{ steps.slot.outputs.target_port }}" != "3101" ] || {
             echo "Refusing sandbox deploy: target_port must not be production port 3101";
             exit 1;
@@ -207,19 +209,6 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
             "mkdir -p '${{ steps.slot.outputs.deploy_dir }}' && echo '$ENV_B64' | base64 -d > '${{ steps.slot.outputs.deploy_dir }}/.env' && echo '.env written: ${{ steps.slot.outputs.deploy_dir }}/.env'"
 
-      - name: Generate sandbox demo password
-        id: demo_creds
-        run: |
-          PASSWORD=$(node -e "const { randomBytes } = require('node:crypto'); const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%'; const bytes = randomBytes(24); let password = ''; for (let i = 0; i < 24; i += 1) password += alphabet[bytes[i] % alphabet.length]; process.stdout.write(password);")
-          echo "password=$PASSWORD" >> "$GITHUB_OUTPUT"
-          {
-            echo "### Sandbox demo credentials"
-            echo ""
-            echo "- Email: \`demo@hiring-agent.app\`"
-            echo "- Token: \`rec-tok-demo-001\`"
-            echo "- Password: \`$PASSWORD\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Install runner dependencies for bootstrap
         run: |
           corepack enable >/dev/null 2>&1 || true
@@ -231,8 +220,7 @@ jobs:
           DEMO_RECRUITER_ID: ${{ env.SANDBOX_DEMO_RECRUITER_ID }}
           DEMO_CLIENT_ID: ${{ env.SANDBOX_DEMO_CLIENT_ID }}
           DEMO_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
-          DEMO_PASSWORD: ${{ steps.demo_creds.outputs.password }}
-          DEMO_RECRUITER_TOKEN: ${{ env.SANDBOX_DEMO_RECRUITER_TOKEN }}
+          DEMO_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
         run: node scripts/bootstrap-demo-user.js
 
       - name: Deploy
@@ -280,14 +268,14 @@ jobs:
         env:
           SANDBOX_PUBLIC_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
           SANDBOX_DEMO_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
-          SANDBOX_DEMO_PASSWORD: ${{ steps.demo_creds.outputs.password }}
+          SANDBOX_DEMO_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
         run: |
           set -euo pipefail
           LOGIN_RESPONSE=$(curl -sf -X POST "${SANDBOX_PUBLIC_URL%/}/auth/login" \
             -H "Content-Type: application/json" \
             -d "{\"email\":\"${SANDBOX_DEMO_EMAIL}\",\"password\":\"${SANDBOX_DEMO_PASSWORD}\"}")
           LOGIN_REDIRECT=$(echo "$LOGIN_RESPONSE" | jq -r '.redirect // empty')
-          [ "$LOGIN_REDIRECT" = "/recruiter/rec-tok-demo-001" ] || {
+          [ "$LOGIN_REDIRECT" = "${{ steps.slot.outputs.base_path }}/" ] || {
             echo "Unexpected login redirect: ${LOGIN_REDIRECT:-<empty>}"
             exit 1
           }
