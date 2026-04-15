@@ -19,7 +19,7 @@ test("router: maps quick start request to quick_start", async () => {
 });
 
 test("router: maps button click to setup_communication", async () => {
-  assert.equal(await routePlaybook("настроить общение с кандидатами"), "setup_communication");
+  assert.equal(await routePlaybook("Подготовь план общения с кандидатами по этой вакансии"), "setup_communication");
 });
 
 test("router: maps inflected phrase via DB keywords", async () => {
@@ -110,6 +110,10 @@ test("router: canonicalizes legacy vacancy-text to view_vacancy", async () => {
     }
   ]);
   assert.equal(await routePlaybook("покажи текст вакансии", fakeManagementSql), "view_vacancy");
+});
+
+test("router: maps funnel report request to candidate_funnel", async () => {
+  assert.equal(await routePlaybook("Подготовь отчет по воронке кандидатов по этой вакансии"), "candidate_funnel");
 });
 
 test("router: returns null for unsupported requests", async () => {

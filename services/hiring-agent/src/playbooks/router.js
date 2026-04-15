@@ -6,7 +6,16 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 
 const STATIC_FALLBACK_ROUTES = FALLBACK_ROUTES.map((route) => ({
   ...route,
-  playbook_key: canonicalizePlaybookKey(route.playbook_key)
+  playbook_key: canonicalizePlaybookKey(route.playbook_key),
+  keywords: [
+    ...(route.playbook_key === "setup_communication"
+      ? ["Подготовь план общения с кандидатами по этой вакансии", "план общения", "общение с кандидатами"]
+      : []),
+    ...(route.playbook_key === "candidate_funnel"
+      ? ["Подготовь отчет по воронке кандидатов по этой вакансии", "отчет по воронке", "сводка по воронке"]
+      : []),
+    ...(route.keywords ?? [])
+  ]
 }));
 
 const RUSSIAN_SUFFIXES = [
