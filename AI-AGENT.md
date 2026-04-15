@@ -90,3 +90,15 @@ git -C "$REPO" cherry-pick <sha1> <sha2>
 2. `gh pr checks <pr>` зелёный.
 3. `gh pr view <pr> --json mergeStateStatus` = `CLEAN`.
 4. Sandbox smoke пройден для risky изменений.
+
+### HH Review Working Memory
+
+Для hh-review потоков веди один документ с прогрессом:
+
+- `specs/2026-04-15-hh-review-pr2-progress-log.md`
+
+В нём фиксируй:
+1. статус PR-1 (спецификации и слои),
+2. статус PR-2 (sandbox + мок-среда),
+3. что проверено в этой итерации,
+4. что откладывается в следующий шаг.

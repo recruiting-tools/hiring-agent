@@ -1,0 +1,32 @@
+{
+  "negotiation_id": "5231410351",
+  "vacancy_id": "132102233",
+  "collection": "response",
+  "hh_status": "active",
+  "last_activity_at": "2026-04-15T10:15:00.000Z",
+  "resume": {
+    "id": "resume-5231410351",
+    "full_name": "Алина Кузнецова",
+    "title": "Инженер-конструктор",
+    "education": "Высшее",
+    "education_confirmed": true
+  },
+  "messages": [
+    {
+      "id": "m-5231410351-1",
+      "text": "Добрый день! Рассмотрю вакансию.",
+      "created_at": "2026-04-15T10:14:00.000Z",
+      "author": {
+        "participant_type": "applicant"
+      }
+    },
+    {
+      "id": "m-5231410351-2",
+      "text": "Спасибо за отклик, могу дать контакты.",
+      "created_at": "2026-04-15T10:15:00.000Z",
+      "author": {
+        "participant_type": "applicant"
+      }
+    }
+  ]
+}
