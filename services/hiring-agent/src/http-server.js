@@ -1020,9 +1020,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         transform: translateX(-100%);
       }
       .history-launcher {
-        position: fixed;
-        left: 16px;
-        top: 84px;
+        display: none !important;
       }
       .sidebar {
         order: 2;
@@ -1036,6 +1034,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
       .chat-stage-actions {
         width: 100%;
+        justify-content: flex-end;
       }
       .bubble {
         max-width: 100%;
