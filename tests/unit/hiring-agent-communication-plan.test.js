@@ -179,6 +179,45 @@ test("communication plan: returns non-500 reply when draft save hits draft const
   assert.match(result.reply.note, /черновик не сохранился/i);
 });
 
+test("communication plan: save command can persist transient draft from previous reply", async () => {
+  const store = createVacancySql({
+    vacancy_id: "vac-2c",
+    title: "Менеджер по продажам",
+    communication_plan: null,
+    communication_plan_draft: null,
+    communication_examples: []
+  });
+
+  const transientReply = {
+    kind: "communication_plan",
+    scenario_title: "Транзиентный черновик",
+    goal: "Назначить интервью",
+    steps: [
+      { step: "Здравствуйте! Вам сейчас интересны новые предложения?", reminders_count: 1, comment: "Открыть диалог" },
+      { step: "Проверка релевантного опыта", reminders_count: 1, comment: "Короткий скрининг" },
+      { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП и графику" },
+      { step: "Приглашение на интервью", reminders_count: 2, comment: "Фиксируем слот" }
+    ],
+    examples: [
+      { title: "Деловой", message: "Здравствуйте! Что сейчас важно в новой роли?" }
+    ],
+    conversation_examples: []
+  };
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-2c",
+    recruiterInput: "настроить общение: сохранить настройку коммуникаций",
+    clientContext: transientReply,
+    llmAdapter: null
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.is_configured, true);
+  assert.equal(store.getVacancy().communication_plan.scenario_title, "Транзиентный черновик");
+  assert.equal(store.getVacancy().communication_examples.length, 1);
+});
+
 test("communication plan: save command moves draft to saved plan", async () => {
   const draft = {
     scenario_title: "Черновик",
@@ -310,6 +349,56 @@ test("communication plan: generate conversations command stores recruiter-candid
   assert.equal(typeof store.getVacancy().communication_examples_plan_hash, "string");
 });
 
+test("communication plan: generate conversations can continue from transient draft reply", async () => {
+  const store = createVacancySql({
+    vacancy_id: "vac-4c",
+    title: "Менеджер по закупкам",
+    communication_plan: null,
+    communication_plan_draft: null,
+    communication_examples: []
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-4c",
+    recruiterInput: "настроить общение: сгенерировать примеры общения",
+    clientContext: {
+      kind: "communication_plan",
+      scenario_title: "Первичный скрининг Менеджера по закупкам",
+      goal: "Договориться о следующем этапе интервью",
+      steps: [
+        { step: "Приветствие и вопрос о текущем интересе к вакансии?", reminders_count: 1, comment: "Открыть диалог и понять мотивацию кандидата" },
+        { step: "Проверка опыта в закупках и работе с поставщиками", reminders_count: 1, comment: "Уточнить релевантность опыта" },
+        { step: "Сверка по категориям закупок и масштабу задач", reminders_count: 1, comment: "Понять, с какими задачами кандидат уже работал" },
+        { step: "Приглашение на следующий этап интервью", reminders_count: 2, comment: "Предложить слот и зафиксировать дальнейший шаг" }
+      ]
+    },
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify([
+          {
+            title: "Категорийный закупщик",
+            summary: "Опыт в непрямых закупках и переговорах",
+            turns: [
+              { speaker: "recruiter", message: "Здравствуйте! Готовы обсудить вакансию менеджера по закупкам?" },
+              { speaker: "candidate", message: "Да, тема интересна." },
+              { speaker: "recruiter", message: "С какими категориями закупок вы работали в последние два года?" },
+              { speaker: "candidate", message: "Непрямые закупки, логистика и упаковка." },
+              { speaker: "recruiter", message: "Подходит. Удобно перейти к интервью в четверг?" },
+              { speaker: "candidate", message: "Да, четверг после 15:00 подойдёт." }
+            ]
+          }
+        ]);
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.scenario_title, "Первичный скрининг Менеджера по закупкам");
+  assert.equal(result.reply.conversation_examples.length, 1);
+  assert.equal(store.getVacancy().communication_examples.length, 1);
+});
+
 test("communication plan: save clears stale examples from previous plan", async () => {
   const oldPlan = {
     scenario_title: "Старый план",
@@ -416,6 +505,51 @@ test("communication plan: uses playbook-specific model overrides", async () => {
 
   assert.deepEqual(planModelCalls, ["openai/gpt-5.4-mini"]);
   assert.deepEqual(examplesModelCalls, ["google/gemini-2.5-flash"]);
+});
+
+test("communication plan: plan prompt includes recruiter request and vacancy materials", async () => {
+  const store = createVacancySql({
+    vacancy_id: "vac-6b",
+    title: "Менеджер по закупкам",
+    raw_text: "Нужен опыт в категорийных закупках, тендерах и переговорах с поставщиками.",
+    source_materials: {
+      contract_data: {
+        payment_terms: "60 дней",
+        incoterms: "FCA"
+      }
+    },
+    must_haves: ["Категорийные закупки"],
+    application_steps: [{ name: "Скрининг", in_our_scope: true, script: "Привет + вопрос" }]
+  });
+
+  const prompts = [];
+  await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-6b",
+    recruiterInput: "поправить сценарий с учетом условий контракта",
+    llmAdapter: {
+      async generate(prompt) {
+        prompts.push(String(prompt));
+        return JSON.stringify({
+          scenario_title: "План",
+          goal: "Собеседование",
+          steps: [
+            { step: "Здравствуйте! Вам интересно обсудить роль?", reminders_count: 1, comment: "Контакт" },
+            { step: "Проверка опыта", reminders_count: 1, comment: "Скрининг" },
+            { step: "Сверка условий", reminders_count: 1, comment: "Ожидания" },
+            { step: "Приглашение на интервью", reminders_count: 2, comment: "Слот" }
+          ]
+        });
+      }
+    }
+  });
+
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /Последний запрос рекрутера:/);
+  assert.match(prompts[0], /поправить сценарий с учетом условий контракта/i);
+  assert.match(prompts[0], /Материалы вакансии:/);
+  assert.match(prompts[0], /Нужен опыт в категорийных закупках/i);
+  assert.match(prompts[0], /contract_data/i);
 });
 
 test("communication plan: resolves vacancy by job_id when selector passes job value", async () => {
