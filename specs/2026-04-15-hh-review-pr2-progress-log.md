@@ -17,7 +17,7 @@ Date: `2026-04-15`
 - Added iteration playbook and loop notes.
 
 ### Current status
-- Status: `prepared` (docs and playbooks present in working tree for now).
+- Status: `done` (committed in `fc37246`, included in branch `chore/hh-review-step1-playbook`).
 - Included assets:
   - `specs/2026-04-15-hh-review-architecture-spec.md`
   - `specs/2026-04-15-hh-review-132102233-launch-spec.md`
@@ -37,7 +37,7 @@ Date: `2026-04-15`
 - Add fixture tests to validate ordering and shape for step1 endpoint contracts.
 
 ### Current status
-- Status: `ready-to-commit` in local branch workspace.
+- Status: `ready` (committed in `fc37246`, awaiting PR creation).
 - Included assets:
   - `scripts/hh-review-step1-sandbox-loop.sh`
   - `scripts/hh-review-install-loop-cron.sh`
