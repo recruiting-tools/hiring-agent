@@ -1212,7 +1212,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         type: 'message',
         text: text.trim(),
         vacancyId: selectedVacancyId,
-        jobId: selectedVacancyJobId || selectedVacancyId || null
+        jobId: selectedVacancyJobId || null
       }));
     }
 
@@ -1645,7 +1645,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       tenantId: wsContext.tenantId,
       recruiterId: wsContext.recruiterId,
       vacancy_id: vacancyId,
-      job_id: jobId ?? vacancyId ?? null,
+      job_id: jobId ?? null,
     });
 
     const reply = result.body?.reply ?? result.body;

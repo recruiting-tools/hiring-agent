@@ -293,6 +293,11 @@ export function createHiringAgentApp(options = {}) {
         requestedVacancyFound: identity.requestedVacancyFound
       });
       const explicitJobMissing = Boolean(requestedJobId && !identity.requestedJobFound);
+      const legacyEchoedJobId = isLegacyEchoedJobId({
+        requestedJobId,
+        requestedVacancyId,
+        requestedVacancyFound: identity.requestedVacancyFound
+      });
 
       if (playbook.playbook_key === "candidate_funnel") {
         if (tenantSql && !effectiveJobId) {
@@ -348,7 +353,7 @@ export function createHiringAgentApp(options = {}) {
           };
         }
 
-        if (explicitJobMissing) {
+        if (explicitJobMissing && !legacyEchoedJobId) {
           return {
             status: 404,
             body: {
@@ -775,6 +780,15 @@ function hasExplicitVacancyMiss({ requestedVacancyId, effectiveJobId, requestedV
     requestedVacancyId
     && !requestedVacancyFound
     && requestedVacancyId !== (effectiveJobId ?? null)
+  );
+}
+
+function isLegacyEchoedJobId({ requestedJobId, requestedVacancyId, requestedVacancyFound }) {
+  return Boolean(
+    requestedJobId
+    && requestedVacancyId
+    && requestedJobId === requestedVacancyId
+    && requestedVacancyFound
   );
 }
 
