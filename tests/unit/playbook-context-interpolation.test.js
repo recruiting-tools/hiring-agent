@@ -45,7 +45,11 @@ test("interpolate: supports list and object filters used by seeded playbooks", (
   );
   assert.match(
     interpolate("{{context.work_conditions | formatted}}", context),
-    /"salary_range"/
+    /Зарплата: 200.*₽–260.*₽/
+  );
+  assert.match(
+    interpolate("{{context.work_conditions | formatted}}", context),
+    /Удалёнка: нет/
   );
   assert.equal(
     interpolate("{{context.must_haves | json}}", context),
@@ -60,14 +64,28 @@ test("interpolate: supports list and object filters used by seeded playbooks", (
 test("interpolate: renders application step arrays as a compact table", () => {
   const result = interpolate("{{context.application_steps | table}}", {
     application_steps: [
-      { name: "Проверить опыт", type: "must_have_check", in_our_scope: true, is_target: false },
-      { name: "Назначить пробный день", type: "target_action", in_our_scope: true, is_target: true }
+      {
+        name: "Проверить опыт",
+        type: "must_have_check",
+        what: "Понять, был ли похожий опыт.",
+        script: "Попросить короткий пример.",
+        in_our_scope: true,
+        is_target: false
+      },
+      {
+        name: "Назначить пробный день",
+        type: "target_action",
+        what: "Согласовать следующий шаг.",
+        script: "Предложить 2-3 слота.",
+        in_our_scope: true,
+        is_target: true
+      }
     ]
   });
 
-  assert.match(result, /\| name \| type \| in_our_scope \| is_target \|/);
-  assert.match(result, /\| Проверить опыт \| must_have_check \| true \| false \|/);
-  assert.match(result, /\| Назначить пробный день \| target_action \| true \| true \|/);
+  assert.match(result, /\| Этап \| Тип \| Что проверяем \| Как спрашиваем \| Цель \|/);
+  assert.match(result, /\| Проверить опыт \| Must-have \| Понять, был ли похожий опыт\. \| Попросить короткий пример\. \| Нет \|/);
+  assert.match(result, /\| Назначить пробный день \| Целевое действие \| Согласовать следующий шаг\. \| Предложить 2-3 слота\. \| Да \|/);
 });
 
 test("interpolate: missing values resolve to empty strings", () => {

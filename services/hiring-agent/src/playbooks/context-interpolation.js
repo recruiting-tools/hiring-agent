@@ -7,7 +7,13 @@ const FILTERS = {
   formatted(value) {
     if (value == null) return "";
     if (typeof value === "string") return value;
-    return JSON.stringify(value, null, 2);
+    if (Array.isArray(value)) {
+      return value.map((item) => `• ${stringifyScalar(item)}`).join("\n");
+    }
+    if (isPlainObject(value)) {
+      return formatStructuredObject(value);
+    }
+    return stringifyScalar(value);
   },
 
   json(value) {
@@ -43,11 +49,15 @@ const FILTERS = {
   table(value) {
     if (!Array.isArray(value) || value.length === 0) return "";
 
+    if (looksLikeApplicationSteps(value)) {
+      return formatApplicationStepsTable(value);
+    }
+
     const columns = Array.from(new Set(value.flatMap((item) => Object.keys(item ?? {}))));
-    const header = `| ${columns.join(" | ")} |`;
+    const header = `| ${columns.map((column) => formatTableHeader(column)).join(" | ")} |`;
     const separator = `| ${columns.map(() => "---").join(" | ")} |`;
     const rows = value.map((item) => (
-      `| ${columns.map((column) => stringifyScalar(item?.[column])).join(" | ")} |`
+      `| ${columns.map((column) => formatTableCell(item?.[column], column)).join(" | ")} |`
     ));
 
     return [header, separator, ...rows].join("\n");
@@ -154,4 +164,207 @@ function stringifyScalar(value) {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return JSON.stringify(value);
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function looksLikeApplicationSteps(value) {
+  return value.every((item) => isPlainObject(item) && "name" in item && "type" in item && "what" in item && "script" in item);
+}
+
+function formatApplicationStepsTable(steps) {
+  const columns = ["name", "type", "what", "script", "is_target"];
+  const header = "| Этап | Тип | Что проверяем | Как спрашиваем | Цель |";
+  const separator = "| --- | --- | --- | --- | --- |";
+  const rows = steps.map((item) => (
+    `| ${columns.map((column) => formatTableCell(item?.[column], column)).join(" | ")} |`
+  ));
+  return [header, separator, ...rows].join("\n");
+}
+
+function formatStructuredObject(value) {
+  if (looksLikeWorkConditions(value)) {
+    return formatWorkConditions(value);
+  }
+
+  const lines = Object.entries(value)
+    .filter(([, item]) => !isEmptyValue(item))
+    .map(([key, item]) => `${humanizeKey(key)}: ${formatStructuredInlineValue(item, key)}`);
+
+  return lines.length > 0 ? lines.join("\n") : "— не указано";
+}
+
+function looksLikeWorkConditions(value) {
+  const knownKeys = [
+    "salary_range",
+    "pay_per_shift",
+    "currency",
+    "remote",
+    "schedule",
+    "shift_duration_hours",
+    "location",
+    "tools_own",
+    "contract_type",
+    "perks"
+  ];
+
+  return Object.keys(value).some((key) => knownKeys.includes(key));
+}
+
+function formatWorkConditions(value) {
+  const lines = [];
+  const salary = formatSalaryRange(value.salary_range, value.currency);
+  if (salary) lines.push(`Зарплата: ${salary}`);
+  if (typeof value.pay_per_shift === "number") {
+    lines.push(`Оплата за смену: ${formatMoney(value.pay_per_shift, value.currency)}`);
+  }
+  if (typeof value.remote === "boolean") lines.push(`Удалёнка: ${value.remote ? "да" : "нет"}`);
+  if (!isEmptyValue(value.schedule)) lines.push(`График: ${value.schedule}`);
+  if (typeof value.shift_duration_hours === "number") lines.push(`Длительность смены: ${value.shift_duration_hours} ч.`);
+  if (!isEmptyValue(value.location)) lines.push(`Локация: ${value.location}`);
+  if (typeof value.tools_own === "boolean") lines.push(`Свои инструменты: ${value.tools_own ? "да" : "нет"}`);
+  if (!isEmptyValue(value.contract_type)) lines.push(`Оформление: ${value.contract_type}`);
+  if (Array.isArray(value.perks) && value.perks.length > 0) {
+    lines.push(`Бонусы: ${value.perks.map((item) => stringifyScalar(item)).join(", ")}`);
+  }
+
+  const extraLines = Object.entries(value)
+    .filter(([key, item]) => ![
+      "salary_range",
+      "pay_per_shift",
+      "currency",
+      "remote",
+      "schedule",
+      "shift_duration_hours",
+      "location",
+      "tools_own",
+      "contract_type",
+      "perks"
+    ].includes(key) && !isEmptyValue(item))
+    .map(([key, item]) => `${humanizeKey(key)}: ${formatStructuredInlineValue(item, key)}`);
+
+  const allLines = [...lines, ...extraLines];
+  return allLines.length > 0 ? allLines.join("\n") : "— не указано";
+}
+
+function formatSalaryRange(range, currency = "RUB") {
+  if (isEmptyValue(range)) return "";
+  if (typeof range === "string") return range;
+  if (!isPlainObject(range)) return stringifyScalar(range);
+
+  const min = typeof range.min === "number" ? range.min : null;
+  const max = typeof range.max === "number" ? range.max : null;
+
+  if (min != null && max != null) {
+    return `${formatMoney(min, currency)}–${formatMoney(max, currency)}`;
+  }
+  if (min != null) {
+    return `от ${formatMoney(min, currency)}`;
+  }
+  if (max != null) {
+    return `до ${formatMoney(max, currency)}`;
+  }
+
+  return Object.entries(range)
+    .filter(([, item]) => !isEmptyValue(item))
+    .map(([key, item]) => `${humanizeKey(key)} ${formatStructuredInlineValue(item, key)}`)
+    .join(", ");
+}
+
+function formatMoney(value, currency = "RUB") {
+  if (typeof value !== "number") return stringifyScalar(value);
+  const formatted = value.toLocaleString("ru-RU");
+  return currency === "RUB" ? `${formatted} ₽` : `${formatted} ${currency}`;
+}
+
+function formatStructuredInlineValue(value, key = "") {
+  if (isEmptyValue(value)) return "";
+  if (key === "salary_range") return formatSalaryRange(value);
+  if (typeof value === "boolean") return value ? "да" : "нет";
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map((item) => stringifyScalar(item)).join(", ");
+  if (isPlainObject(value)) {
+    return Object.entries(value)
+      .filter(([, item]) => !isEmptyValue(item))
+      .map(([nestedKey, item]) => `${humanizeKey(nestedKey)} ${formatStructuredInlineValue(item, nestedKey)}`)
+      .join(", ");
+  }
+  return stringifyScalar(value);
+}
+
+function formatTableHeader(column) {
+  const labels = {
+    name: "Название",
+    type: "Тип",
+    what: "Что",
+    script: "Скрипт",
+    is_target: "Цель",
+    in_our_scope: "В нашей зоне"
+  };
+
+  return labels[column] ?? humanizeKey(column);
+}
+
+function formatTableCell(value, column = "") {
+  if (column === "type") {
+    const labels = {
+      must_have_check: "Must-have",
+      condition_check: "Условие",
+      target_action: "Целевое действие",
+      employer_action: "Работодатель"
+    };
+    if (typeof value === "string" && labels[value]) {
+      return labels[value];
+    }
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Да" : "Нет";
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => stringifyScalar(item)).join(", ");
+  }
+
+  if (isPlainObject(value)) {
+    return formatStructuredInlineValue(value, column);
+  }
+
+  return stringifyScalar(value);
+}
+
+function humanizeKey(key) {
+  const labels = {
+    name: "Название",
+    description: "Описание",
+    notes: "Заметки",
+    schedule: "График",
+    location: "Локация",
+    remote: "Удалёнка",
+    contract_type: "Оформление",
+    shift_duration_hours: "Длительность смены",
+    tools_own: "Свои инструменты",
+    pay_per_shift: "Оплата за смену",
+    salary_range: "Зарплата",
+    perks: "Бонусы",
+    is_target: "Цель",
+    in_our_scope: "В нашей зоне"
+  };
+  if (labels[key]) return labels[key];
+
+  return key
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/^\w/, (char) => char.toUpperCase());
+}
+
+function isEmptyValue(value) {
+  if (value == null) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0;
+  if (isPlainObject(value)) return Object.keys(value).length === 0;
+  return false;
 }
