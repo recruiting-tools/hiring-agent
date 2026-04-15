@@ -40,6 +40,10 @@ jobs:
       VM_USER: ${{ secrets.VM_USER }}
       DEPLOY_REF: ${{ inputs.deploy_ref }}
       SANDBOX_PUBLIC_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
+      SANDBOX_DEMO_EMAIL: demo@hiring-agent.app
+      SANDBOX_DEMO_RECRUITER_ID: recruiter-demo-001
+      SANDBOX_DEMO_RECRUITER_TOKEN: rec-tok-demo-001
+      SANDBOX_DEMO_CLIENT_ID: client-demo-001
 
     steps:
       - uses: actions/checkout@v5
@@ -203,6 +207,29 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
             "mkdir -p '${{ steps.slot.outputs.deploy_dir }}' && echo '$ENV_B64' | base64 -d > '${{ steps.slot.outputs.deploy_dir }}/.env' && echo '.env written: ${{ steps.slot.outputs.deploy_dir }}/.env'"
 
+      - name: Generate sandbox demo password
+        id: demo_creds
+        run: |
+          PASSWORD=$(node -e "const { randomBytes } = require('node:crypto'); const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%'; const bytes = randomBytes(24); let password = ''; for (let i = 0; i < 24; i += 1) password += alphabet[bytes[i] % alphabet.length]; process.stdout.write(password);")
+          echo "password=$PASSWORD" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Sandbox demo credentials"
+            echo ""
+            echo "- Email: \`demo@hiring-agent.app\`"
+            echo "- Token: \`rec-tok-demo-001\`"
+            echo "- Password: \`$PASSWORD\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bootstrap sandbox demo recruiter
+        env:
+          MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
+          DEMO_RECRUITER_ID: ${{ env.SANDBOX_DEMO_RECRUITER_ID }}
+          DEMO_CLIENT_ID: ${{ env.SANDBOX_DEMO_CLIENT_ID }}
+          DEMO_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
+          DEMO_PASSWORD: ${{ steps.demo_creds.outputs.password }}
+          DEMO_RECRUITER_TOKEN: ${{ env.SANDBOX_DEMO_RECRUITER_TOKEN }}
+        run: node scripts/bootstrap-demo-user.js
+
       - name: Deploy
         env:
           TARGET_PORT: ${{ steps.slot.outputs.target_port }}
@@ -245,7 +272,49 @@ jobs:
           EOF
 
       - name: Post-deploy smoke
+        env:
+          SANDBOX_PUBLIC_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
+          SANDBOX_DEMO_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
+          SANDBOX_DEMO_PASSWORD: ${{ steps.demo_creds.outputs.password }}
         run: |
+          set -euo pipefail
+          LOGIN_RESPONSE=$(curl -sf -X POST "${SANDBOX_PUBLIC_URL%/}/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${SANDBOX_DEMO_EMAIL}\",\"password\":\"${SANDBOX_DEMO_PASSWORD}\"}")
+          LOGIN_REDIRECT=$(echo "$LOGIN_RESPONSE" | jq -r '.redirect // empty')
+          [ "$LOGIN_REDIRECT" = "/recruiter/rec-tok-demo-001" ] || {
+            echo "Unexpected login redirect: ${LOGIN_REDIRECT:-<empty>}"
+            exit 1
+          }
+
+          COOKIE=$(curl -is -X POST "${SANDBOX_PUBLIC_URL%/}/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${SANDBOX_DEMO_EMAIL}\",\"password\":\"${SANDBOX_DEMO_PASSWORD}\"}" \
+            | awk 'BEGIN{IGNORECASE=1} /^set-cookie:/ {print $2}' | tr -d '\r' | cut -d';' -f1 | tail -1)
+          [ -n "$COOKIE" ] || {
+            echo "Missing session cookie after login"
+            exit 1
+          }
+
+          CREATE_REPLY=$(curl -sf -X POST "${SANDBOX_PUBLIC_URL%/}/api/chat" \
+            -H "Content-Type: application/json" \
+            -H "Cookie: $COOKIE" \
+            -d '{"message":"создать вакансию"}')
+          CREATE_KIND=$(echo "$CREATE_REPLY" | jq -r '.reply.kind // empty')
+          CREATE_MESSAGE=$(echo "$CREATE_REPLY" | jq -r '.reply.message // empty')
+          [ "$CREATE_KIND" = "user_input" ] || {
+            echo "Unexpected create_vacancy reply kind: ${CREATE_KIND:-<empty>}"
+            echo "$CREATE_REPLY"
+            exit 1
+          }
+          case "$CREATE_MESSAGE" in
+            *"Загрузите материалы"* ) ;;
+            *)
+              echo "Unexpected create_vacancy message: $CREATE_MESSAGE"
+              exit 1
+              ;;
+          esac
+
           HEALTH=$(curl -sf "${SANDBOX_PUBLIC_URL%/}/health" 2>/dev/null || echo '{}')
           STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
           MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
