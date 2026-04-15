@@ -178,3 +178,32 @@ test("hh api client: surfaces non-retriable HH errors with status and body", asy
     (error) => error.status === 403 && error.body?.error === "forbidden"
   );
 });
+
+test("hh api client: sendMessage uses form-encoded message body for HH negotiations API", async () => {
+  const calls = [];
+  const tokenStore = makeTokenStore({
+    access_token: "access-001",
+    refresh_token: "refresh-001",
+    expires_at: "2099-01-01T00:00:00.000Z"
+  });
+  const client = new HhApiClient({
+    clientId: "client-id",
+    clientSecret: "client-secret",
+    redirectUri: "https://example.test/hh-callback",
+    tokenStore,
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return jsonResponse(200, { id: "msg-001" });
+    }
+  });
+
+  const result = await client.sendMessage("neg-001", "Hello from recruiter");
+
+  assert.equal(result.hh_message_id, "msg-001");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://api.hh.ru/negotiations/neg-001/messages");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.headers.Authorization, "Bearer access-001");
+  assert.equal(calls[0].init.headers["content-type"], "application/x-www-form-urlencoded");
+  assert.equal(calls[0].init.body, "message=Hello+from+recruiter");
+});
