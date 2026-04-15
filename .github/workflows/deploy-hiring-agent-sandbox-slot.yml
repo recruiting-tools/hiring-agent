@@ -216,9 +216,15 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << 'EOF'
             set -euo pipefail
             cd "${{ steps.slot.outputs.deploy_dir }}"
-            set -a
-            . ./.env
-            set +a
+            MANAGEMENT_DATABASE_URL=$(awk -F= '
+              /^MANAGEMENT_DATABASE_URL=/ {
+                sub(/^MANAGEMENT_DATABASE_URL=/, "")
+                print
+                exit
+              }
+            ' ./.env)
+            [ -n "${MANAGEMENT_DATABASE_URL:-}" ] || { echo "ERROR: MANAGEMENT_DATABASE_URL missing in .env"; exit 1; }
+            export MANAGEMENT_DATABASE_URL
             node ./scripts/bootstrap-sandbox-bindings.js --source-env prod --target-env sandbox
           EOF
 
