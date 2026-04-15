@@ -99,6 +99,39 @@ jobs:
             [ "$(echo "$PM2_JSON" | jq -r 'if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end')" = "present" ] || { echo "VM VERIFY FAILED: PM2 MANAGEMENT_DATABASE_URL missing"; exit 1; }
           EOF
 
+      - name: Verify websocket on VM
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST bash -s << 'EOF'
+            set -euo pipefail
+            WS_HEALTH=$(curl -sf http://127.0.0.1:3101/health-web-socket)
+            echo "Local websocket health: $WS_HEALTH"
+            node --input-type=module <<'NODE'
+            const url = 'ws://127.0.0.1:3101/ws';
+            const result = await new Promise((resolve, reject) => {
+              const ws = new WebSocket(url);
+              let settled = false;
+              const finish = (ok, detail) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeout);
+                try { ws.close(); } catch {}
+                if (ok) resolve(detail);
+                else reject(new Error(detail));
+              };
+              const timeout = setTimeout(() => finish(false, 'timeout waiting for websocket response'), 5000);
+              ws.addEventListener('open', () => finish(true, 'upgrade accepted'));
+              ws.addEventListener('close', (event) => {
+                if (event.code === 4001) finish(true, `unauthorized close ${event.code}`);
+                else if (!settled) finish(false, `unexpected close ${event.code}`);
+              });
+              ws.addEventListener('error', () => {
+                if (!settled) finish(false, 'websocket connection failed');
+              });
+            });
+            console.log(`VM websocket smoke ok: ${result}`);
+            NODE
+          EOF
+
       - name: Post-deploy smoke
         run: |
           HEALTH=$(curl -sf https://hiring-chat.recruiter-assistant.com/health 2>/dev/null || echo '{}')
@@ -110,3 +143,33 @@ jobs:
           [ "$STATUS" = "ok" ] || { echo "SMOKE FAILED: status=$STATUS"; exit 1; }
           [ "$MODE" = "management-auth" ] || { echo "SMOKE FAILED: mode=$MODE (expected management-auth)"; exit 1; }
           [ "$DEPLOY_SHA" = "${{ github.sha }}" ] || { echo "SMOKE FAILED: deploy_sha=$DEPLOY_SHA expected=${{ github.sha }}"; exit 1; }
+
+      - name: Post-deploy websocket smoke
+        run: |
+          WS_HEALTH=$(curl -sf https://hiring-chat.recruiter-assistant.com/health-web-socket 2>/dev/null || echo '{}')
+          echo "Websocket health: $WS_HEALTH"
+          node --input-type=module <<'NODE'
+          const url = 'wss://hiring-chat.recruiter-assistant.com/ws';
+          const result = await new Promise((resolve, reject) => {
+            const ws = new WebSocket(url);
+            let settled = false;
+            const finish = (ok, detail) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeout);
+              try { ws.close(); } catch {}
+              if (ok) resolve(detail);
+              else reject(new Error(detail));
+            };
+            const timeout = setTimeout(() => finish(false, 'timeout waiting for websocket response'), 5000);
+            ws.addEventListener('open', () => finish(true, 'upgrade accepted'));
+            ws.addEventListener('close', (event) => {
+              if (event.code === 4001) finish(true, `unauthorized close ${event.code}`);
+              else if (!settled) finish(false, `unexpected close ${event.code}`);
+            });
+            ws.addEventListener('error', () => {
+              if (!settled) finish(false, 'websocket connection failed');
+            });
+          });
+          console.log(`Public websocket smoke ok: ${result}`);
+          NODE

@@ -247,6 +247,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         linear-gradient(180deg, #08101d 0%, #09111f 35%, #0c1525 100%);
       color: var(--t1);
       min-height: 100dvh;
+      overflow: hidden;
     }
     a { color: inherit; }
     button,
@@ -259,6 +260,10 @@ const CHAT_HTML = `<!DOCTYPE html>
       width: min(calc(100% - 32px), var(--shell-width));
       margin: 0 auto;
       padding: 28px 0 32px;
+      min-height: 100dvh;
+      max-height: 100dvh;
+      display: flex;
+      flex-direction: column;
     }
     .topbar {
       display: flex;
@@ -321,10 +326,17 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
     .workspace {
       display: grid;
-      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(280px, 320px);
+      grid-template-areas: "history chat sidebar";
       gap: 20px;
       align-items: stretch;
-      min-height: calc(100dvh - 170px);
+      flex: 1;
+      min-height: 0;
+      transition: grid-template-columns 0.22s ease;
+      position: relative;
+    }
+    .workspace.history-collapsed {
+      grid-template-columns: 0 minmax(0, 1fr) minmax(280px, 320px);
     }
     .panel {
       border: 1px solid var(--edge);
@@ -333,10 +345,175 @@ const CHAT_HTML = `<!DOCTYPE html>
       backdrop-filter: blur(18px);
       box-shadow: var(--shadow-lg);
     }
+    .history-panel {
+      grid-area: history;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    .workspace.history-collapsed .history-panel {
+      opacity: 0;
+      transform: translateX(-18px);
+      pointer-events: none;
+    }
+    .history-panel-inner {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: 100%;
+    }
+    .history-panel-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--edge);
+    }
+    .history-panel-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .history-panel-header p {
+      margin-top: 6px;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--t2);
+    }
+    .history-panel-toolbar {
+      display: grid;
+      gap: 10px;
+      padding: 14px 20px 16px;
+      border-bottom: 1px solid var(--edge);
+    }
+    .panel-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 12px;
+      border: 1px solid var(--edge);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--t2);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .panel-toggle:hover {
+      border-color: var(--edge-strong);
+      color: var(--t1);
+    }
+    .history-launcher {
+      position: absolute;
+      left: 0;
+      top: 12px;
+      z-index: 3;
+    }
+    .history-launcher[hidden] {
+      display: none;
+    }
+    .history-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .history-list::-webkit-scrollbar { width: 4px; }
+    .history-list::-webkit-scrollbar-track { background: transparent; }
+    .history-list::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 2px; }
+    .history-empty {
+      margin: 10px 12px 14px;
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px dashed var(--edge);
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--t2);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .history-empty[hidden] {
+      display: none;
+    }
+    .history-item {
+      width: 100%;
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      text-align: left;
+      border-radius: 18px;
+      border: 1px solid var(--edge);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--t1);
+      cursor: pointer;
+    }
+    .history-item.active {
+      border-color: rgba(105, 162, 255, 0.45);
+      background: linear-gradient(180deg, rgba(105, 162, 255, 0.14), rgba(255, 255, 255, 0.03));
+      box-shadow: inset 0 0 0 1px rgba(105, 162, 255, 0.08);
+    }
+    .history-item:hover {
+      border-color: var(--edge-strong);
+      transform: translateY(-1px);
+    }
+    .history-item-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .history-item-title {
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.45;
+      color: var(--t1);
+    }
+    .history-item-time {
+      flex-shrink: 0;
+      font-size: 11px;
+      color: var(--t3);
+      white-space: nowrap;
+    }
+    .history-item-preview {
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--t2);
+    }
+    .history-item-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .history-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 9px;
+      border-radius: 999px;
+      border: 1px solid var(--edge);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--t2);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .history-badge.current {
+      border-color: rgba(105, 162, 255, 0.45);
+      color: var(--acc-strong);
+      background: rgba(105, 162, 255, 0.1);
+    }
     .sidebar {
+      grid-area: sidebar;
       display: grid;
       gap: 16px;
       align-content: start;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
     }
     .sidebar-card {
       padding: 20px;
@@ -476,9 +653,11 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     .chat-stage {
+      grid-area: chat;
       display: flex;
       flex-direction: column;
       min-height: 0;
+      height: 100%;
       overflow: hidden;
       background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 12%),
@@ -512,6 +691,12 @@ const CHAT_HTML = `<!DOCTYPE html>
       color: var(--t2);
       line-height: 1.5;
     }
+    .chat-stage-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
     #logout-btn {
       flex-shrink: 0;
       padding: 11px 14px;
@@ -528,6 +713,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     #chat-log {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       padding: 26px 22px 18px;
       display: flex;
@@ -820,17 +1006,51 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
       .workspace {
         grid-template-columns: 1fr;
-        min-height: auto;
+        grid-template-areas:
+          "chat"
+          "sidebar";
+        flex: 1;
+        min-height: 0;
+      }
+      .history-panel {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: min(88vw, 360px);
+        height: 100dvh;
+        z-index: 20;
+        border-radius: 0 26px 26px 0;
+        border-left: 0;
+        transform: translateX(-100%);
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .workspace.history-open .history-panel {
+        transform: translateX(0);
+        box-shadow: 0 30px 80px rgba(2, 8, 23, 0.58);
+      }
+      .workspace.history-collapsed .history-panel {
+        opacity: 1;
+        transform: translateX(-100%);
+      }
+      .history-launcher {
+        position: fixed;
+        left: 16px;
+        top: 84px;
       }
       .sidebar {
         order: 2;
+        overflow: visible;
+        padding-right: 0;
       }
       .chat-stage {
-        min-height: 70dvh;
+        min-height: 0;
       }
       .chat-stage-header {
         flex-direction: column;
         align-items: flex-start;
+      }
+      .chat-stage-actions {
+        width: 100%;
       }
       .bubble {
         max-width: 100%;
@@ -853,6 +1073,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
       .workspace {
         gap: 0;
+      }
+      .history-panel {
+        width: min(92vw, 360px);
       }
       .sidebar {
         gap: 0;
@@ -894,7 +1117,26 @@ const CHAT_HTML = `<!DOCTYPE html>
       </div>
     </header>
 
-    <main class="workspace">
+    <main class="workspace" id="workspace">
+      <aside class="history-panel panel" id="history-panel">
+        <div class="history-panel-inner">
+          <div class="history-panel-header">
+            <div>
+              <h2>История сессий</h2>
+              <p>Недавние сценарии и быстрый возврат к прошлым чатам.</p>
+            </div>
+            <button class="panel-toggle" id="history-toggle-btn" type="button">Скрыть</button>
+          </div>
+          <div class="history-panel-toolbar">
+            <button class="primary-btn" id="new-session-btn" type="button">Новая сессия</button>
+          </div>
+          <div class="history-empty" id="history-empty">Список появится после первой сохранённой сессии.</div>
+          <div class="history-list" id="history-list"></div>
+        </div>
+      </aside>
+
+      <button class="panel-toggle history-launcher" id="history-launcher-btn" type="button" hidden>История</button>
+
       <aside class="sidebar">
         <section class="sidebar-card panel">
           <h2>Контекст</h2>
@@ -955,6 +1197,10 @@ const CHAT_HTML = `<!DOCTYPE html>
             <h2 id="chat-stage-title">Рабочая зона агента</h2>
             <p id="chat-stage-subtitle">Выберите вакансию.</p>
           </div>
+          <div class="chat-stage-actions">
+            <button class="panel-toggle" id="chat-history-btn" type="button">История</button>
+            <button class="panel-toggle" id="copy-link-btn" type="button" disabled>Скопировать ссылку</button>
+          </div>
         </header>
 
         <div id="chat-log">
@@ -997,7 +1243,9 @@ const CHAT_HTML = `<!DOCTYPE html>
     const CHAT_STATE_HASH_PREFIX = 'state=';
     const CHAT_SESSION_HASH_PREFIX = 's=';
     const CHAT_STATE_STORAGE_KEY = 'hiring-agent:chat-state:' + (APP_BASE_PATH || 'root');
+    const CHAT_SESSION_HISTORY_KEY = 'hiring-agent:session-history:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_VERSION = 1;
+    const MAX_SESSION_HISTORY_ITEMS = 24;
     const STEP_LABELS = {
       auto_fetch:    'Загружаю данные вакансии',
       route_playbook:'Определяю плейбук',
@@ -1021,8 +1269,11 @@ const CHAT_HTML = `<!DOCTYPE html>
     let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
     let chatHistory = [];
     let pendingInitialChatStatePromise = loadInitialChatState();
+    let sessionHistoryIndex = loadSessionHistoryIndex();
+    let historyOpen = window.matchMedia('(min-width: 981px)').matches;
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
+    const workspace = document.getElementById('workspace');
     const chatLog        = document.getElementById('chat-log');
     const emptyState     = document.getElementById('empty-state');
     const vacancySelect  = document.getElementById('vacancy-select');
@@ -1041,6 +1292,13 @@ const CHAT_HTML = `<!DOCTYPE html>
     const moderationLink = document.getElementById('moderation-link');
     const moderationCopy = document.getElementById('moderation-copy');
     const shortcutButtons = Array.from(document.querySelectorAll('.shortcut-btn'));
+    const historyList = document.getElementById('history-list');
+    const historyEmpty = document.getElementById('history-empty');
+    const historyToggleBtn = document.getElementById('history-toggle-btn');
+    const historyLauncherBtn = document.getElementById('history-launcher-btn');
+    const chatHistoryBtn = document.getElementById('chat-history-btn');
+    const newSessionBtn = document.getElementById('new-session-btn');
+    const copyLinkBtn = document.getElementById('copy-link-btn');
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
     function connect() {
@@ -1166,6 +1424,180 @@ const CHAT_HTML = `<!DOCTYPE html>
         .replace(/'/g, '&#39;')
         .replace(/\\n/g, '<br>');
       el.innerHTML = DOMPurify.sanitize(escaped);
+    }
+
+    function stripMarkdown(text) {
+      const tick = String.fromCharCode(96);
+      return String(text ?? '')
+        .replace(new RegExp(tick + tick + tick + '[\\s\\S]*?' + tick + tick + tick, 'g'), ' ')
+        .replace(new RegExp(tick + '([^' + tick + ']+)' + tick, 'g'), '$1')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/[*_>#-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function getHistoryPreview(history) {
+      const latest = [...(Array.isArray(history) ? history : [])]
+        .reverse()
+        .find((entry) => entry?.kind === 'assistant' || entry?.kind === 'user');
+
+      if (!latest) return 'Сохранённый сценарий без сообщений.';
+
+      const source = latest.kind === 'assistant' ? latest.markdown : latest.text;
+      const clean = stripMarkdown(source);
+      return clean ? clean.slice(0, 140) : 'Сохранённый сценарий.';
+    }
+
+    function formatHistoryTime(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '';
+
+      return new Intl.DateTimeFormat('ru-RU', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(date);
+    }
+
+    function isDesktopHistoryLayout() {
+      return window.matchMedia('(min-width: 981px)').matches;
+    }
+
+    function loadSessionHistoryIndex() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(CHAT_SESSION_HISTORY_KEY) || '[]');
+        return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveSessionHistoryIndex() {
+      try {
+        localStorage.setItem(CHAT_SESSION_HISTORY_KEY, JSON.stringify(sessionHistoryIndex));
+      } catch {}
+    }
+
+    function setHistoryOpen(nextOpen) {
+      historyOpen = Boolean(nextOpen);
+      workspace.classList.toggle('history-open', historyOpen);
+      workspace.classList.toggle('history-collapsed', !historyOpen);
+      historyLauncherBtn.hidden = historyOpen;
+      historyToggleBtn.textContent = historyOpen ? 'Скрыть' : 'Показать';
+      chatHistoryBtn.textContent = historyOpen ? 'Скрыть историю' : 'История';
+    }
+
+    function updateCopyLinkButton() {
+      copyLinkBtn.disabled = !activeSessionId;
+    }
+
+    async function copyCurrentSessionLink() {
+      if (!activeSessionId) return;
+      const url = new URL(window.location.href);
+      url.searchParams.delete(CHAT_STATE_QUERY_PARAM);
+      url.hash = CHAT_SESSION_HASH_PREFIX + encodeURIComponent(activeSessionId);
+
+      try {
+        await navigator.clipboard.writeText(url.toString());
+        copyLinkBtn.textContent = 'Ссылка скопирована';
+        setTimeout(() => {
+          copyLinkBtn.textContent = 'Скопировать ссылку';
+        }, 1600);
+      } catch {}
+    }
+
+    function renderSessionHistory() {
+      const items = Array.isArray(sessionHistoryIndex) ? sessionHistoryIndex : [];
+      const prioritizedItems = selectedVacancyId
+        ? [
+            ...items.filter((item) => String(item?.vacancyId ?? '') === String(selectedVacancyId)),
+            ...items.filter((item) => String(item?.vacancyId ?? '') !== String(selectedVacancyId))
+          ]
+        : items;
+
+      historyEmpty.hidden = prioritizedItems.length > 0;
+      historyList.innerHTML = '';
+
+      prioritizedItems.forEach((item) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'history-item' + (item.sessionId === activeSessionId ? ' active' : '');
+
+        const top = document.createElement('div');
+        top.className = 'history-item-top';
+
+        const title = document.createElement('div');
+        title.className = 'history-item-title';
+        title.textContent = item.vacancyTitle || 'Новая сессия';
+
+        const time = document.createElement('div');
+        time.className = 'history-item-time';
+        time.textContent = formatHistoryTime(item.updatedAt);
+
+        const preview = document.createElement('div');
+        preview.className = 'history-item-preview';
+        preview.textContent = item.preview || 'Без превью';
+
+        const meta = document.createElement('div');
+        meta.className = 'history-item-meta';
+
+        if (item.sessionId === activeSessionId) {
+          const currentBadge = document.createElement('span');
+          currentBadge.className = 'history-badge current';
+          currentBadge.textContent = 'Текущая';
+          meta.appendChild(currentBadge);
+        }
+
+        if (item.vacancyId) {
+          const vacancyBadge = document.createElement('span');
+          vacancyBadge.className = 'history-badge';
+          vacancyBadge.textContent = String(item.vacancyId) === String(selectedVacancyId) && selectedVacancyId
+            ? 'Текущая вакансия'
+            : 'Вакансия';
+          meta.appendChild(vacancyBadge);
+        }
+
+        top.appendChild(title);
+        top.appendChild(time);
+        button.appendChild(top);
+        button.appendChild(preview);
+        button.appendChild(meta);
+
+        button.addEventListener('click', async () => {
+          const snapshot = await fetchChatStateBySessionId(item.sessionId);
+          if (!snapshot) return;
+          restoreChatState(snapshot);
+          if (!isDesktopHistoryLayout()) {
+            setHistoryOpen(false);
+          }
+        });
+
+        historyList.appendChild(button);
+      });
+    }
+
+    function upsertSessionHistoryEntry(state) {
+      const normalized = normalizeChatState(state);
+      if (!normalized?.sessionId) return;
+
+      const entry = {
+        sessionId: normalized.sessionId,
+        vacancyId: normalized.vacancyId,
+        vacancyTitle: normalized.vacancyTitle || 'Новая сессия',
+        updatedAt: new Date().toISOString(),
+        preview: getHistoryPreview(normalized.history)
+      };
+
+      sessionHistoryIndex = [
+        entry,
+        ...sessionHistoryIndex.filter((item) => item?.sessionId !== entry.sessionId)
+      ].slice(0, MAX_SESSION_HISTORY_ITEMS);
+
+      saveSessionHistoryIndex();
+      renderSessionHistory();
     }
 
     // ── Messages ──────────────────────────────────────────────────────────────
@@ -1359,6 +1791,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     function applyServerState(data) {
       if (data.sessionId) {
         activeSessionId = String(data.sessionId);
+        updateCopyLinkButton();
       }
 
       if (data.playbookActive && data.playbookKey) {
@@ -1376,6 +1809,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
       syncContext();
       persistChatState();
+      renderSessionHistory();
     }
 
     function sendMessage(text) {
@@ -1483,6 +1917,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     function onVacancySelected(vacancyId, title, jobId) {
       clearActivePlaybookState();
       activeSessionId = null;
+      updateCopyLinkButton();
       selectedVacancyId = vacancyId;
       selectedVacancyJobId = jobId || null;
       selectedVacancyTitle = title || '';
@@ -1513,6 +1948,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     function triggerCreateVacancy() {
       clearActivePlaybookState();
       activeSessionId = null;
+      updateCopyLinkButton();
       selectedVacancyId = null;
       selectedVacancyJobId = null;
       selectedVacancyTitle = '';
@@ -1568,6 +2004,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       syncShortcuts();
       persistChatState();
+      renderSessionHistory();
     }
 
     function syncShortcuts() {
@@ -1710,6 +2147,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         ? CHAT_SESSION_HASH_PREFIX + encodeURIComponent(activeSessionId)
         : '';
       history.replaceState(null, '', nextUrl.toString());
+      updateCopyLinkButton();
     }
 
     async function loadInitialChatState() {
@@ -1744,6 +2182,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       clearActivePlaybookState();
       activeSessionId = normalized.sessionId || activeSessionId;
+      updateCopyLinkButton();
       activePlaybookKey = normalized.playbookKey;
       activePlaybookContext = normalized.playbookContext;
       selectedVacancyId = normalized.vacancyId;
@@ -1776,6 +2215,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       updateSendEnabled();
       persistChatState();
+      upsertSessionHistoryEntry(normalized);
     }
 
     async function fetchChatStateBySessionId(sessionId) {
@@ -1801,7 +2241,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       if (!activeSessionId) return;
 
       try {
-        await fetch(withBasePath('/api/chat-state'), {
+        const res = await fetch(withBasePath('/api/chat-state'), {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -1809,6 +2249,9 @@ const CHAT_HTML = `<!DOCTYPE html>
             snapshot: serializeChatState()
           })
         });
+        if (res.ok) {
+          upsertSessionHistoryEntry(serializeChatState());
+        }
       } catch {}
     }
 
@@ -1821,6 +2264,34 @@ const CHAT_HTML = `<!DOCTYPE html>
     // Start WS
     connect();
 
+    historyToggleBtn.addEventListener('click', () => setHistoryOpen(!historyOpen));
+    historyLauncherBtn.addEventListener('click', () => setHistoryOpen(true));
+    chatHistoryBtn.addEventListener('click', () => setHistoryOpen(!historyOpen));
+    newSessionBtn.addEventListener('click', () => {
+      if (selectedVacancyId) {
+        onVacancySelected(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
+      } else {
+        chatLog.innerHTML = '';
+        clearChatHistory();
+        clearActivePlaybookState();
+        activeSessionId = null;
+        updateCopyLinkButton();
+        chatLog.appendChild(emptyState);
+        syncContext();
+      }
+      if (!isDesktopHistoryLayout()) {
+        setHistoryOpen(false);
+      }
+    });
+    copyLinkBtn.addEventListener('click', () => {
+      void copyCurrentSessionLink();
+    });
+    window.addEventListener('resize', () => {
+      if (isDesktopHistoryLayout() && !historyOpen) {
+        historyLauncherBtn.hidden = false;
+      }
+    });
+
     // Load vacancies
     loadVacancies();
 
@@ -1828,6 +2299,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     chatLog.innerHTML = '';
     chatLog.appendChild(emptyState);
     syncContext();
+    renderSessionHistory();
+    setHistoryOpen(isDesktopHistoryLayout());
   </script>
 </body>
 </html>`;
@@ -2101,6 +2574,7 @@ export function createHiringAgentServer(app, options = {}) {
   const rootPath = appBasePath ? `${appBasePath}/` : "/";
   const sessionCookieName = options.sessionCookieName ?? process.env.SESSION_COOKIE_NAME ?? sessionCookieNameFromBasePath(appBasePath);
   const sessionCookiePath = appBasePath || "/";
+  let wss;
 
   const server = createServer(async (request, response) => {
     try {
@@ -2115,6 +2589,21 @@ export function createHiringAgentServer(app, options = {}) {
           || requestUrl.searchParams.get("include_playbooks") === "1";
         const result = await app.getHealth({ includePlaybooks });
         writeJson(response, result.status, result.body);
+        return;
+      }
+
+      if (request.method === "GET" && (requestUrl.pathname === "/health-web-socket" || normalizedPath === "/health-web-socket")) {
+        writeJson(response, 200, {
+          status: "ok",
+          app_env: appEnv,
+          websocket: {
+            enabled: Boolean(wss),
+            path: wsPath,
+            requires_auth: true,
+            heartbeat_interval_ms: 30_000,
+            check_hint: "perform a websocket upgrade and expect open or unauthorized close"
+          }
+        });
         return;
       }
 
@@ -2359,7 +2848,7 @@ export function createHiringAgentServer(app, options = {}) {
   });
 
   // ── WebSocket server ─────────────────────────────────────────────────────────
-  const wss = new WebSocketServer({ server, path: wsPath });
+  wss = new WebSocketServer({ server, path: wsPath });
 
   wss.on("connection", async (ws, req) => {
     console.log("[ws] new connection");
