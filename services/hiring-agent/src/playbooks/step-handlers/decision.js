@@ -42,16 +42,23 @@ function parseDecisionRules(notes, context) {
 
   if (Array.isArray(context.must_haves) && String(notes).includes("count < 2")) {
     const count = context.must_haves.length;
+    const mustHavesBlock = formatMustHavesBlock(context.must_haves);
     return [
       {
         condition: "context.must_haves.length < 2",
         next: 4,
-        message: `Нашли только ${count} обязательных требования — кажется маловато. Не упустили ничего важного?`
+        message: [
+          `Нашли только ${count} обязательных требования — кажется маловато. Не упустили ничего важного?`,
+          mustHavesBlock
+        ].filter(Boolean).join("\n\n")
       },
       {
         condition: "context.must_haves.length >= 5",
         next: 4,
-        message: `Нашли ${count} обязательных требований — это много. Все они действительно блокирующие?`
+        message: [
+          `Нашли ${count} обязательных требований — это много. Все они действительно блокирующие?`,
+          mustHavesBlock
+        ].filter(Boolean).join("\n\n")
       },
       {
         default: true,
@@ -67,4 +74,19 @@ function evaluateCondition(condition, context) {
   if (!condition) return false;
   const fn = new Function("context", `return (${condition});`);
   return Boolean(fn(context));
+}
+
+function formatMustHavesBlock(mustHaves) {
+  const items = Array.isArray(mustHaves)
+    ? mustHaves.map((item) => String(item ?? "").trim()).filter(Boolean)
+    : [];
+
+  if (!items.length) {
+    return "";
+  }
+
+  return [
+    "Список обязательных требований:",
+    ...items.map((item) => `• ${item}`)
+  ].join("\n");
 }

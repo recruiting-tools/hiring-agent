@@ -473,6 +473,40 @@ test("playbook handler: decision can resolve next step via routing map outcome",
   });
 });
 
+test("playbook handler: decision shows must-have list for seeded create_vacancy warning", async () => {
+  const result = await handleDecisionStep({
+    step: {
+      next_step_order: 4,
+      notes: "Rules: count < 2 → show must_haves; count >= 5 → show must_haves."
+    },
+    context: {
+      must_haves: [
+        "Опыт B2B продаж",
+        "Ведение переговоров",
+        "Работа с CRM",
+        "Английский B2+",
+        "Готовность к командировкам"
+      ]
+    }
+  });
+
+  assert.equal(result.nextStepOrder, 4);
+  assert.deepEqual(result.reply, {
+    kind: "display",
+    content: [
+      "Нашли 5 обязательных требований — это много. Все они действительно блокирующие?",
+      "",
+      "Список обязательных требований:",
+      "• Опыт B2B продаж",
+      "• Ведение переговоров",
+      "• Работа с CRM",
+      "• Английский B2+",
+      "• Готовность к командировкам"
+    ].join("\n"),
+    content_type: "text"
+  });
+});
+
 test("playbook handler: data_fetch loads funnel data into context", async () => {
   const tenantSql = createMockSql(({ text, values }) => {
     assert.match(text, /with scoped_runs as/i);
