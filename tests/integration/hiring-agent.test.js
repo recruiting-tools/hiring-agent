@@ -2522,6 +2522,146 @@ test("hiring-agent: management-backed setup_communication supports vacancy_id di
   }
 });
 
+test("hiring-agent: management-backed setup_communication tolerates legacy echoed job_id when vacancy exists", async () => {
+  let callIndex = 0;
+  const llmCalls = [];
+
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    callIndex += 1;
+
+    if (callIndex === 1) {
+      assert.match(text, /FROM chatbot\.vacancies/);
+      assert.match(text, /WHERE vacancy_id = \$1/);
+      assert.deepEqual(values, ["vac-only-001"]);
+      return [{
+        vacancy_id: "vac-only-001",
+        job_id: null,
+        title: "Менеджер по продажам",
+        must_haves: ["B2B продажи"],
+        communication_plan: null,
+        communication_plan_draft: null,
+        communication_examples: [],
+        communication_examples_plan_hash: null
+      }];
+    }
+
+    if (callIndex === 2) {
+      assert.match(text, /FROM chatbot\.jobs/);
+      assert.match(text, /WHERE job_id = \$1\s+AND client_id = \$2/);
+      assert.deepEqual(values, ["vac-only-001", "tenant-alpha-001"]);
+      return [];
+    }
+
+    if (callIndex === 3) {
+      assert.match(text, /FROM chatbot\.vacancies/);
+      assert.match(text, /WHERE vacancy_id = \$1/);
+      assert.deepEqual(values, ["vac-only-001"]);
+      return [{
+        vacancy_id: "vac-only-001",
+        job_id: null,
+        title: "Менеджер по продажам",
+        must_haves: ["B2B продажи"],
+        nice_haves: [],
+        work_conditions: {},
+        application_steps: [
+          { id: "intro", label: "Приветствие", owner: "agent" },
+          { id: "screen", label: "Скрининг", owner: "agent" },
+          { id: "sync", label: "Созвон", owner: "recruiter" }
+        ],
+        communication_plan: null,
+        communication_plan_draft: null,
+        communication_examples: [],
+        communication_examples_plan_hash: null
+      }];
+    }
+
+    if (callIndex === 4) {
+      assert.match(text, /UPDATE chatbot\.vacancies/);
+      assert.match(text, /communication_plan_draft/);
+      assert.equal(values.at(-1), "vac-only-001");
+      return [];
+    }
+
+    throw new Error(`Unexpected query #${callIndex}: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    llmAdapter: {
+      async generate(prompt) {
+        llmCalls.push(prompt);
+        return JSON.stringify({
+          scenario_title: "Черновик для вакансии без job_id",
+          goal: "Договоренность о созвоне",
+          steps: [
+            { step: "Привет! Что заинтересовало в вакансии?", reminders_count: 1, comment: "Открыть диалог" },
+            { step: "Уточнить опыт в продажах", reminders_count: 1, comment: "Скрининг опыта" },
+            { step: "Сверить ожидания по условиям", reminders_count: 1, comment: "Проверка условий" },
+            { step: "Коротко описать роль", reminders_count: 0, comment: "Контекст вакансии" },
+            { step: "Предложить интервью", reminders_count: 2, comment: "Следующий шаг" }
+          ]
+        });
+      }
+    }
+  });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "настроить общение с кандидатами",
+      action: "start_playbook",
+      playbook_key: "setup_communication",
+      vacancy_id: "vac-only-001",
+      job_id: "vac-only-001"
+    }, "session=sess-alpha");
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "communication_plan");
+    assert.equal(body.reply.scenario_title, "Черновик для вакансии без job_id");
+    assert.equal(llmCalls.length, 1);
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: management-backed setup_communication rejects foreign job_id before llm call", async () => {
   let callIndex = 0;
   const tenantSql = async (strings, ...values) => {
@@ -3167,7 +3307,7 @@ test("hiring-agent: management-backed WebSocket forwards recruiterId to app", as
       assert.equal(input.recruiterId, "rec-alpha-001");
       assert.equal(input.tenantId, "tenant-alpha-001");
       assert.equal(input.vacancy_id, "job-ws-owned");
-      assert.equal(input.job_id, "job-ws-owned");
+      assert.equal(input.job_id, null);
       return {
         status: 200,
         body: {
