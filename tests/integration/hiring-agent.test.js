@@ -1410,6 +1410,7 @@ test("hiring-agent: GET / serves HTML shell after auth", async () => {
     assert.ok(contentType?.includes("text/html"));
     assert.ok(body.includes("Hiring Agent"));
     assert.ok(body.includes("vacancy-select"));
+    assert.match(body, /replace\(\/\\\+\/g, '-'\)\.replace\(\/\\\/\/g, '_'\)\.replace\(\/=\+\$\/g, ''\);/);
   } finally {
     server.close();
   }
