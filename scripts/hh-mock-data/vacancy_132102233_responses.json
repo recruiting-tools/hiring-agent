@@ -13,6 +13,7 @@
         "title": "Главный технолог деревообработка",
         "education": "Высшее"
       },
+      "unread": true,
       "last_message_preview": "Добрый день! Готов(а) по условиям?",
       "last_activity_at": "2026-04-15T10:20:00.000Z",
       "resume_id": "resume-5232040892"
@@ -28,6 +29,7 @@
         "title": "Инженер-конструктор",
         "education": "Высшее"
       },
+      "unread": true,
       "last_message_preview": "Давайте обсудим условия?",
       "last_activity_at": "2026-04-15T10:15:00.000Z",
       "resume_id": "resume-5231410351"
@@ -43,6 +45,7 @@
         "title": "Конструктор технолог корпусной мебели в Базис-мебельщик",
         "education": "Не указано"
       },
+      "unread": false,
       "last_message_preview": "Коротко по навыкам: AutoCAD, Inventor.",
       "last_activity_at": "2026-04-15T10:05:00.000Z",
       "resume_id": "resume-5230781549"
