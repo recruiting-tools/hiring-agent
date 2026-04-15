@@ -1,11 +1,8 @@
 import { hasFallbackSteps } from "./local-seed-fallback.js";
+import { canonicalizePlaybookKey } from "./playbook-key-map.js";
 import { ALWAYS_RUNNABLE_PLAYBOOK_KEYS, FALLBACK_ROUTES } from "./playbook-contracts.js";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-
-function canonicalizePlaybookKey(playbookKey) {
-  return playbookKey === "candidate_broadcast" ? "mass_broadcast" : playbookKey;
-}
 
 const STATIC_FALLBACK_ROUTES = FALLBACK_ROUTES.map((route) => ({
   ...route,

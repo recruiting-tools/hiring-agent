@@ -2,6 +2,7 @@ export const ALWAYS_RUNNABLE_PLAYBOOK_KEYS = Object.freeze(
   new Set([
     "candidate_funnel",
     "setup_communication",
+    "view_vacancy",
     "account_access",
     "data_retention",
     "assistant_capabilities",
@@ -34,6 +35,18 @@ export const FALLBACK_ROUTES = Object.freeze([
   {
     playbook_key: "quick_start",
     keywords: ["быстрый старт", "с чего начать", "первый запуск", "чеклист", "quick start", "как начать"]
+  },
+  {
+    playbook_key: "view_vacancy",
+    keywords: [
+      "покажи текст вакансии",
+      "покажи текст текущей вакансии",
+      "показать текст вакансии",
+      "текст вакансии",
+      "карточка вакансии",
+      "описание вакансии",
+      "vacancy text"
+    ]
   },
   {
     playbook_key: "mass_broadcast",

@@ -562,6 +562,76 @@ test("hiring-agent: postChatMessage returns playbook_locked when tenant access d
   assert.equal(result.body.reply.playbook_key, "quick_start");
 });
 
+test("hiring-agent: legacy write_vacancy_text routes to view_vacancy and bypasses stale lock", async () => {
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.tenant_playbook_access")) {
+      return [{ playbook_key: "write_vacancy_text", enabled: false }];
+    }
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [
+        {
+          playbook_key: "write_vacancy_text",
+          name: "Показать текст вакансии",
+          trigger_description: "vacancy text",
+          status: "available",
+          sort_order: 1,
+          step_count: 0
+        }
+      ];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const tenantSql = async (strings) => {
+    const text = strings.join("");
+    if (text.includes("SELECT vacancy_id, job_id, title, status, extraction_status")) {
+      return [{
+        vacancy_id: "vac-legacy-001",
+        job_id: null,
+        title: "Менеджер по закупкам",
+        status: "active",
+        extraction_status: "ready"
+      }];
+    }
+
+    if (text.includes("FROM chatbot.jobs")) {
+      return [];
+    }
+
+    if (text.includes("SELECT") && text.includes("raw_text") && text.includes("must_haves")) {
+      return [{
+        vacancy_id: "vac-legacy-001",
+        title: "Менеджер по закупкам",
+        raw_text: "Полный текст вакансии для проверки legacy alias.",
+        must_haves: ["Опыт закупок от 3 лет"],
+        nice_haves: ["Опыт работы с 44-ФЗ"]
+      }];
+    }
+
+    throw new Error(`Unexpected tenant query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const result = await app.postChatMessage({
+    action: "start_playbook",
+    playbook_key: "write_vacancy_text",
+    tenantId: "tenant-legacy-001",
+    vacancy_id: "vac-legacy-001",
+    managementSql,
+    tenantSql
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.reply.kind, "display");
+  assert.equal(result.body.reply.content_type, "text");
+  assert.match(result.body.reply.content, /Менеджер по закупкам/);
+  assert.match(result.body.reply.content, /Полный текст вакансии/);
+});
+
 test("hiring-agent: postChatMessage returns playbook_not_found for unknown start_playbook key", async () => {
   const managementSql = async (strings) => {
     const text = strings.join("");
