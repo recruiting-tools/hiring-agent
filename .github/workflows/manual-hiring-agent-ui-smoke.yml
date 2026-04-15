@@ -1,0 +1,52 @@
+name: Manual hiring-agent UI smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "Sandbox slot"
+        required: true
+        type: choice
+        options:
+          - sandbox-1
+          - sandbox-2
+          - sandbox-3
+
+run-name: ui-smoke slot=${{ inputs.slot }} actor=@${{ github.actor }}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: UI smoke ${{ inputs.slot }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.slot }}
+    env:
+      PLAYWRIGHT_SMOKE_EMAIL: ${{ secrets.HIRING_AGENT_SANDBOX_DEMO_EMAIL }}
+      PLAYWRIGHT_SMOKE_PASSWORD: ${{ secrets.HIRING_AGENT_SANDBOX_DEMO_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Resolve smoke base URL
+        run: |
+          case "${{ inputs.slot }}" in
+            sandbox-1) echo "PLAYWRIGHT_SMOKE_BASE_URL=https://hiring-chat.recruiter-assistant.com/sandbox-001" >> "$GITHUB_ENV" ;;
+            sandbox-2) echo "PLAYWRIGHT_SMOKE_BASE_URL=https://hiring-chat.recruiter-assistant.com/sandbox-002" >> "$GITHUB_ENV" ;;
+            sandbox-3) echo "PLAYWRIGHT_SMOKE_BASE_URL=https://hiring-chat.recruiter-assistant.com/sandbox-003" >> "$GITHUB_ENV" ;;
+            *) echo "Unsupported slot"; exit 1 ;;
+          esac
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run UI smoke
+        run: node scripts/playwright-smoke.mjs
