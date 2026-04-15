@@ -211,6 +211,17 @@ jobs:
           REPO_URL: git@github.com:recruiting-tools/hiring-agent.git
         run: bash ./scripts/deploy-hiring-agent.sh
 
+      - name: Ensure sandbox bindings exist
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << 'EOF'
+            set -euo pipefail
+            cd "${{ steps.slot.outputs.deploy_dir }}"
+            set -a
+            . ./.env
+            set +a
+            node ./scripts/bootstrap-sandbox-bindings.js --source-env prod --target-env sandbox
+          EOF
+
       - name: Verify runtime on VM
         run: |
           ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << 'EOF'
