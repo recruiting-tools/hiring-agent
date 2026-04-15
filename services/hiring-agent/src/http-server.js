@@ -995,6 +995,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_QUERY_PARAM = 'state';
     const CHAT_STATE_HASH_PREFIX = 'state=';
+    const CHAT_SESSION_HASH_PREFIX = 's=';
     const CHAT_STATE_STORAGE_KEY = 'hiring-agent:chat-state:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_VERSION = 1;
     const STEP_LABELS = {
@@ -1016,9 +1017,10 @@ const CHAT_HTML = `<!DOCTYPE html>
     let selectedVacancyTitle = '';
     let activePlaybookKey = null;
     let activePlaybookContext = null;
+    let activeSessionId = null;
     let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
     let chatHistory = [];
-    let pendingInitialChatState = loadInitialChatState();
+    let pendingInitialChatStatePromise = loadInitialChatState();
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
     const chatLog        = document.getElementById('chat-log');
@@ -1124,6 +1126,7 @@ const CHAT_HTML = `<!DOCTYPE html>
           streaming = false;
           updateSendEnabled();
           scrollBottom();
+          void saveServerChatState();
         }
 
         if (data.type === 'error') {
@@ -1143,6 +1146,7 @@ const CHAT_HTML = `<!DOCTYPE html>
           }
           streaming = false;
           updateSendEnabled();
+          void saveServerChatState();
         }
       };
     }
@@ -1353,6 +1357,10 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     function applyServerState(data) {
+      if (data.sessionId) {
+        activeSessionId = String(data.sessionId);
+      }
+
       if (data.playbookActive && data.playbookKey) {
         activePlaybookKey = data.playbookKey;
       } else {
@@ -1435,10 +1443,13 @@ const CHAT_HTML = `<!DOCTYPE html>
         createOpt.textContent = '+ Создать вакансию';
         vacancySelect.appendChild(createOpt);
 
-        if (pendingInitialChatState) {
-          restoreChatState(pendingInitialChatState);
-          pendingInitialChatState = null;
-          return;
+        if (pendingInitialChatStatePromise) {
+          const pendingInitialChatState = await pendingInitialChatStatePromise;
+          pendingInitialChatStatePromise = null;
+          if (pendingInitialChatState) {
+            restoreChatState(pendingInitialChatState);
+            return;
+          }
         }
 
         const savedMatch = jobs.find((job) => String(job.vacancy_id) === savedVacancyId);
@@ -1471,6 +1482,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     function onVacancySelected(vacancyId, title, jobId) {
       clearActivePlaybookState();
+      activeSessionId = null;
       selectedVacancyId = vacancyId;
       selectedVacancyJobId = jobId || null;
       selectedVacancyTitle = title || '';
@@ -1500,6 +1512,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     function triggerCreateVacancy() {
       clearActivePlaybookState();
+      activeSessionId = null;
       selectedVacancyId = null;
       selectedVacancyJobId = null;
       selectedVacancyTitle = '';
@@ -1603,6 +1616,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     function serializeChatState() {
       return {
         version: CHAT_STATE_VERSION,
+        sessionId: activeSessionId ? String(activeSessionId) : null,
         vacancyId: selectedVacancyId ? String(selectedVacancyId) : null,
         jobId: selectedVacancyJobId ? String(selectedVacancyJobId) : null,
         vacancyTitle: selectedVacancyTitle || '',
@@ -1664,6 +1678,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       return {
         version: Number(state.version) || CHAT_STATE_VERSION,
+        sessionId: state.sessionId ? String(state.sessionId) : null,
         vacancyId: state.vacancyId ? String(state.vacancyId) : null,
         jobId: state.jobId ? String(state.jobId) : null,
         vacancyTitle: typeof state.vacancyTitle === 'string' ? state.vacancyTitle : '',
@@ -1680,7 +1695,6 @@ const CHAT_HTML = `<!DOCTYPE html>
         || state.playbookKey
         || state.history.length > 0
       );
-      const encoded = hasMeaningfulState ? encodeChatState(state) : '';
 
       try {
         if (hasMeaningfulState) {
@@ -1692,11 +1706,23 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       const nextUrl = new URL(window.location.href);
       nextUrl.searchParams.delete(CHAT_STATE_QUERY_PARAM);
-      nextUrl.hash = encoded ? CHAT_STATE_HASH_PREFIX + encoded : '';
+      nextUrl.hash = activeSessionId
+        ? CHAT_SESSION_HASH_PREFIX + encodeURIComponent(activeSessionId)
+        : '';
       history.replaceState(null, '', nextUrl.toString());
     }
 
-    function loadInitialChatState() {
+    async function loadInitialChatState() {
+      const hashSessionId = window.location.hash.startsWith('#' + CHAT_SESSION_HASH_PREFIX)
+        ? decodeURIComponent(window.location.hash.slice(CHAT_SESSION_HASH_PREFIX.length + 1))
+        : '';
+      if (hashSessionId) {
+        activeSessionId = hashSessionId;
+        const fromServer = await fetchChatStateBySessionId(hashSessionId);
+        if (fromServer) return fromServer;
+        activeSessionId = null;
+      }
+
       const hashState = window.location.hash.startsWith('#' + CHAT_STATE_HASH_PREFIX)
         ? window.location.hash.slice(CHAT_STATE_HASH_PREFIX.length + 1)
         : '';
@@ -1717,6 +1743,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       if (!normalized) return;
 
       clearActivePlaybookState();
+      activeSessionId = normalized.sessionId || activeSessionId;
       activePlaybookKey = normalized.playbookKey;
       activePlaybookContext = normalized.playbookContext;
       selectedVacancyId = normalized.vacancyId;
@@ -1749,6 +1776,40 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       updateSendEnabled();
       persistChatState();
+    }
+
+    async function fetchChatStateBySessionId(sessionId) {
+      if (!sessionId) return null;
+
+      try {
+        const res = await fetch(withBasePath('/api/chat-state?session_id=' + encodeURIComponent(sessionId)));
+        if (res.status === 401) {
+          window.location = LOGIN_PATH;
+          return null;
+        }
+        if (!res.ok) {
+          return null;
+        }
+        const data = await res.json();
+        return normalizeChatState(data.snapshot);
+      } catch {
+        return null;
+      }
+    }
+
+    async function saveServerChatState() {
+      if (!activeSessionId) return;
+
+      try {
+        await fetch(withBasePath('/api/chat-state'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            session_id: activeSessionId,
+            snapshot: serializeChatState()
+          })
+        });
+      } catch {}
     }
 
     // ── Init ──────────────────────────────────────────────────────────────────
@@ -2184,6 +2245,50 @@ export function createHiringAgentServer(app, options = {}) {
           tenantSql: accessContext.tenantSql,
           tenantId: accessContext.tenantId
         });
+        writeJson(response, result.status, result.body);
+        return;
+      }
+
+      if (request.method === "GET" && normalizedPath === "/api/chat-state") {
+        const accessContext = await requireAccessContext(request, response, {
+          managementStore,
+          poolRegistry,
+          appEnv,
+          sessionCookieName
+        });
+        if (!accessContext) return;
+
+        const sessionId = requestUrl.searchParams.get("session_id");
+        const result = await app.getChatState({
+          tenantId: accessContext.tenantId,
+          sessionId,
+          managementSql
+        });
+        writeJson(response, result.status, result.body);
+        return;
+      }
+
+      if (request.method === "POST" && normalizedPath === "/api/chat-state") {
+        const accessContext = await requireAccessContext(request, response, {
+          managementStore,
+          poolRegistry,
+          appEnv,
+          sessionCookieName
+        });
+        if (!accessContext) return;
+
+        const body = await readJsonBody(request);
+        const result = await app.saveChatState({
+          tenantId: accessContext.tenantId,
+          sessionId: body.session_id,
+          snapshot: body.snapshot,
+          managementSql
+        });
+        if (result.status === 204) {
+          response.writeHead(204);
+          response.end();
+          return;
+        }
         writeJson(response, result.status, result.body);
         return;
       }

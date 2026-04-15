@@ -132,6 +132,30 @@ export function createManagementStore(managementSql) {
       return rows[0] ?? null;
     },
 
+    async getPlaybookSessionById({ tenantId, sessionId }) {
+      const rows = await managementSql`
+        SELECT
+          session_id,
+          tenant_id,
+          recruiter_id,
+          conversation_id,
+          playbook_key,
+          current_step_order,
+          vacancy_id,
+          context,
+          call_stack,
+          status,
+          started_at,
+          updated_at,
+          completed_at
+        FROM management.playbook_sessions
+        WHERE tenant_id = ${value(tenantId)}
+          AND session_id = ${value(sessionId)}
+        LIMIT 1
+      `;
+      return rows[0] ?? null;
+    },
+
     async createPlaybookSession({
       tenantId,
       recruiterId,
