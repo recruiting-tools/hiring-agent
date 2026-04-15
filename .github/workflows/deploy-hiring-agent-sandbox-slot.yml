@@ -220,6 +220,11 @@ jobs:
             echo "- Password: \`$PASSWORD\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Install runner dependencies for bootstrap
+        run: |
+          corepack enable >/dev/null 2>&1 || true
+          corepack pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Bootstrap sandbox demo recruiter
         env:
           MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
