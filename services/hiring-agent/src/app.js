@@ -12,12 +12,15 @@ import {
   STATIC_UTILITY_PLAYBOOK_KEYS,
   buildStaticPlaybookReply
 } from "./playbooks/playbook-contracts.js";
+import { createManagementStore } from "../../../packages/access-context/src/management-store.js";
 
 const TENANT_DB_TIMEOUT_MS = 5000;
 const DATA_RETENTION_CONFIRMATION_TEXT = "delete all my data";
 const ACCOUNT_ACCESS_PLAYBOOK_KEY = "account_access";
 const DATA_RETENTION_PLAYBOOK_KEY = "data_retention";
 const DATA_RETENTION_TRIGGER_TEXT = `Введите ровно: ${DATA_RETENTION_CONFIRMATION_TEXT}`;
+const CLIENT_CHAT_STATE_CONTEXT_KEY = "__client_chat_state";
+const MAX_CHAT_STATE_BYTES = 256 * 1024;
 
 const ACCOUNT_ACCESS_QUERY = {
   oauthTokensRemoved: {
@@ -651,6 +654,102 @@ export function createHiringAgentApp(options = {}) {
       };
     },
 
+    async saveChatState({
+      tenantId = null,
+      sessionId = null,
+      snapshot = null,
+      managementSql: requestManagementSql = managementSql
+    }) {
+      if (!requestManagementSql) {
+        return {
+          status: 501,
+          body: { error: "management_sql_not_configured" }
+        };
+      }
+
+      if (!tenantId || !sessionId) {
+        return {
+          status: 400,
+          body: { error: "tenant_id_and_session_id_required" }
+        };
+      }
+
+      const normalizedSnapshot = normalizePersistedChatState(snapshot);
+      if (!normalizedSnapshot) {
+        return {
+          status: 400,
+          body: { error: "invalid_chat_state" }
+        };
+      }
+
+      const serializedSnapshot = JSON.stringify(normalizedSnapshot);
+      if (Buffer.byteLength(serializedSnapshot, "utf8") > MAX_CHAT_STATE_BYTES) {
+        return {
+          status: 413,
+          body: { error: "chat_state_too_large" }
+        };
+      }
+
+      const store = createManagementStore(requestManagementSql);
+      const session = await store.getPlaybookSessionById({ tenantId, sessionId });
+      if (!session) {
+        return {
+          status: 404,
+          body: { error: "chat_state_session_not_found" }
+        };
+      }
+
+      const context = normalizeContextObject(session.context);
+      context[CLIENT_CHAT_STATE_CONTEXT_KEY] = normalizedSnapshot;
+      await store.updateSession(session.session_id, { context });
+
+      return {
+        status: 204,
+        body: null
+      };
+    },
+
+    async getChatState({
+      tenantId = null,
+      sessionId = null,
+      managementSql: requestManagementSql = managementSql
+    }) {
+      if (!requestManagementSql) {
+        return {
+          status: 501,
+          body: { error: "management_sql_not_configured" }
+        };
+      }
+
+      if (!tenantId || !sessionId) {
+        return {
+          status: 400,
+          body: { error: "tenant_id_and_session_id_required" }
+        };
+      }
+
+      const store = createManagementStore(requestManagementSql);
+      const session = await store.getPlaybookSessionById({ tenantId, sessionId });
+      if (!session) {
+        return {
+          status: 404,
+          body: { error: "chat_state_session_not_found" }
+        };
+      }
+
+      const context = normalizeContextObject(session.context);
+      const persistedSnapshot = normalizePersistedChatState(context[CLIENT_CHAT_STATE_CONTEXT_KEY]);
+      const snapshot = persistedSnapshot ?? buildFallbackChatStateSnapshot(session, context);
+
+      return {
+        status: 200,
+        body: {
+          session_id: session.session_id,
+          snapshot
+        }
+      };
+    },
+
     async getVacancies({ tenantSql = null, tenantId = null }) {
       if (!tenantSql) {
         return {
@@ -1262,4 +1361,76 @@ function formatMustHaves(raw) {
 
 function escapeMarkdownTableCell(value) {
   return String(value ?? "—").replace(/\|/g, "\\|");
+}
+
+function normalizeContextObject(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return structuredClone(value);
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
+}
+
+function normalizePersistedChatState(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return null;
+  }
+
+  const normalizedHistory = Array.isArray(snapshot.history)
+    ? snapshot.history
+      .filter((entry) => entry && typeof entry === "object")
+      .map((entry) => ({
+        kind: entry.kind === "user" ? "user" : (entry.kind === "assistant" ? "assistant" : "system"),
+        text: typeof entry.text === "string" ? entry.text : "",
+        markdown: typeof entry.markdown === "string" ? entry.markdown : "",
+        welcome: entry.welcome === true,
+        actions: Array.isArray(entry.actions)
+          ? entry.actions
+            .filter((action) => action && typeof action === "object")
+            .map((action) => ({
+              label: String(action.label ?? ""),
+              message: String(action.message ?? "")
+            }))
+          : []
+      }))
+    : [];
+
+  return {
+    version: Number(snapshot.version) || 1,
+    sessionId: snapshot.sessionId ? String(snapshot.sessionId) : null,
+    vacancyId: snapshot.vacancyId ? String(snapshot.vacancyId) : null,
+    jobId: snapshot.jobId ? String(snapshot.jobId) : null,
+    vacancyTitle: typeof snapshot.vacancyTitle === "string" ? snapshot.vacancyTitle : "",
+    playbookKey: typeof snapshot.playbookKey === "string" ? snapshot.playbookKey : null,
+    playbookContext: snapshot.playbookContext && typeof snapshot.playbookContext === "object" && !Array.isArray(snapshot.playbookContext)
+      ? snapshot.playbookContext
+      : null,
+    history: normalizedHistory
+  };
+}
+
+function buildFallbackChatStateSnapshot(session, context) {
+  const vacancy = context?.vacancy && typeof context.vacancy === "object" ? context.vacancy : null;
+
+  return {
+    version: 1,
+    sessionId: session?.session_id ? String(session.session_id) : null,
+    vacancyId: session?.vacancy_id ? String(session.vacancy_id) : null,
+    jobId: vacancy?.job_id ? String(vacancy.job_id) : null,
+    vacancyTitle: typeof vacancy?.title === "string" ? vacancy.title : "",
+    playbookKey: session?.playbook_key ? String(session.playbook_key) : null,
+    playbookContext: null,
+    history: []
+  };
 }
