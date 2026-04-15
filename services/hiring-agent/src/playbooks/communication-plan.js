@@ -14,11 +14,16 @@ import { createHash } from "node:crypto";
 const ACTION_SAVE = "save";
 const ACTION_EDIT = "edit";
 const ACTION_START = "start";
+const ACTION_GENERATE_CONVERSATIONS = "generate_conversations";
 const ACTION_SHOW = "show";
 
 const SAVE_ACTION_MESSAGE = "настроить общение: сохранить настройку коммуникаций";
 const START_ACTION_MESSAGE = "настроить общение: запустить сценарий коммуникаций";
+const GENERATE_CONVERSATIONS_ACTION_MESSAGE = "настроить общение: сгенерировать примеры общения";
 const EDIT_ACTION_MESSAGE = "настроить общение: поправить сценарий коммуникаций";
+
+const EXAMPLE_KIND_FIRST_MESSAGE = "first_message";
+const EXAMPLE_KIND_CONVERSATION = "conversation_example";
 
 export async function runCommunicationPlanPlaybook({
   tenantSql,
@@ -69,11 +74,7 @@ export async function runCommunicationPlanPlaybook({
     examples,
     examplesPlanHash: vacancy.communication_examples_plan_hash
   });
-  const draftExamples = resolveExamplesForPlan({
-    plan: draftPlan,
-    examples,
-    examplesPlanHash: vacancy.communication_examples_plan_hash
-  });
+  const savedExampleSets = splitExamples(savedExamples);
 
   if (action === ACTION_SAVE) {
     if (!draftPlan) {
@@ -81,9 +82,11 @@ export async function runCommunicationPlanPlaybook({
         return {
           reply: buildCommunicationPlanReply({
             plan: savedPlan,
-            examples: savedExamples,
+            firstMessageExamples: savedExampleSets.firstMessageExamples,
+            conversationExamples: savedExampleSets.conversationExamples,
             note: "Уже настроено. Черновик не найден, показываю сохраненную версию.",
-            isConfigured: true
+            isConfigured: true,
+            vacancyId: resolvedVacancyId
           })
         };
       }
@@ -119,9 +122,11 @@ export async function runCommunicationPlanPlaybook({
         return {
           reply: buildCommunicationPlanReply({
             plan: draftPlan,
-            examples: syncedExamples,
+            firstMessageExamples: splitExamples(syncedExamples).firstMessageExamples,
+            conversationExamples: splitExamples(syncedExamples).conversationExamples,
             note: "Сценарий собран, но сохранить настройку в базе не удалось. Попробуйте снова через минуту.",
-            isConfigured: false
+            isConfigured: false,
+            vacancyId: resolvedVacancyId
           })
         };
       }
@@ -131,9 +136,11 @@ export async function runCommunicationPlanPlaybook({
     return {
       reply: buildCommunicationPlanReply({
         plan: draftPlan,
-        examples: syncedExamples,
+        firstMessageExamples: splitExamples(syncedExamples).firstMessageExamples,
+        conversationExamples: splitExamples(syncedExamples).conversationExamples,
         note: "Настройка сохранена в базе для этой вакансии.",
-        isConfigured: true
+        isConfigured: true,
+        vacancyId: resolvedVacancyId
       })
     };
   }
@@ -163,12 +170,21 @@ export async function runCommunicationPlanPlaybook({
       buildExamplesPrompt(vacancy, planForExamples),
       llmConfig.examplesModel
     );
-    const generatedExamples = normalizeExamples(parseJsonPayload(rawExamples));
+    const generatedExampleSets = splitExamples(normalizeExamples(parseJsonPayload(rawExamples)));
+    const currentExampleSets = splitExamples(resolveExamplesForPlan({
+      plan: planForExamples,
+      examples,
+      examplesPlanHash: vacancy.communication_examples_plan_hash
+    }));
+    const mergedExamples = [
+      ...generatedExampleSets.firstMessageExamples,
+      ...currentExampleSets.conversationExamples
+    ];
 
     await tenantSql`
       UPDATE chatbot.vacancies
       SET
-        communication_examples = ${JSON.stringify(generatedExamples)}::jsonb,
+        communication_examples = ${JSON.stringify(mergedExamples)}::jsonb,
         communication_examples_plan_hash = ${computePlanHash(planForExamples)},
         updated_at = now()
       WHERE vacancy_id = ${resolvedVacancyId}
@@ -177,9 +193,68 @@ export async function runCommunicationPlanPlaybook({
     return {
       reply: buildCommunicationPlanReply({
         plan: planForExamples,
-        examples: generatedExamples,
+        firstMessageExamples: generatedExampleSets.firstMessageExamples,
+        conversationExamples: currentExampleSets.conversationExamples,
         note: "Сгенерировал примеры первого сообщения по текущему сценарию.",
-        isConfigured: Boolean(savedPlan) && !draftPlan
+        isConfigured: Boolean(savedPlan) && !draftPlan,
+        vacancyId: resolvedVacancyId
+      })
+    };
+  }
+
+  if (action === ACTION_GENERATE_CONVERSATIONS) {
+    const planForExamples = draftPlan ?? savedPlan;
+    if (!planForExamples) {
+      return {
+        reply: {
+          kind: "fallback_text",
+          text: "Сначала сформируйте сценарий коммуникаций, затем генерируйте примеры общения."
+        }
+      };
+    }
+
+    if (!llmAdapter?.generate) {
+      return {
+        reply: {
+          kind: "fallback_text",
+          text: "LLM не настроен. Обратитесь к администратору."
+        }
+      };
+    }
+
+    const rawExamples = await generateWithModel(
+      llmAdapter,
+      buildConversationExamplesPrompt(vacancy, planForExamples),
+      llmConfig.examplesModel
+    );
+    const generatedExampleSets = splitExamples(normalizeExamples(parseJsonPayload(rawExamples)));
+    const currentExampleSets = splitExamples(resolveExamplesForPlan({
+      plan: planForExamples,
+      examples,
+      examplesPlanHash: vacancy.communication_examples_plan_hash
+    }));
+    const mergedExamples = [
+      ...currentExampleSets.firstMessageExamples,
+      ...generatedExampleSets.conversationExamples
+    ];
+
+    await tenantSql`
+      UPDATE chatbot.vacancies
+      SET
+        communication_examples = ${JSON.stringify(mergedExamples)}::jsonb,
+        communication_examples_plan_hash = ${computePlanHash(planForExamples)},
+        updated_at = now()
+      WHERE vacancy_id = ${resolvedVacancyId}
+    `;
+
+    return {
+      reply: buildCommunicationPlanReply({
+        plan: planForExamples,
+        firstMessageExamples: currentExampleSets.firstMessageExamples,
+        conversationExamples: generatedExampleSets.conversationExamples,
+        note: "Сгенерировал тренировочные примеры общения с кандидатом по этому сценарию.",
+        isConfigured: Boolean(savedPlan) && !draftPlan,
+        vacancyId: resolvedVacancyId
       })
     };
   }
@@ -188,9 +263,11 @@ export async function runCommunicationPlanPlaybook({
     return {
       reply: buildCommunicationPlanReply({
         plan: savedPlan,
-        examples: savedExamples,
+        firstMessageExamples: savedExampleSets.firstMessageExamples,
+        conversationExamples: savedExampleSets.conversationExamples,
         note: "Уже настроено. Текущий сценарий выглядит так:",
-        isConfigured: true
+        isConfigured: true,
+        vacancyId: resolvedVacancyId
       })
     };
   }
@@ -237,13 +314,19 @@ export async function runCommunicationPlanPlaybook({
       return {
         reply: buildCommunicationPlanReply({
           plan: draft,
-          examples: resolveExamplesForPlan({
+          firstMessageExamples: splitExamples(resolveExamplesForPlan({
             plan: draft,
             examples,
             examplesPlanHash: vacancy.communication_examples_plan_hash
-          }),
+          })).firstMessageExamples,
+          conversationExamples: splitExamples(resolveExamplesForPlan({
+            plan: draft,
+            examples,
+            examplesPlanHash: vacancy.communication_examples_plan_hash
+          })).conversationExamples,
           note: "Сценарий сформирован, но черновик не сохранился в базе. Можно продолжить и сохранить позже.",
-          isConfigured: false
+          isConfigured: false,
+          vacancyId: resolvedVacancyId
         })
       };
     }
@@ -253,15 +336,21 @@ export async function runCommunicationPlanPlaybook({
   return {
     reply: buildCommunicationPlanReply({
       plan: draft,
-      examples: resolveExamplesForPlan({
+      firstMessageExamples: splitExamples(resolveExamplesForPlan({
         plan: draft,
         examples,
         examplesPlanHash: vacancy.communication_examples_plan_hash
-      }),
+      })).firstMessageExamples,
+      conversationExamples: splitExamples(resolveExamplesForPlan({
+        plan: draft,
+        examples,
+        examplesPlanHash: vacancy.communication_examples_plan_hash
+      })).conversationExamples,
       note: action === ACTION_EDIT
         ? "Обновил черновик сценария. Проверьте и сохраните, если подходит."
         : "Сформировал один рабочий сценарий в табличном формате.",
-      isConfigured: false
+      isConfigured: false,
+      vacancyId: resolvedVacancyId
     })
   };
 }
@@ -388,13 +477,62 @@ function buildExamplesPrompt(vacancy, plan) {
 ${steps}`;
 }
 
-function buildCommunicationPlanReply({ plan, examples, note, isConfigured }) {
+function buildConversationExamplesPrompt(vacancy, plan) {
+  const steps = plan.steps
+    .map((step, index) => `${index + 1}. ${step.step} (напоминаний: ${step.reminders_count}; комментарий: ${step.comment})`)
+    .join("\n");
+
+  return `Сгенерируй реалистичные тренировочные диалоги рекрутера и кандидата.
+
+Важно:
+- Это синтетические примеры для тренировки, не для реальной отправки в HH.
+- Не используй реальные персональные данные, телефоны, email, ссылки.
+- Рекрутер пишет коротко и по делу, кандидат отвечает естественно.
+
+Верни только валидный JSON-массив без markdown и пояснений.
+
+Формат:
+[
+  {
+    "title": "Название варианта",
+    "summary": "Краткое резюме кандидата и контекст",
+    "turns": [
+      { "speaker": "recruiter", "message": "..." },
+      { "speaker": "candidate", "message": "..." }
+    ]
+  }
+]
+
+Требования:
+- Верни ровно 3 варианта
+- В каждом варианте 6-10 реплик
+- Структура должна следовать шагам сценария
+- Завершение диалога: приглашение на следующий этап и подтверждение кандидата
+- Речь живая, без канцелярита
+
+Должность: ${vacancy.title ?? "не указана"}
+Сценарий: ${plan.scenario_title}
+Цель: ${plan.goal}
+Шаги:
+${steps}`;
+}
+
+function buildCommunicationPlanReply({
+  plan,
+  firstMessageExamples,
+  conversationExamples,
+  note,
+  isConfigured,
+  vacancyId
+}) {
   return {
     kind: "communication_plan",
     scenario_title: plan.scenario_title,
     goal: plan.goal,
     steps: plan.steps,
-    examples,
+    vacancy_id: vacancyId ?? null,
+    examples: firstMessageExamples,
+    conversation_examples: conversationExamples,
     note,
     is_configured: isConfigured,
     actions: buildActions({ isConfigured })
@@ -416,6 +554,11 @@ function buildActions({ isConfigured }) {
   });
 
   actions.push({
+    label: "Сгенерировать примеры общения",
+    message: GENERATE_CONVERSATIONS_ACTION_MESSAGE
+  });
+
+  actions.push({
     label: "Поправить",
     message: EDIT_ACTION_MESSAGE
   });
@@ -429,6 +572,9 @@ function detectAction(input) {
   if (text.includes("сохранить настрой")) return ACTION_SAVE;
   if (text.includes("запустить сценар") || text.includes("запуск сценар")) {
     return ACTION_START;
+  }
+  if (text.includes("сгенерировать примеры общен") || text.includes("примеры общения")) {
+    return ACTION_GENERATE_CONVERSATIONS;
   }
   if (text.includes("поправить") || text.includes("изменить сценар") || text.includes("отредактир")) {
     return ACTION_EDIT;
@@ -506,12 +652,76 @@ function normalizePlan(rawPlan) {
 function normalizeExamples(rawExamples) {
   if (!Array.isArray(rawExamples)) return [];
   return rawExamples
-    .map((item, index) => ({
-      title: cleanText(item?.title, `Вариант ${index + 1}`),
-      message: cleanText(item?.message ?? item?.text, "")
-    }))
-    .filter((item) => item.message.length > 0)
-    .slice(0, 5);
+    .map((item, index) => {
+      const title = cleanText(item?.title, `Вариант ${index + 1}`);
+      const turns = normalizeConversationTurns(item?.turns ?? item?.conversation ?? item?.dialogue);
+      if (turns.length > 0) {
+        return {
+          kind: EXAMPLE_KIND_CONVERSATION,
+          title,
+          summary: cleanText(item?.summary, ""),
+          turns
+        };
+      }
+
+      const message = cleanText(item?.message ?? item?.text, "");
+      if (!message) return null;
+      return {
+        kind: EXAMPLE_KIND_FIRST_MESSAGE,
+        title,
+        message
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function normalizeConversationTurns(rawTurns) {
+  if (!Array.isArray(rawTurns)) return [];
+  const turns = rawTurns
+    .map((turn) => {
+      const speaker = normalizeSpeaker(turn?.speaker ?? turn?.role ?? turn?.author);
+      const message = cleanText(turn?.message ?? turn?.text, "");
+      if (!speaker || !message) return null;
+      return { speaker, message };
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+  return turns.length >= 4 ? turns : [];
+}
+
+function normalizeSpeaker(value) {
+  const raw = String(value ?? "").toLowerCase().trim();
+  if (["recruiter", "employer", "assistant", "manager", "hr"].includes(raw)) return "recruiter";
+  if (["candidate", "applicant", "user"].includes(raw)) return "candidate";
+  return null;
+}
+
+function splitExamples(examples) {
+  const firstMessageExamples = [];
+  const conversationExamples = [];
+
+  for (const item of Array.isArray(examples) ? examples : []) {
+    if (item?.kind === EXAMPLE_KIND_CONVERSATION && Array.isArray(item.turns) && item.turns.length > 0) {
+      conversationExamples.push({
+        kind: EXAMPLE_KIND_CONVERSATION,
+        title: cleanText(item.title, "Вариант"),
+        summary: cleanText(item.summary, ""),
+        turns: item.turns
+      });
+      continue;
+    }
+
+    const message = cleanText(item?.message ?? item?.text, "");
+    if (!message) continue;
+    firstMessageExamples.push({
+      kind: EXAMPLE_KIND_FIRST_MESSAGE,
+      title: cleanText(item?.title, "Вариант"),
+      message
+    });
+  }
+
+  return { firstMessageExamples, conversationExamples };
 }
 
 function cleanText(value, fallback) {

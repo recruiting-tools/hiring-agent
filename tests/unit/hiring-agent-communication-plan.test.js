@@ -38,7 +38,7 @@ test("communication plan: returns saved plan without LLM call", async () => {
   assert.equal(result.reply.is_configured, true);
   assert.deepEqual(
     result.reply.actions.map((item) => item.label),
-    ["Запустить", "Поправить"]
+    ["Запустить", "Сгенерировать примеры общения", "Поправить"]
   );
   assert.equal(result.reply.steps.length, 4);
 });
@@ -80,7 +80,7 @@ test("communication plan: creates draft on initial generation", async () => {
   assert.equal(result.reply.is_configured, false);
   assert.deepEqual(
     result.reply.actions.map((item) => item.label),
-    ["Сохранить", "Запустить", "Поправить"]
+    ["Сохранить", "Запустить", "Сгенерировать примеры общения", "Поправить"]
   );
   assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
 });
@@ -253,8 +253,61 @@ test("communication plan: start command generates and stores examples", async ()
   assert.equal(typeof store.getVacancy().communication_examples_plan_hash, "string");
   assert.deepEqual(
     result.reply.actions.map((item) => item.label),
-    ["Запустить", "Поправить"]
+    ["Запустить", "Сгенерировать примеры общения", "Поправить"]
   );
+});
+
+test("communication plan: generate conversations command stores recruiter-candidate dialogs", async () => {
+  const savedPlan = {
+    scenario_title: "Сценарий",
+    goal: "Собеседование",
+    steps: [
+      { step: "Приветствие и уточняющий вопрос?", reminders_count: 1, comment: "Установить контакт" },
+      { step: "Квалификация", reminders_count: 1, comment: "Понять релевантность" },
+      { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП и графику" },
+      { step: "Приглашение на интервью", reminders_count: 2, comment: "Согласовать слот" }
+    ]
+  };
+
+  const store = createVacancySql({
+    vacancy_id: "vac-4b",
+    title: "Менеджер по продажам",
+    communication_plan: savedPlan,
+    communication_plan_draft: null,
+    communication_examples: [
+      { title: "Деловой", message: "Добрый день! Что для вас ключевое в новой роли?" }
+    ]
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-4b",
+    recruiterInput: "настроить общение: сгенерировать примеры общения",
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify([
+          {
+            title: "Сильный опыт B2B",
+            summary: "Кандидат 5 лет в B2B, мотивация на рост дохода",
+            turns: [
+              { speaker: "recruiter", message: "Здравствуйте! Готовы обсудить новую роль?" },
+              { speaker: "candidate", message: "Да, рассматриваю варианты." },
+              { speaker: "recruiter", message: "Какой у вас опыт B2B-продаж?" },
+              { speaker: "candidate", message: "5 лет, сложные сделки до 6 месяцев." },
+              { speaker: "recruiter", message: "Подходит. Готовы к интервью завтра?" },
+              { speaker: "candidate", message: "Да, завтра после 14:00 удобно." }
+            ]
+          }
+        ]);
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.conversation_examples.length, 1);
+  assert.equal(result.reply.examples.length, 0);
+  assert.equal(store.getVacancy().communication_examples.length, 1);
+  assert.equal(typeof store.getVacancy().communication_examples_plan_hash, "string");
 });
 
 test("communication plan: save clears stale examples from previous plan", async () => {

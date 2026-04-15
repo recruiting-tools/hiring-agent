@@ -1457,7 +1457,9 @@ function formatCommunicationPlanMarkdown(reply) {
   const goal = String(reply.goal ?? "Договориться о следующем шаге");
   const rows = Array.isArray(reply.steps) ? reply.steps : [];
   const examples = Array.isArray(reply.examples) ? reply.examples : [];
+  const conversationExamples = Array.isArray(reply.conversation_examples) ? reply.conversation_examples : [];
   const note = String(reply.note ?? "").trim();
+  const vacancyId = String(reply.vacancy_id ?? "").trim();
 
   const tableRows = rows.length > 0
     ? rows.map((row) => {
@@ -1479,8 +1481,33 @@ function formatCommunicationPlanMarkdown(reply) {
     ].join("\n")
     : "";
 
+  const reportPath = vacancyId ? `chat/communication-examples?vacancy_id=${encodeURIComponent(vacancyId)}` : null;
+  const conversationsBlock = conversationExamples.length > 0
+    ? [
+      "",
+      "### Примеры общения (рекрутер ↔ кандидат)",
+      "",
+      ...conversationExamples.map((item, index) => {
+        const turns = Array.isArray(item?.turns) ? item.turns : [];
+        const preview = turns
+          .slice(0, 4)
+          .map((turn) => `- **${turn?.speaker === "candidate" ? "Кандидат" : "Рекрутер"}:** ${turn?.message ?? "—"}`)
+          .join("\n");
+        return [
+          `**${index + 1}. ${item?.title ?? `Диалог ${index + 1}`}` + "**",
+          item?.summary ? `_${item.summary}_` : "",
+          preview
+        ].filter(Boolean).join("\n");
+      }),
+      reportPath ? `\n[Открыть HTML-отчёт](${reportPath})` : ""
+    ].join("\n")
+    : "";
+
   const hintBlock = examples.length === 0
     ? "\n\n_Чтобы получить примеры первого сообщения, нажмите «Запустить»._"
+    : "";
+  const conversationHintBlock = conversationExamples.length === 0
+    ? "\n\n_Чтобы получить тренировочный диалог, нажмите «Сгенерировать примеры общения»._"
     : "";
 
   return [
@@ -1494,7 +1521,9 @@ function formatCommunicationPlanMarkdown(reply) {
     tableRows,
     note ? `\n> ${note}` : "",
     hintBlock,
-    examplesBlock
+    conversationHintBlock,
+    examplesBlock,
+    conversationsBlock
   ].filter(Boolean).join("\n");
 }
 
@@ -1774,6 +1803,37 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
 
+      if (request.method === "GET" && normalizedPath === "/chat/communication-examples") {
+        const accessContext = await requireAccessContext(request, response, {
+          managementStore,
+          poolRegistry,
+          appEnv,
+          sessionCookieName
+        });
+        if (!accessContext) return;
+        if (!accessContext.tenantSql) {
+          writeJson(response, 501, { error: "tenant_sql_not_configured" });
+          return;
+        }
+
+        const vacancyId = requestUrl.searchParams.get("vacancy_id");
+        const jobId = requestUrl.searchParams.get("job_id");
+        if (!vacancyId && !jobId) {
+          writeJson(response, 400, { error: "vacancy_or_job_id_required" });
+          return;
+        }
+
+        const reportData = await getCommunicationExamplesReportData(accessContext.tenantSql, { vacancyId, jobId });
+        if (!reportData) {
+          writeJson(response, 404, { error: "communication_examples_not_found" });
+          return;
+        }
+
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(renderCommunicationExamplesReportHtml(reportData));
+        return;
+      }
+
       if (request.method === "GET" && (normalizedPath === "/api/jobs" || normalizedPath === "/api/vacancies")) {
         const accessContext = await requireAccessContext(request, response, {
           managementStore,
@@ -2043,6 +2103,152 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+async function getCommunicationExamplesReportData(tenantSql, { vacancyId, jobId }) {
+  const rows = vacancyId
+    ? await tenantSql`
+      SELECT vacancy_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
+      FROM chatbot.vacancies
+      WHERE vacancy_id = ${vacancyId}
+      LIMIT 1
+    `
+    : await tenantSql`
+      SELECT vacancy_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
+      FROM chatbot.vacancies
+      WHERE job_id = ${jobId}
+      ORDER BY
+        CASE status
+          WHEN 'active' THEN 0
+          WHEN 'draft' THEN 1
+          ELSE 2
+        END ASC,
+        updated_at DESC,
+        created_at DESC
+      LIMIT 1
+    `;
+
+  const vacancy = rows[0] ?? null;
+  if (!vacancy) return null;
+
+  return {
+    vacancyId: vacancy.vacancy_id,
+    title: vacancy.title ?? "Вакансия",
+    updatedAt: vacancy.updated_at ?? null,
+    plan: normalizeReportPlan(vacancy.communication_plan_draft) ?? normalizeReportPlan(vacancy.communication_plan),
+    conversationExamples: normalizeReportConversationExamples(vacancy.communication_examples)
+  };
+}
+
+function normalizeReportPlan(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rows = Array.isArray(raw.steps) ? raw.steps : [];
+  if (rows.length === 0) return null;
+  return {
+    scenarioTitle: String(raw.scenario_title ?? "Сценарий").trim() || "Сценарий",
+    goal: String(raw.goal ?? "Договориться о следующем шаге").trim() || "Договориться о следующем шаге",
+    steps: rows.map((row) => ({
+      step: String(row?.step ?? "").trim(),
+      remindersCount: Number.isFinite(Number(row?.reminders_count)) ? Math.round(Number(row.reminders_count)) : 0,
+      comment: String(row?.comment ?? "").trim()
+    })).filter((row) => row.step.length > 0)
+  };
+}
+
+function normalizeReportConversationExamples(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item, index) => {
+      const turns = Array.isArray(item?.turns)
+        ? item.turns
+          .map((turn) => {
+            const role = String(turn?.speaker ?? turn?.role ?? "").toLowerCase().trim();
+            const speaker = role === "candidate" ? "candidate" : (role === "recruiter" ? "recruiter" : null);
+            const message = String(turn?.message ?? turn?.text ?? "").trim();
+            if (!speaker || !message) return null;
+            return { speaker, message };
+          })
+          .filter(Boolean)
+        : [];
+      if (turns.length === 0) return null;
+      return {
+        title: String(item?.title ?? `Диалог ${index + 1}`).trim() || `Диалог ${index + 1}`,
+        summary: String(item?.summary ?? "").trim(),
+        turns: turns.slice(0, 12)
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function renderCommunicationExamplesReportHtml(report) {
+  const updatedAtLabel = report.updatedAt
+    ? new Date(report.updatedAt).toLocaleString("ru-RU")
+    : "—";
+  const planRows = report.plan?.steps?.length
+    ? report.plan.steps.map((row) => (
+      `<tr><td>${escapeHtml(row.step)}</td><td>${row.remindersCount}</td><td>${escapeHtml(row.comment || "—")}</td></tr>`
+    )).join("")
+    : "<tr><td colspan=\"3\">План не найден</td></tr>";
+
+  const conversations = report.conversationExamples.length > 0
+    ? report.conversationExamples.map((example, index) => {
+      const turns = example.turns.map((turn) => (
+        `<div class="turn ${turn.speaker}"><div class="speaker">${turn.speaker === "candidate" ? "Кандидат" : "Рекрутер"}</div><div class="text">${escapeHtml(turn.message)}</div></div>`
+      )).join("");
+      return `<section class="example-card"><h3>${index + 1}. ${escapeHtml(example.title)}</h3>${example.summary ? `<p class="summary">${escapeHtml(example.summary)}</p>` : ""}<div class="turns">${turns}</div></section>`;
+    }).join("")
+    : "<section class=\"example-card\"><h3>Диалоги пока не сгенерированы</h3><p class=\"summary\">Вернитесь в чат и нажмите «Сгенерировать примеры общения».</p></section>";
+
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Примеры общения — ${escapeHtml(report.title)}</title>
+  <style>
+    :root { color-scheme: dark; --bg:#08101d; --panel:#0e1a2b; --line:#1e3351; --text:#e7efff; --muted:#94a5c3; --acc:#78a8ff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif; background: linear-gradient(180deg,#070f1c,#0b1526); color: var(--text); }
+    .shell { width: min(1100px, calc(100% - 32px)); margin: 24px auto 40px; display: grid; gap: 14px; }
+    .panel { border: 1px solid var(--line); background: var(--panel); border-radius: 18px; padding: 18px; }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 34px); }
+    .meta { color: var(--muted); font-size: 14px; line-height: 1.5; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+    th, td { border: 1px solid var(--line); padding: 10px; vertical-align: top; }
+    th { text-align: left; color: var(--muted); font-weight: 600; }
+    .example-card { border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-top: 12px; background: rgba(8,16,29,0.65); }
+    .example-card h3 { margin: 0 0 8px; font-size: 18px; }
+    .summary { margin: 0 0 10px; color: var(--muted); }
+    .turns { display: grid; gap: 8px; }
+    .turn { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+    .turn.recruiter { background: rgba(120,168,255,0.12); }
+    .turn.candidate { background: rgba(148,165,195,0.08); }
+    .speaker { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+    .text { line-height: 1.55; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="panel">
+      <h1>Примеры общения</h1>
+      <p class="meta"><strong>Вакансия:</strong> ${escapeHtml(report.title)}<br><strong>vacancy_id:</strong> ${escapeHtml(report.vacancyId)}<br><strong>Обновлено:</strong> ${escapeHtml(updatedAtLabel)}</p>
+    </section>
+    <section class="panel">
+      <h2>План коммуникации</h2>
+      <p class="meta"><strong>Сценарий:</strong> ${escapeHtml(report.plan?.scenarioTitle ?? "—")}<br><strong>Цель:</strong> ${escapeHtml(report.plan?.goal ?? "—")}</p>
+      <table>
+        <thead><tr><th>Шаг</th><th>Напоминания</th><th>Комментарий</th></tr></thead>
+        <tbody>${planRows}</tbody>
+      </table>
+    </section>
+    <section class="panel">
+      <h2>Тренировочные диалоги</h2>
+      ${conversations}
+    </section>
+  </main>
+</body>
+</html>`;
 }
 
 class InvalidJsonError extends Error {
