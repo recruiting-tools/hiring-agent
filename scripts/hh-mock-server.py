@@ -69,15 +69,51 @@ class HHMock:
                 data = json.load(fh)
             self.negotiations[data["negotiation_id"]] = data
 
+    def _parse_ts_param(self, raw: str | None) -> datetime | None:
+        if not raw:
+            return None
+        try:
+            return parse_ts(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _is_truthy(self, value: str | None) -> bool:
+        return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
     def list_vacancy_responses(
-        self, vacancy_id: str, collection: str | None = None
+        self,
+        vacancy_id: str,
+        collection: str | None = None,
+        updated_after: str | None = None,
+        updated_before: str | None = None,
+        unread_only: bool = False,
     ) -> List[Dict[str, Any]]:
         payload = self.responses_by_vacancy.get(vacancy_id)
         if not payload:
             return []
+
+        after_ts = self._parse_ts_param(updated_after)
+        before_ts = self._parse_ts_param(updated_before)
+
         items = list(payload.get("items", []))
         if collection:
             items = [item for item in items if item.get("collection") == collection]
+
+        if after_ts is not None:
+            items = [
+                item for item in items
+                if parse_ts(item["last_activity_at"]) > after_ts
+            ]
+
+        if before_ts is not None:
+            items = [
+                item for item in items
+                if parse_ts(item["last_activity_at"]) < before_ts
+            ]
+
+        if unread_only:
+            items = [item for item in items if bool(item.get("unread"))]
+
         return sorted(
             items,
             key=lambda item: (parse_ts(item["last_activity_at"]), item["negotiation_id"]),
@@ -222,7 +258,17 @@ class HHMockHandler(BaseHTTPRequestHandler):
         if per_page < 1:
             per_page = 1
 
-        items = self.server.mock.list_vacancy_responses(vacancy_id, collection)
+        updated_after = query.get("updated_after", [None])[0]
+        updated_before = query.get("updated_before", [None])[0]
+        unread_only = self.server.mock._is_truthy(query.get("unread_only", [None])[0])
+
+        items = self.server.mock.list_vacancy_responses(
+            vacancy_id,
+            collection=collection,
+            updated_after=updated_after,
+            updated_before=updated_before,
+            unread_only=unread_only,
+        )
         start = (page - 1) * per_page
         end = start + per_page
         chunk = items[start:end]

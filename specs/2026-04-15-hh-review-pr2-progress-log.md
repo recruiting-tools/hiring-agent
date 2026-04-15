@@ -5,7 +5,7 @@ Date: `2026-04-15`
 ## Repo context
 
 - Working repo: `/Users/vova/Documents/GitHub/hiring-agent`
-- Target branch for current work: `chore/hh-review-step1-playbook`
+- Target branch for current work: `main` (PR #101 merged)
 - Base: `origin/main` (latest fetched)
 - Iteration policy: `local-first` → `fixture-validated` → `sandbox smoke` → `rebase main` on each cycle
 
@@ -37,7 +37,7 @@ Date: `2026-04-15`
 - Add fixture tests to validate ordering and shape for step1 endpoint contracts.
 
 ### Current status
-- Status: `ready` (committed in `fc37246`, awaiting PR creation).
+- Status: `done` (committed in `fc37246`, merged to `main` in PR #101).
 - Included assets:
   - `scripts/hh-review-step1-sandbox-loop.sh`
   - `scripts/hh-review-install-loop-cron.sh`

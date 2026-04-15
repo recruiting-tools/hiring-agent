@@ -41,6 +41,7 @@ def run_smoke(base_url: str, vacancy_id: str) -> None:
     _require(isinstance(payload.get("items"), list), "responses payload missing items list")
     _require("has_more" in payload, "responses payload missing has_more")
     _require("source_synced_at" in payload, "responses payload missing source_synced_at")
+    _require(all("unread" in item for item in payload["items"]), "responses payload missing unread flags")
 
     items = payload["items"]
     if not items:
@@ -74,6 +75,30 @@ def run_smoke(base_url: str, vacancy_id: str) -> None:
     )
     _require(status == 200, f"message preview endpoint returned {status}")
     _require(send_payload.get("status") == "preview", "preview status mismatch")
+
+    unread_response_url = (
+        f"{base_url}/api/hh/vacancies/{vacancy_id}/responses?"
+        f"{urlencode({'unread_only': 'true'})}"
+    )
+    status, unread_payload = _request(unread_response_url)
+    _require(status == 200, f"unread filter responses returned {status}")
+    _require(
+        all(item.get("unread") is True for item in unread_payload.get("items", [])),
+        "unread filter returned read item",
+    )
+
+    if len(items) > 1:
+        cutoff = items[1]["last_activity_at"]
+        windowed_url = (
+            f"{base_url}/api/hh/vacancies/{vacancy_id}/responses?"
+            f"{urlencode({'updated_after': cutoff})}"
+        )
+        status, window_payload = _request(windowed_url)
+        _require(status == 200, f"updated_after responses returned {status}")
+        _require(
+            all(item["last_activity_at"] > cutoff for item in window_payload.get("items", [])),
+            "updated_after filter returned item outside window",
+        )
 
     print("STEP1_SMOKE_OK")
 
