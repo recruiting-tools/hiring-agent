@@ -64,23 +64,35 @@ try {
 
 async function upsertDemoRecruiter(client, { recruiterId, tenantId, email, password, label }) {
   const passwordHash = await bcrypt.hash(password, 10);
-  const existing = await client.query(
-    "SELECT recruiter_id, tenant_id FROM management.recruiters WHERE recruiter_id = $1",
+  const existingByRecruiterId = await client.query(
+    "SELECT recruiter_id, tenant_id, email FROM management.recruiters WHERE recruiter_id = $1",
     [recruiterId]
   );
+  const existingByEmail = existingByRecruiterId.rows.length > 0
+    ? null
+    : await client.query(
+      "SELECT recruiter_id, tenant_id, email FROM management.recruiters WHERE email = $1",
+      [email]
+    );
+  const existing = existingByRecruiterId.rows[0] ?? existingByEmail?.rows[0] ?? null;
 
-  if (existing.rows.length > 0) {
-    const existingTenantId = existing.rows[0].tenant_id;
+  if (existing) {
+    const existingTenantId = existing.tenant_id;
+    const lookupColumn = existing.recruiter_id === recruiterId ? "recruiter_id" : "email";
+    const lookupValue = lookupColumn === "recruiter_id" ? recruiterId : email;
     await client.query(`
       UPDATE management.recruiters
       SET email = $2,
           password_hash = $3,
           status = 'active',
           role = 'recruiter'
-      WHERE recruiter_id = $1
-    `, [recruiterId, email, passwordHash]);
+      WHERE ${lookupColumn} = $1
+    `, [lookupValue, email, passwordHash]);
     console.log(`Updated ${label.toLowerCase()} recruiter ${recruiterId}`);
     console.log(`${label} tenant: ${existingTenantId}`);
+    if (existing.recruiter_id !== recruiterId) {
+      console.log(`${label} matched existing email row ${existing.recruiter_id}`);
+    }
     return;
   }
 
