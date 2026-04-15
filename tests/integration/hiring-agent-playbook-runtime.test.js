@@ -66,7 +66,8 @@ if (!MANAGEMENT_DB_URL || !CHATBOT_DB_URL) {
       vacancyId = materials.vacancyId;
       assert.ok(vacancyId);
       assert.equal(materials.reply.kind, "display");
-      assert.match(materials.reply.content, /желательные критерии/i);
+      assert.match(materials.reply.content, /обязательные требования/i);
+      assert.deepEqual(materials.reply.options, ["Уточнить", "Продолжить"]);
 
       const vacancyAfterExtract = await tenantSql`
         SELECT must_haves, nice_haves
@@ -79,9 +80,20 @@ if (!MANAGEMENT_DB_URL || !CHATBOT_DB_URL) {
         "Свой инструмент",
         "Разговорный русский язык"
       ]);
-      assert.deepEqual(vacancyAfterExtract[0].nice_haves, [
-        "Опыт на коммерческих объектах"
-      ]);
+      assert.deepEqual(vacancyAfterExtract[0].nice_haves, []);
+
+      const niceHaves = await dispatch({
+        managementSql,
+        tenantSql,
+        tenantId: TENANT_ID,
+        recruiterId: RECRUITER_ID,
+        vacancyId,
+        playbookKey: "create_vacancy",
+        recruiterInput: "Продолжить",
+        llmAdapter
+      });
+      assert.equal(niceHaves.reply.kind, "display");
+      assert.match(niceHaves.reply.content, /желательные критерии/i);
 
       const workConditions = await dispatch({
         managementSql,
@@ -116,7 +128,7 @@ if (!MANAGEMENT_DB_URL || !CHATBOT_DB_URL) {
         recruiterId: RECRUITER_ID,
         vacancyId,
         playbookKey: "create_vacancy",
-        recruiterInput: "Всё верно",
+        recruiterInput: "Продолжить",
         llmAdapter
       });
       assert.equal(companyInfo.reply.kind, "display");
@@ -176,14 +188,17 @@ if (!MANAGEMENT_DB_URL || !CHATBOT_DB_URL) {
       });
       assert.equal(completed.reply.kind, "completed");
 
-      const finalVacancy = await tenantSql`
+      const vacancyAfterNiceHaves = await tenantSql`
         SELECT must_haves, nice_haves, work_conditions, application_steps, company_info, faq
         FROM chatbot.vacancies
         WHERE vacancy_id = ${vacancyId}
         LIMIT 1
       `;
-      assert.equal(finalVacancy[0].faq.length, 1);
-      assert.equal(finalVacancy[0].application_steps.length, 2);
+      assert.deepEqual(vacancyAfterNiceHaves[0].nice_haves, [
+        "Опыт на коммерческих объектах"
+      ]);
+      assert.equal(vacancyAfterNiceHaves[0].faq.length, 1);
+      assert.equal(vacancyAfterNiceHaves[0].application_steps.length, 2);
     } finally {
       if (sessionId) {
         await managementSql`

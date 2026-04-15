@@ -1,6 +1,15 @@
 import { interpolate } from "../context-interpolation.js";
+import { resolveCreateVacancyMaterials } from "../../create-vacancy-materials.js";
 
-export async function handleUserInputStep({ step, session, context, recruiterInput, tenantSql }) {
+export async function handleUserInputStep({
+  step,
+  session,
+  context,
+  recruiterInput,
+  tenantSql,
+  fetchImpl,
+  hhVacancyFetchTimeoutMs
+}) {
   if (!recruiterInput) {
     return {
       context,
@@ -13,15 +22,24 @@ export async function handleUserInputStep({ step, session, context, recruiterInp
     };
   }
 
+  const materials = session?.playbook_key === "create_vacancy"
+    ? await resolveCreateVacancyMaterials({
+      recruiterInput,
+      fetchImpl,
+      timeoutMs: hhVacancyFetchTimeoutMs
+    })
+    : null;
+  const resolvedInput = materials?.rawText ?? recruiterInput;
   const nextContext = step.context_key
-    ? { ...context, [step.context_key]: recruiterInput }
+    ? { ...context, [step.context_key]: resolvedInput }
     : context;
 
   if (!nextContext.vacancy_id && session?.playbook_key === "create_vacancy") {
     const vacancy = await createDraftVacancy({
       tenantSql,
       recruiterId: session.recruiter_id,
-      rawText: recruiterInput
+      rawText: resolvedInput,
+      title: materials?.title ?? null
     });
     nextContext.vacancy_id = vacancy.vacancy_id;
     nextContext.job_id = vacancy.job_id ?? nextContext.job_id ?? null;
@@ -37,12 +55,12 @@ export async function handleUserInputStep({ step, session, context, recruiterInp
   };
 }
 
-async function createDraftVacancy({ tenantSql, recruiterId, rawText }) {
+async function createDraftVacancy({ tenantSql, recruiterId, rawText, title = null }) {
   if (!tenantSql) {
     throw new Error("tenantSql is required to create draft vacancies");
   }
 
-  const title = deriveDraftTitle(rawText);
+  const resolvedTitle = String(title ?? "").trim() || deriveDraftTitle(rawText);
   const rows = await tenantSql`
     INSERT INTO chatbot.vacancies (
       created_by,
@@ -57,7 +75,7 @@ async function createDraftVacancy({ tenantSql, recruiterId, rawText }) {
     )
     VALUES (
       ${recruiterId},
-      ${title},
+      ${resolvedTitle},
       ${rawText},
       'draft',
       'pending',

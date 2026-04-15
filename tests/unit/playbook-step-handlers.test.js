@@ -124,6 +124,68 @@ test("playbook handler: create_vacancy user_input inserts draft vacancy with exp
   assert.equal(result.context.vacancy?.status, "draft");
 });
 
+test("playbook handler: create_vacancy user_input expands HH vacancy link into raw text", async () => {
+  const recruiterInput = "https://hh.ru/vacancy/132102233?hhtmFrom=employer_vacancies";
+  let fetchCalls = 0;
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /INSERT INTO chatbot\.vacancies/);
+    assert.equal(values[0], "rec-1");
+    assert.equal(values[1], "Инженер-технолог");
+    assert.match(values[2], /Источник HH: https:\/\/hh\.ru\/vacancy\/132102233\?hhtmFrom=employer_vacancies/);
+    assert.match(values[2], /Компания: HR-Stalker/);
+    assert.match(values[2], /Высшее профессиональное образование/);
+    return [{
+      vacancy_id: "vac-hh-1",
+      title: "Инженер-технолог",
+      status: "draft"
+    }];
+  });
+
+  const result = await handleUserInputStep({
+    step: {
+      user_message: "Опишите вакансию",
+      context_key: "raw_vacancy_text",
+      next_step_order: 2
+    },
+    session: {
+      playbook_key: "create_vacancy",
+      recruiter_id: "rec-1"
+    },
+    context: {},
+    recruiterInput,
+    tenantSql,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return {
+        ok: true,
+        async text() {
+          return [
+            "<h1 data-qa=\"vacancy-title\">Инженер-технолог</h1>",
+            "<a data-qa=\"vacancy-company-name\">HR-Stalker</a>",
+            "<div data-qa=\"vacancy-salary\">110 000 ₽</div>",
+            "<span data-qa=\"vacancy-experience\">1–3 года</span>",
+            "<div data-qa=\"common-employment-text\">Проект или разовое задание</div>",
+            "<p data-qa=\"work-schedule-by-days-text\">График: свободный</p>",
+            [
+              "<div class=\"g-user-content\" data-qa=\"vacancy-description\">",
+              "<p><strong>Требования:</strong></p>",
+              "<p>Высшее профессиональное образование</p>",
+              "<ul><li>Опыт рецензирования</li></ul>",
+              "</div>"
+            ].join("")
+          ].join("");
+        }
+      };
+    }
+  });
+
+  assert.equal(fetchCalls, 1);
+  assert.equal(result.nextStepOrder, 2);
+  assert.equal(result.context.vacancy_id, "vac-hh-1");
+  assert.match(result.context.raw_vacancy_text, /Описание вакансии:/);
+  assert.match(result.context.raw_vacancy_text, /- Опыт рецензирования/);
+});
+
 test("playbook handler: buttons prompt and accept known option", async () => {
   const step = {
     step_key: "create_vacancy.14",

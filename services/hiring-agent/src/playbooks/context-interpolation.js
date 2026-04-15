@@ -53,6 +53,26 @@ const FILTERS = {
     return [header, separator, ...rows].join("\n");
   },
 
+  must_haves_review(value) {
+    if (!Array.isArray(value) || value.length === 0) {
+      return "Пока не удалось выделить обязательные требования. Нажмите «Уточнить» и пришлите больше материалов.";
+    }
+
+    const count = value.length;
+    const intro = count < 2
+      ? `Нашли только ${count} обязательных требования — кажется маловато. Не упустили ничего важного?`
+      : count >= 5
+        ? `Нашли ${count} обязательных требований — это много. Все они действительно блокирующие?`
+        : "Нашли следующие обязательные требования:";
+
+    return [
+      intro,
+      "",
+      "Список обязательных требований:",
+      FILTERS.bullet_list(value)
+    ].join("\n");
+  },
+
   funnel_table(value) {
     if (!Array.isArray(value) || value.length === 0) return "Нет данных по воронке.";
 

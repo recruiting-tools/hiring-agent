@@ -34,7 +34,9 @@ export async function dispatch({
   recruiterInput = null,
   llmAdapter,
   llmConfig = {},
-  conversationId = null
+  conversationId = null,
+  fetchImpl,
+  hhVacancyFetchTimeoutMs = null
 }) {
   if (!managementStore) {
     throw new Error("managementStore or managementSql is required");
@@ -125,7 +127,9 @@ export async function dispatch({
         tenantSql,
         tenantId,
         llmAdapter,
-        llmConfig
+        llmConfig,
+        fetchImpl,
+        hhVacancyFetchTimeoutMs
       });
 
       context = mergeIdentityIntoContext(result.context ?? context, {

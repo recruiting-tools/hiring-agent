@@ -51,6 +51,10 @@ test("interpolate: supports list and object filters used by seeded playbooks", (
     interpolate("{{context.must_haves | json}}", context),
     "[\"Опыт B2B продаж\",\"Готовность к командировкам\"]"
   );
+  assert.match(
+    interpolate("{{context.must_haves | must_haves_review}}", context),
+    /Нашли следующие обязательные требования:/
+  );
 });
 
 test("interpolate: renders application step arrays as a compact table", () => {

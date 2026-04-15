@@ -32,6 +32,7 @@
     "gate:sandbox": "pnpm test:sandbox && pnpm smoke:sandbox",
     "smoke:sandbox": "node scripts/smoke-sandbox.js",
     "smoke:sandbox:cloud": "BASE_URL=${SANDBOX_URL:?SANDBOX_URL is required for smoke:sandbox:cloud} node scripts/smoke-sandbox.js",
+    "smoke:hiring-agent:create-vacancy": "node scripts/smoke-hiring-agent-create-vacancy.js",
     "smoke:moderation": "node scripts/smoke-moderation-report.js",
     "smoke:moderation:cloud": "BASE_URL=${BASE_URL:?BASE_URL is required for smoke:moderation:cloud} node scripts/smoke-moderation-report.js",
     "smoke:moderation:auth": "BASE_URL=${BASE_URL:?BASE_URL is required for smoke:moderation:auth} node scripts/smoke-moderation-report.js --check-page --format json",

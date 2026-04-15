@@ -108,15 +108,19 @@
       "step_key": "create_vacancy.3",
       "playbook_key": "create_vacancy",
       "step_order": 3,
-      "name": "Проверить количество must haves",
-      "step_type": "decision",
-      "user_message": null,
+      "name": "Показать must haves",
+      "step_type": "display",
+      "user_message": "{{context.must_haves | must_haves_review}}\n\nЕсли хотите поправить материалы — нажмите «Уточнить». Если список ок, продолжим дальше.",
       "prompt_template": null,
-      "context_key": null,
+      "context_key": "must_haves_action",
       "db_save_column": null,
       "next_step_order": 4,
-      "options": null,
-      "notes": "Rules: count < 2 → show must_haves, message: «Нашли только {{count}} обязательных требования — кажется маловато. Не упустили ничего важного?»; count >= 5 → show, message: «Нашли {{count}} обязательных требований — это много. Все они действительно блокирующие?»; count 2–4 → proceed silently."
+      "options": "Уточнить;Продолжить",
+      "routing": {
+        "Уточнить": 1,
+        "Продолжить": 4
+      },
+      "notes": "Always show extracted must_haves first so create_vacancy does not feel silent after materials upload."
     },
     {
       "step_key": "create_vacancy.4",
