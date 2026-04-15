@@ -1,11 +1,8 @@
 import { hasFallbackSteps } from "./local-seed-fallback.js";
+import { canBypassTenantPlaybookLock, canonicalizePlaybookKey } from "./playbook-key-map.js";
 import { ALWAYS_RUNNABLE_PLAYBOOK_KEYS, FALLBACK_PLAYBOOKS } from "./playbook-contracts.js";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-
-function canonicalizePlaybookKey(playbookKey) {
-  return playbookKey === "candidate_broadcast" ? "mass_broadcast" : playbookKey;
-}
 
 function dedupeByPlaybookKey(playbooks) {
   const byKey = new Map();
@@ -130,8 +127,8 @@ function resolveTenantEnabledState(playbook, tenantOverrides) {
     return false;
   }
 
-  // create_vacancy must remain available even when stale tenant override rows exist.
-  if (playbook.playbook_key === "create_vacancy") {
+  // Baseline playbooks must remain available even when stale tenant override rows exist.
+  if (canBypassTenantPlaybookLock(playbook.playbook_key)) {
     return true;
   }
 

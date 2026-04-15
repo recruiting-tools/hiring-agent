@@ -1,6 +1,7 @@
 import { getDemoRuntimeData } from "./demo-runtime-data.js";
 import { executeWithDb, runCandidateFunnelPlaybook } from "./playbooks/candidate-funnel.js";
 import { runCommunicationPlanPlaybook } from "./playbooks/communication-plan.js";
+import { canBypassTenantPlaybookLock, canonicalizePlaybookKey } from "./playbooks/playbook-key-map.js";
 import { findPlaybook, getPlaybookRegistry } from "./playbooks/registry.js";
 import { dispatch } from "./playbooks/runtime.js";
 import { routePlaybook } from "./playbooks/router.js";
@@ -150,9 +151,6 @@ const TENANT_DB_DATA_QUERIES = [
     query: (sql) => sql`DELETE FROM chatbot.jobs RETURNING 1`
   }
 ];
-function canonicalizePlaybookKey(playbookKey) {
-  return playbookKey === "candidate_broadcast" ? "mass_broadcast" : playbookKey;
-}
 
 export function createHiringAgentApp(options = {}) {
   const demoMode = options.demoMode ?? true;
@@ -250,7 +248,7 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
-      const canBypassLockedState = playbook.playbook_key === "create_vacancy";
+      const canBypassLockedState = canBypassTenantPlaybookLock(playbook.playbook_key);
       if (!playbook.enabled && !canBypassLockedState) {
         return {
           status: 200,
@@ -373,6 +371,51 @@ export function createHiringAgentApp(options = {}) {
         return {
           status: 200,
           body: { reply: result.reply }
+        };
+      }
+
+      if (playbook.playbook_key === "view_vacancy") {
+        if (explicitVacancyMissing) {
+          return {
+            status: 404,
+            body: {
+              error: "vacancy_not_found"
+            }
+          };
+        }
+
+        if (explicitJobMissing) {
+          return {
+            status: 404,
+            body: {
+              error: "job_not_found"
+            }
+          };
+        }
+
+        if (!tenantSql || !effectiveVacancyId) {
+          return {
+            status: 200,
+            body: {
+              reply: {
+                kind: "fallback_text",
+                text: "Сначала выберите вакансию, чтобы показать её текст."
+              }
+            }
+          };
+        }
+
+        return {
+          status: 200,
+          body: {
+            reply: await withTenantDbTimeout(
+              () => buildVacancyTextReply({
+                tenantSql,
+                vacancyId: effectiveVacancyId
+              }),
+              { operation: "buildVacancyTextReply", timeoutMs: tenantDbTimeoutMs }
+            )
+          }
         };
       }
 
@@ -877,6 +920,70 @@ async function runTenantDataCleanup(tenantSql) {
     entries[cleanup.key] = rows.length;
   }
   return entries;
+}
+
+async function buildVacancyTextReply({ tenantSql, vacancyId }) {
+  const rows = await tenantSql`
+    SELECT
+      vacancy_id,
+      title,
+      raw_text,
+      must_haves,
+      nice_haves
+    FROM chatbot.vacancies
+    WHERE vacancy_id = ${vacancyId}
+    LIMIT 1
+  `;
+  const vacancy = rows[0] ?? null;
+
+  if (!vacancy) {
+    return {
+      kind: "fallback_text",
+      text: "Не удалось найти текущую вакансию."
+    };
+  }
+
+  const rawText = String(vacancy.raw_text ?? "").trim();
+  const mustHaves = Array.isArray(vacancy.must_haves) ? vacancy.must_haves : [];
+  const niceHaves = Array.isArray(vacancy.nice_haves) ? vacancy.nice_haves : [];
+
+  if (rawText) {
+    return {
+      kind: "display",
+      content_type: "text",
+      content: [
+        `Текст вакансии: ${vacancy.title ?? "без названия"}`,
+        "",
+        rawText
+      ].join("\n")
+    };
+  }
+
+  const lines = [
+    `Текст вакансии: ${vacancy.title ?? "без названия"}`,
+    "",
+    "У исходной вакансии нет поля raw_text. Показываю краткую выжимку:"
+  ];
+
+  if (mustHaves.length > 0) {
+    lines.push("", "Обязательные требования:");
+    lines.push(...mustHaves.map((item) => `- ${item}`));
+  }
+
+  if (niceHaves.length > 0) {
+    lines.push("", "Желательные требования:");
+    lines.push(...niceHaves.map((item) => `- ${item}`));
+  }
+
+  if (mustHaves.length === 0 && niceHaves.length === 0) {
+    lines.push("", "Данных для выжимки пока нет.");
+  }
+
+  return {
+    kind: "display",
+    content_type: "text",
+    content: lines.join("\n")
+  };
 }
 
 async function routePlaybookWithLlm({ message, playbooks, llmAdapter }) {
