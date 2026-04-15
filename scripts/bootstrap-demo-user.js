@@ -12,7 +12,6 @@ const recruiterId = process.env.DEMO_RECRUITER_ID ?? process.env.SANDBOX_DEMO_RE
 const tenantId = process.env.DEMO_CLIENT_ID ?? process.env.SANDBOX_DEMO_CLIENT_ID ?? null;
 const email = process.env.DEMO_EMAIL ?? process.env.SANDBOX_DEMO_EMAIL ?? "demo@hiring-agent.app";
 const password = process.env.DEMO_PASSWORD ?? process.env.SANDBOX_DEMO_PASSWORD;
-const recruiterToken = process.env.DEMO_RECRUITER_TOKEN ?? process.env.SANDBOX_DEMO_RECRUITER_TOKEN ?? "rec-tok-demo-001";
 const secondaryRecruiterId = process.env.SANDBOX_SECONDARY_DEMO_RECRUITER_ID ?? null;
 const secondaryTenantId = process.env.SANDBOX_SECONDARY_DEMO_CLIENT_ID ?? null;
 const secondaryEmail = process.env.SANDBOX_SECONDARY_DEMO_EMAIL ?? null;
@@ -37,7 +36,6 @@ try {
     tenantId,
     email,
     password,
-    recruiterToken,
     label: "Demo"
   });
 
@@ -64,27 +62,37 @@ try {
   await client.end();
 }
 
-async function upsertDemoRecruiter(client, { recruiterId, tenantId, email, password, recruiterToken, label }) {
+async function upsertDemoRecruiter(client, { recruiterId, tenantId, email, password, label }) {
   const passwordHash = await bcrypt.hash(password, 10);
-  const existing = await client.query(
-    "SELECT recruiter_id, tenant_id, recruiter_token FROM management.recruiters WHERE recruiter_id = $1",
+  const existingByRecruiterId = await client.query(
+    "SELECT recruiter_id, tenant_id, email FROM management.recruiters WHERE recruiter_id = $1",
     [recruiterId]
   );
+  const existingByEmail = existingByRecruiterId.rows.length > 0
+    ? null
+    : await client.query(
+      "SELECT recruiter_id, tenant_id, email FROM management.recruiters WHERE email = $1",
+      [email]
+    );
+  const existing = existingByRecruiterId.rows[0] ?? existingByEmail?.rows[0] ?? null;
 
-  if (existing.rows.length > 0) {
-    const existingTenantId = existing.rows[0].tenant_id;
+  if (existing) {
+    const existingTenantId = existing.tenant_id;
+    const lookupColumn = existing.recruiter_id === recruiterId ? "recruiter_id" : "email";
+    const lookupValue = lookupColumn === "recruiter_id" ? recruiterId : email;
     await client.query(`
       UPDATE management.recruiters
       SET email = $2,
           password_hash = $3,
-          recruiter_token = $4,
           status = 'active',
           role = 'recruiter'
-      WHERE recruiter_id = $1
-    `, [recruiterId, email, passwordHash, recruiterToken]);
+      WHERE ${lookupColumn} = $1
+    `, [lookupValue, email, passwordHash]);
     console.log(`Updated ${label.toLowerCase()} recruiter ${recruiterId}`);
     console.log(`${label} tenant: ${existingTenantId}`);
-    console.log(`${label} token: ${existing.rows[0].recruiter_token ?? recruiterToken}`);
+    if (existing.recruiter_id !== recruiterId) {
+      console.log(`${label} matched existing email row ${existing.recruiter_id}`);
+    }
     return;
   }
 
@@ -100,10 +108,9 @@ async function upsertDemoRecruiter(client, { recruiterId, tenantId, email, passw
   `, [tenantId, tenantId, tenantId]);
 
   await client.query(`
-    INSERT INTO management.recruiters (recruiter_id, tenant_id, email, password_hash, recruiter_token, status, role)
-    VALUES ($1, $2, $3, $4, $5, 'active', 'recruiter')
-  `, [recruiterId, tenantId, email, passwordHash, recruiterToken]);
+    INSERT INTO management.recruiters (recruiter_id, tenant_id, email, password_hash, status, role)
+    VALUES ($1, $2, $3, $4, 'active', 'recruiter')
+  `, [recruiterId, tenantId, email, passwordHash]);
   console.log(`Inserted ${label.toLowerCase()} recruiter ${recruiterId}`);
   console.log(`${label} tenant: ${tenantId}`);
-  console.log(`${label} token: ${recruiterToken}`);
 }

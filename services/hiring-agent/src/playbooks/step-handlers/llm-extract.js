@@ -4,7 +4,7 @@ import { parseJsonResponse } from "../../json-response.js";
 export class PlaybookLlmError extends Error {}
 
 export async function handleLlmExtractStep({ step, context, tenantSql, llmAdapter, llmConfig = {} }) {
-  const prompt = buildJsonPrompt(step.prompt_template, context);
+  const prompt = buildJsonPrompt(step, context);
   const model = resolveExtractModelOverride(step, llmConfig);
   const raw = await generateWithRetry(llmAdapter, prompt, { model });
   let parsed;
@@ -33,13 +33,24 @@ export async function handleLlmExtractStep({ step, context, tenantSql, llmAdapte
   };
 }
 
-export function buildJsonPrompt(template, context) {
-  const interpolated = interpolate(template, context).trim();
-  if (/Return valid JSON only, no markdown\.\s*$/i.test(interpolated)) {
-    return interpolated;
+export function buildJsonPrompt(stepOrTemplate, context) {
+  const step = typeof stepOrTemplate === "string"
+    ? { prompt_template: stepOrTemplate }
+    : (stepOrTemplate ?? {});
+  const interpolated = interpolate(step.prompt_template, context).trim();
+  const additions = resolvePromptAdditions(step);
+
+  const parts = [interpolated];
+  if (additions) {
+    parts.push(additions);
   }
 
-  return `${interpolated}\n\nReturn valid JSON only, no markdown.`;
+  const draft = parts.filter(Boolean).join("\n\n");
+  if (/Return valid JSON only, no markdown\.\s*$/i.test(draft)) {
+    return draft;
+  }
+
+  return `${draft}\n\nReturn valid JSON only, no markdown.`;
 }
 
 async function generateWithRetry(llmAdapter, prompt, { model = null } = {}) {
@@ -67,6 +78,25 @@ function resolveExtractModelOverride(step, llmConfig) {
   }
 
   return null;
+}
+
+function resolvePromptAdditions(step) {
+  if (
+    step?.playbook_key === "create_vacancy" &&
+    step?.db_save_column === "must_haves"
+  ) {
+    return [
+      "Дополнительные правила:",
+      "- Считай количество ЛОГИЧЕСКИХ блокирующих требований, а не количество строк, подпунктов или примеров из описания.",
+      "- Если одно блокирующее требование описано через альтернативы («или», «либо», «одна из», «один из», список допустимых специальностей/сертификатов/направлений), верни это как ОДИН элемент массива.",
+      "- Не раскладывай альтернативные специальности, профили образования, сертификаты или допустимые бэкграунды в несколько элементов массива.",
+      "- Каждый элемент массива должен соответствовать одному логическому must-have.",
+      "- Хорошо: [\"Одна из специальностей: X / Y / Z\", \"Понимание технологических процессов\"]",
+      "- Плохо: [\"Специальность: X\", \"Специальность: Y\", \"Специальность: Z\", \"Понимание технологических процессов\"]"
+    ].join("\n");
+  }
+
+  return "";
 }
 
 export async function saveVacancyField({ tenantSql, vacancyId, column, value }) {
