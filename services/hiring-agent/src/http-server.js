@@ -994,6 +994,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     const CHATBOT_MODERATION_BASE = '__CHATBOT_MODERATION_BASE__';
     const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_QUERY_PARAM = 'state';
+    const CHAT_STATE_HASH_PREFIX = 'state=';
     const CHAT_STATE_STORAGE_KEY = 'hiring-agent:chat-state:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_VERSION = 1;
     const STEP_LABELS = {
@@ -1690,16 +1691,18 @@ const CHAT_HTML = `<!DOCTYPE html>
       } catch {}
 
       const nextUrl = new URL(window.location.href);
-      if (encoded) {
-        nextUrl.searchParams.set(CHAT_STATE_QUERY_PARAM, encoded);
-      } else {
-        nextUrl.searchParams.delete(CHAT_STATE_QUERY_PARAM);
-      }
+      nextUrl.searchParams.delete(CHAT_STATE_QUERY_PARAM);
+      nextUrl.hash = encoded ? CHAT_STATE_HASH_PREFIX + encoded : '';
       history.replaceState(null, '', nextUrl.toString());
     }
 
     function loadInitialChatState() {
-      const fromUrl = decodeChatState(new URLSearchParams(window.location.search).get(CHAT_STATE_QUERY_PARAM));
+      const hashState = window.location.hash.startsWith('#' + CHAT_STATE_HASH_PREFIX)
+        ? window.location.hash.slice(CHAT_STATE_HASH_PREFIX.length + 1)
+        : '';
+      const fromUrl = decodeChatState(
+        hashState || new URLSearchParams(window.location.search).get(CHAT_STATE_QUERY_PARAM)
+      );
       if (fromUrl) return fromUrl;
 
       try {
