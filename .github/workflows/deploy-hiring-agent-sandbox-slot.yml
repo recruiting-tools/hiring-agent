@@ -214,9 +214,6 @@ jobs:
           corepack enable >/dev/null 2>&1 || true
           corepack pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Install Playwright browser for smoke
-        run: pnpm exec playwright install --with-deps chromium
-
       - name: Bootstrap sandbox demo recruiter
         env:
           MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
@@ -269,12 +266,12 @@ jobs:
 
       - name: Post-deploy smoke
         env:
-          PLAYWRIGHT_SMOKE_BASE_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
-          PLAYWRIGHT_SMOKE_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
-          PLAYWRIGHT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
+          HIRING_AGENT_BASE_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
+          HIRING_AGENT_SMOKE_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
+          HIRING_AGENT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
         run: |
           set -euo pipefail
-          HEALTH=$(curl -sf "${PLAYWRIGHT_SMOKE_BASE_URL%/}/health" 2>/dev/null || echo '{}')
+          HEALTH=$(curl -sf "${HIRING_AGENT_BASE_URL%/}/health" 2>/dev/null || echo '{}')
           STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
           MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
           DEPLOY_SHA=$(echo "$HEALTH" | jq -r '.deploy_sha // "unknown"')
@@ -285,4 +282,4 @@ jobs:
           [ "$APP_ENV" = "sandbox" ] || exit 1
           [ "$DEPLOY_SHA" = "${{ steps.resolve_sha.outputs.sha }}" ] || exit 1
 
-          node scripts/playwright-smoke.mjs
+          node scripts/smoke-hiring-agent-create-vacancy.js
