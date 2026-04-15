@@ -159,7 +159,8 @@ if (!MANAGEMENT_DB_URL || !CHATBOT_DB_URL) {
       });
       assert.equal(finalButtons.reply.kind, "buttons");
       assert.deepEqual(finalButtons.reply.options, [
-        "Настроить общение с кандидатами",
+        "Распланировать общение с кандидатами",
+        "Сравнить с другими вакансиями",
         "Готово"
       ]);
 

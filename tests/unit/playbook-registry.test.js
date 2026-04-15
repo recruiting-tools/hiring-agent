@@ -69,7 +69,7 @@ test("registry: returns static fallback playbooks without management db", async 
   assert.equal(quickStart?.enabled, true);
 });
 
-test("registry: applies tenant playbook access overrides", async () => {
+test("registry: create_vacancy ignores tenant override lock and remains enabled", async () => {
   const managementSql = createFakeManagementSql({
     definitions: baseDefinitions,
     access: [{ playbook_key: "create_vacancy", enabled: false }]
@@ -79,7 +79,7 @@ test("registry: applies tenant playbook access overrides", async () => {
   const createVacancy = registry.find((item) => item.playbook_key === "create_vacancy");
   const funnel = registry.find((item) => item.playbook_key === "candidate_funnel");
 
-  assert.equal(createVacancy.enabled, false);
+  assert.equal(createVacancy.enabled, true);
   assert.equal(funnel.enabled, true);
 });
 

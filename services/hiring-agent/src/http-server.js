@@ -1499,6 +1499,11 @@ function formatCommunicationPlanMarkdown(reply) {
 }
 
 function replyToMarkdown(reply) {
+  const normalizedReply = tryParseStructuredReply(reply);
+  if (normalizedReply) {
+    reply = normalizedReply;
+  }
+
   if (!reply || typeof reply !== "object") {
     return { markdown: String(reply ?? "…"), actions: [] };
   }
@@ -1550,6 +1555,38 @@ function replyToMarkdown(reply) {
     };
   }
 
+  if (reply.kind === "display") {
+    return {
+      markdown: String(reply.content ?? "…"),
+      actions: Array.isArray(reply.options)
+        ? reply.options.map((option) => ({ label: option, message: option }))
+        : [],
+    };
+  }
+
+  if (reply.kind === "user_input") {
+    return {
+      markdown: String(reply.message ?? "Введите ответ."),
+      actions: [],
+    };
+  }
+
+  if (reply.kind === "buttons") {
+    return {
+      markdown: String(reply.message ?? "Выберите действие."),
+      actions: Array.isArray(reply.options)
+        ? reply.options.map((option) => ({ label: option, message: option }))
+        : [],
+    };
+  }
+
+  if (reply.kind === "completed") {
+    return {
+      markdown: String(reply.message ?? "Готово."),
+      actions: [],
+    };
+  }
+
   if (reply.kind === "communication_plan") {
     return {
       markdown: formatCommunicationPlanMarkdown(reply),
@@ -1562,6 +1599,24 @@ function replyToMarkdown(reply) {
     markdown: "```json\n" + JSON.stringify(reply, null, 2) + "\n```",
     actions: [],
   };
+}
+
+function tryParseStructuredReply(reply) {
+  if (typeof reply !== "string") {
+    return null;
+  }
+
+  const trimmed = reply.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 async function handleChatWs(ws, msg, wsContext, app) {

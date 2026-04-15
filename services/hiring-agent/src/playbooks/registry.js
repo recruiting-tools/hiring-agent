@@ -46,9 +46,7 @@ export async function getPlaybookRegistry(managementSql = null, tenantId = null)
   return structuredClone(
     baseRegistry.map((playbook) => ({
       ...playbook,
-      enabled: tenantOverrides.has(playbook.playbook_key)
-        ? (playbook.enabled && tenantOverrides.get(playbook.playbook_key))
-        : playbook.enabled
+      enabled: resolveTenantEnabledState(playbook, tenantOverrides)
     }))
   );
 }
@@ -125,4 +123,21 @@ function isRunnablePlaybook(playbookKey, stepCount) {
     || hasFallbackSteps(playbookKey)
     || Number(stepCount ?? 0) > 0
   );
+}
+
+function resolveTenantEnabledState(playbook, tenantOverrides) {
+  if (!playbook?.enabled) {
+    return false;
+  }
+
+  // create_vacancy must remain available even when stale tenant override rows exist.
+  if (playbook.playbook_key === "create_vacancy") {
+    return true;
+  }
+
+  if (!tenantOverrides.has(playbook.playbook_key)) {
+    return true;
+  }
+
+  return tenantOverrides.get(playbook.playbook_key) === true;
 }

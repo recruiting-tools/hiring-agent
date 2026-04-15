@@ -102,3 +102,40 @@ git -C "$REPO" cherry-pick <sha1> <sha2>
 2. статус PR-2 (sandbox + мок-среда),
 3. что проверено в этой итерации,
 4. что откладывается в следующий шаг.
+
+## Vacancy Parsing Setup Checklist
+
+Этот чеклист использовать, когда агенту нужно запустить полноценный разбор новой вакансии через `create_vacancy` и затем `setup_communication`.
+
+1. Проверить доступность playbook'ов:
+   - `create_vacancy`
+   - `setup_communication`
+   - `candidate_funnel`
+2. Убедиться, что подключена tenant DB (`chatbot.*`) и management DB (`management.*`).
+3. Для LLM задать переменные окружения (при необходимости поднять качество точечно):
+   - `OPENROUTER_MODEL`
+   - `OPENROUTER_CREATE_VACANCY_APPLICATION_STEPS_MODEL`
+   - `OPENROUTER_SETUP_COMMUNICATION_PLAN_MODEL`
+   - `OPENROUTER_SETUP_COMMUNICATION_EXAMPLES_MODEL`
+4. На вход `create_vacancy` передавать максимум исходников:
+   - raw-текст вакансии (обязательно)
+   - must-have требования
+   - условия работы (зарплата, график, формат, локация)
+   - описание компании/проекта
+   - этапы найма (если уже известны)
+5. После прохождения шагов `create_vacancy` проверить, что в `chatbot.vacancies` заполнены:
+   - `must_haves`
+   - `nice_haves`
+   - `work_conditions`
+   - `application_steps`
+   - `company_info`
+   - `faq`
+6. После выбора действия `Распланировать общение с кандидатами` проверить:
+   - появился `communication_plan_draft` (или `communication_plan`, если сохранили)
+   - UI отрисовал табличный план и кнопки действий
+7. После выбора `Сравнить с другими вакансиями` проверить:
+   - UI вернул markdown-таблицу сравнения
+   - в таблице текущая вакансия помечена как `(текущая)`
+8. Минимальный smoke перед релизом:
+   - `pnpm test:hiring-agent`
+   - ручной прогон в sandbox: создание вакансии -> план коммуникаций -> сохранение -> генерация примеров
