@@ -67,6 +67,14 @@ test("router: maps simple mailing request to mass_broadcast", async () => {
   assert.equal(await routePlaybook("сделай рассылку"), "mass_broadcast");
 });
 
+test("router: maps access revocation request to account_access", async () => {
+  assert.equal(await routePlaybook("хочу отключить hh"), "account_access");
+});
+
+test("router: maps data wipe request to data_retention", async () => {
+  assert.equal(await routePlaybook("очистить данные аккаунта"), "data_retention");
+});
+
 test("router: maps vacancy request to view_vacancy", async () => {
   const fakeManagementSql = async () => ([
     {

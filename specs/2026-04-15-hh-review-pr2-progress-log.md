@@ -1,76 +1,93 @@
-# HH Review PR Progress Log (vacancy 132102233)
+# HH Review Progress Log (vacancy 132102233)
 
 Date: `2026-04-15`
 
 ## Repo context
 
 - Working repo: `/Users/vova/Documents/GitHub/hiring-agent`
-- Target branch for current work: `main` (PR #101 merged)
-- Base: `origin/main` (latest fetched)
-- Iteration policy: `local-first` → `fixture-validated` → `sandbox smoke` → `rebase main` on each cycle
+- Active handoff branch: `chore/hh-review-step1-playbook`
+- Branch remote: `origin/chore/hh-review-step1-playbook`
+- Base reference for diff review: `origin/main`
+- Primary handoff doc: `/Users/vova/Documents/GitHub/hiring-agent/specs/2026-04-15-hh-review-132102233-launch-spec.md`
 
-## PR-1 (Baseline: architecture + execution plan split)
+## Current branch state
 
-### Scope
-- Split architecture + tooling/playbook specs for vacancy `132102233`.
-- Made explicit what belongs to shared architecture vs vacancy launch data.
-- Added iteration playbook and loop notes.
+- Branch head: `d42ae52` `docs: mark hh launch spec as no-go pending blockers`
+- Previous handoff commits on this branch:
+  - `61dd63e` `docs: add hh import handoff details to launch spec`
+  - `edd2bba` `docs: expand hh launch spec for prod migration`
+- The branch is pushed and ready for continuation from:
+  - `https://github.com/recruiting-tools/hiring-agent/pull/new/chore/hh-review-step1-playbook`
 
-### Current status
-- Status: `done` (committed in `fc37246`, included in branch `chore/hh-review-step1-playbook`).
-- Included assets:
-  - `specs/2026-04-15-hh-review-architecture-spec.md`
-  - `specs/2026-04-15-hh-review-132102233-launch-spec.md`
-  - `specs/2026-04-15-hh-review-132102233-tooling-spec.md`
-  - `specs/2026-04-15-hh-review-step-1-xp-playbook.md`
-  - `specs/2026-04-15-hh-review-132102233-pass-1-report.md`
-  - `scripts/hh-review-step1-loop-notes.md`
+## Protected local changes
 
-### Important notes
-- Goal is reusable toolchain for hiring-agent, not one-off vacancy glue.
-- PR1 intentionally avoids productizing all send/state paths; it focuses on read/incremental foundation alignment.
+These modified files were already present in the working tree and are out of scope for hh-review handoff work:
 
-## PR-2 (Sandbox automation + deterministic fixture execution)
+- `data/playbooks-seed.json`
+- `services/hiring-agent/src/app.js`
+- `services/hiring-agent/src/playbooks/playbook-contracts.js`
 
-### Scope
-- Add reusable sandbox loop, install helpers, smoke scripts, and deterministic mock HH responses.
-- Add fixture tests to validate ordering and shape for step1 endpoint contracts.
+Do not revert or fold them into hh-review commits unless explicitly requested.
 
-### Current status
-- Status: `done` (committed in `fc37246`, merged to `main` in PR #101).
-- Included assets:
-  - `scripts/hh-review-step1-sandbox-loop.sh`
-  - `scripts/hh-review-install-loop-cron.sh`
-  - `scripts/hh-review-install-loop-launchd.sh`
-  - `scripts/hh-review-uninstall-loop-launchd.sh`
-  - `scripts/hh-review-step1-launchd-runner.sh`
-  - `scripts/hh-review-mock-start.sh`
-  - `scripts/hh-review-mock-stop.sh`
-  - `scripts/hh-mock-server.py`
-  - `scripts/hh-mock-data/`
-  - `scripts/smoke_hh_step1.py`
-  - `scripts/smoke_step1.py`
-  - `specs/tests/test_hh_step1.py`
+## Completed work on this branch
 
-### Last known run summary
-- `pytest specs/tests/test_hh_step1.py` passed in sandbox test environment.
-- `python scripts/smoke_hh_step1.py --base-url http://127.0.0.1:19090 --vacancy 132102233` smoke executes `STEP1_SMOKE_OK` when mock server is running and base URL is reachable.
+### PR-1 / PR-2 baseline already landed earlier
 
-### Open risks
-- Current files in this branch depend on the branch-local path variables in scripts; they are set by defaults and can be overridden per command.
-- Existing branch contains unrelated local code churn (outside new hh-review files) and must be excluded from PR scope.
+- Architecture/tooling split for hh review is documented.
+- Sandbox loop, mock server, smoke command, and fixture coverage exist.
+- Step-1 fixture validation remains green on the current branch.
 
-## Cross-PR decision rule
+### Current docs iteration on `chore/hh-review-step1-playbook`
 
-- Before merging PR-2 into `main`, PR-1 spec/plan layer should remain source-of-truth and PR-2 should not add vacancy-specific logic beyond sandbox execution helpers.
-- `playbook/tooling` changes can be merged first if they are self-consistent and not coupled to mutable hh API behavior.
+Scope delivered by the latest doc commits:
 
-## Handoff for next iteration
+- expanded vacancy `132102233` launch spec from a loose checklist into a production migration/runbook
+- documented `POST /internal/hh-import` and `POST /internal/hh-poll` as the current manual import/poll path
+- pinned the vacancy-specific playbook payload shape, stop-policy, handoff target, and operator workflow
+- marked the vacancy explicitly as `production-go-live-ready: no`
+- listed concrete no-go blockers that must be resolved before launch
 
-1. Keep this log updated at each iteration boundary.
-2. Ensure CI run and target branch PR are created from `chore/hh-review-step1-playbook`.
-3. After green smoke in sandbox, create PR with only hh-review files listed above.
-4. Add a short status diff in PR description:
-   - what was changed
-   - what was validated with tests/smoke
-   - what is explicitly deferred to next PR
+Primary changed asset:
+
+- `specs/2026-04-15-hh-review-132102233-launch-spec.md`
+
+## Current go-live position
+
+Status in the launch spec as of `2026-04-15`:
+
+- `sandbox-contract-ready`: yes
+- `manual-migration-ready`: partial
+- `production-go-live-ready`: no
+
+Pinned blockers before production launch:
+
+1. Production `tenant` for vacancy `132102233` is not yet recorded.
+2. Concrete `HH_VACANCY_JOB_MAP` value is not pinned.
+3. Final routing mode is not pinned.
+4. Approved serialized playbook payload storage location is not pinned.
+5. Production runtime prerequisites are not confirmed:
+   - `hh_import`
+   - internal token
+   - applied DB migrations
+
+## Latest validation
+
+Validated on this branch during handoff refresh:
+
+- `pytest specs/tests/test_hh_step1.py` -> passed (`4 passed`)
+
+Not re-run in this handoff refresh:
+
+- live sandbox smoke against the mock server
+- production runtime checks
+
+## Next recommended steps
+
+1. Keep using `specs/2026-04-15-hh-review-132102233-launch-spec.md` as the source-of-truth handoff doc.
+2. If continuing documentation work, pin the unresolved production values instead of adding more generic prose.
+3. If continuing implementation work, treat the launch spec blockers as the acceptance gate for any production migration path.
+4. Keep hh-review commits scoped away from the three protected local files listed above.
+
+## Short handoff summary
+
+If another session resumes from here, start on branch `chore/hh-review-step1-playbook`, open the launch spec first, and assume production launch is still blocked until the explicit unresolved values are filled with real tenant/runtime data.
