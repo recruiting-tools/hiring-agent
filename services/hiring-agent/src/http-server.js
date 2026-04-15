@@ -1135,7 +1135,7 @@ const CHAT_HTML = `<!DOCTYPE html>
             currentAssistant.contentEl.appendChild(errEl);
             pushChatHistoryEntry({
               kind: 'assistant',
-              markdown: (currentAssistant.text || '') + '\n\n❌ ' + (data.message || 'Ошибка сервера'),
+              markdown: (currentAssistant.text || '') + '\\n\\n❌ ' + (data.message || 'Ошибка сервера'),
               actions: []
             });
             currentAssistant = null;
