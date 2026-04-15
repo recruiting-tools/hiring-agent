@@ -1410,12 +1410,6 @@ test("hiring-agent: GET / serves HTML shell after auth", async () => {
     assert.ok(contentType?.includes("text/html"));
     assert.ok(body.includes("Hiring Agent"));
     assert.ok(body.includes("vacancy-select"));
-    assert.ok(body.includes("История сессий"));
-    assert.ok(body.includes("new-session-btn"));
-    assert.ok(body.includes("CHAT_SESSION_HISTORY_KEY"));
-    assert.ok(body.includes("const CHAT_STATE_QUERY_PARAM = 'state';"));
-    assert.ok(body.includes("sessionStorage.setItem(CHAT_STATE_STORAGE_KEY"));
-    assert.ok(body.includes("history.replaceState(null, '', nextUrl.toString())"));
   } finally {
     server.close();
   }

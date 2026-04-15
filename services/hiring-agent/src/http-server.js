@@ -321,16 +321,10 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
     .workspace {
       display: grid;
-      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(280px, 320px);
-      grid-template-areas: "history chat sidebar";
+      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
       gap: 20px;
       align-items: stretch;
       min-height: calc(100dvh - 170px);
-      transition: grid-template-columns 0.22s ease;
-      position: relative;
-    }
-    .workspace.history-collapsed {
-      grid-template-columns: 0 minmax(0, 1fr) minmax(280px, 320px);
     }
     .panel {
       border: 1px solid var(--edge);
@@ -340,170 +334,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       box-shadow: var(--shadow-lg);
     }
     .sidebar {
-      grid-area: sidebar;
       display: grid;
       gap: 16px;
       align-content: start;
-    }
-    .history-panel {
-      grid-area: history;
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-      overflow: hidden;
-      transition: opacity 0.18s ease, transform 0.18s ease;
-    }
-    .workspace.history-collapsed .history-panel {
-      opacity: 0;
-      transform: translateX(-18px);
-      pointer-events: none;
-    }
-    .history-panel-inner {
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      height: 100%;
-    }
-    .history-panel-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 18px 20px 14px;
-      border-bottom: 1px solid var(--edge);
-    }
-    .history-panel-header h2 {
-      font-size: 15px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-    }
-    .history-panel-header p {
-      margin-top: 6px;
-      font-size: 12px;
-      line-height: 1.55;
-      color: var(--t2);
-    }
-    .panel-toggle {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 36px;
-      padding: 0 12px;
-      border-radius: 12px;
-      border: 1px solid var(--edge);
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--t2);
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .panel-toggle:hover {
-      border-color: var(--edge-strong);
-      color: var(--t1);
-    }
-    .history-panel-toolbar {
-      display: grid;
-      gap: 10px;
-      padding: 14px 20px 16px;
-      border-bottom: 1px solid var(--edge);
-    }
-    .history-list {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      padding: 12px;
-      display: grid;
-      gap: 10px;
-    }
-    .history-list::-webkit-scrollbar { width: 4px; }
-    .history-list::-webkit-scrollbar-track { background: transparent; }
-    .history-list::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 2px; }
-    .history-empty {
-      margin: 10px 12px 14px;
-      padding: 14px;
-      border-radius: 16px;
-      border: 1px dashed var(--edge);
-      background: rgba(255, 255, 255, 0.02);
-      color: var(--t2);
-      font-size: 13px;
-      line-height: 1.6;
-    }
-    .history-empty[hidden] {
-      display: none;
-    }
-    .history-item {
-      width: 100%;
-      display: grid;
-      gap: 10px;
-      padding: 14px;
-      text-align: left;
-      border-radius: 18px;
-      border: 1px solid var(--edge);
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--t1);
-      cursor: pointer;
-    }
-    .history-item.active {
-      border-color: rgba(105, 162, 255, 0.45);
-      background: linear-gradient(180deg, rgba(105, 162, 255, 0.14), rgba(255, 255, 255, 0.03));
-      box-shadow: inset 0 0 0 1px rgba(105, 162, 255, 0.08);
-    }
-    .history-item:hover {
-      border-color: var(--edge-strong);
-      transform: translateY(-1px);
-    }
-    .history-item-top {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 10px;
-    }
-    .history-item-title {
-      font-size: 13px;
-      font-weight: 600;
-      line-height: 1.45;
-      color: var(--t1);
-    }
-    .history-item-time {
-      flex-shrink: 0;
-      font-size: 11px;
-      color: var(--t3);
-      white-space: nowrap;
-    }
-    .history-item-preview {
-      font-size: 12px;
-      line-height: 1.6;
-      color: var(--t2);
-    }
-    .history-item-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .history-badge {
-      display: inline-flex;
-      align-items: center;
-      min-height: 24px;
-      padding: 0 9px;
-      border-radius: 999px;
-      border: 1px solid var(--edge);
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--t2);
-      font-size: 11px;
-      white-space: nowrap;
-    }
-    .history-badge.current {
-      border-color: rgba(105, 162, 255, 0.45);
-      color: var(--acc-strong);
-      background: rgba(105, 162, 255, 0.1);
-    }
-    .history-launcher {
-      position: absolute;
-      left: 0;
-      top: 12px;
-      z-index: 3;
-    }
-    .history-launcher[hidden] {
-      display: none;
     }
     .sidebar-card {
       padding: 20px;
@@ -643,7 +476,6 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     .chat-stage {
-      grid-area: chat;
       display: flex;
       flex-direction: column;
       min-height: 0;
@@ -962,12 +794,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       font-size: 12px;
       color: var(--t3);
     }
-    .chat-stage-actions {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      flex-shrink: 0;
-    }
     #send-btn {
       width: 42px;
       height: 42px;
@@ -994,35 +820,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
       .workspace {
         grid-template-columns: 1fr;
-        grid-template-areas:
-          "chat"
-          "sidebar";
         min-height: auto;
-      }
-      .history-panel {
-        position: fixed;
-        inset: 0 auto 0 0;
-        width: min(88vw, 360px);
-        height: 100dvh;
-        z-index: 20;
-        border-radius: 0 26px 26px 0;
-        border-left: 0;
-        transform: translateX(-100%);
-        opacity: 1;
-        pointer-events: auto;
-      }
-      .workspace.history-open .history-panel {
-        transform: translateX(0);
-        box-shadow: 0 30px 80px rgba(2, 8, 23, 0.58);
-      }
-      .workspace.history-collapsed .history-panel {
-        opacity: 1;
-        transform: translateX(-100%);
-      }
-      .history-launcher {
-        position: fixed;
-        left: 16px;
-        top: 84px;
       }
       .sidebar {
         order: 2;
@@ -1033,9 +831,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       .chat-stage-header {
         flex-direction: column;
         align-items: flex-start;
-      }
-      .chat-stage-actions {
-        width: 100%;
       }
       .bubble {
         max-width: 100%;
@@ -1058,9 +853,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
       .workspace {
         gap: 0;
-      }
-      .history-panel {
-        width: min(92vw, 360px);
       }
       .sidebar {
         gap: 0;
@@ -1102,26 +894,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       </div>
     </header>
 
-    <main class="workspace history-collapsed" id="workspace">
-      <aside class="history-panel panel" id="history-panel">
-        <div class="history-panel-inner">
-          <div class="history-panel-header">
-            <div>
-              <h2>История сессий</h2>
-              <p>Недавние сценарии и точки возврата по chat state.</p>
-            </div>
-            <button class="panel-toggle" id="history-toggle-btn" type="button">Скрыть</button>
-          </div>
-          <div class="history-panel-toolbar">
-            <button class="primary-btn" id="new-session-btn" type="button">Новая сессия</button>
-          </div>
-          <div class="history-empty" id="history-empty">Список появится после первой сохранённой сессии.</div>
-          <div class="history-list" id="history-list"></div>
-        </div>
-      </aside>
-
-      <button class="panel-toggle history-launcher" id="history-launcher-btn" type="button">История</button>
-
+    <main class="workspace">
       <aside class="sidebar">
         <section class="sidebar-card panel">
           <h2>Контекст</h2>
@@ -1182,9 +955,6 @@ const CHAT_HTML = `<!DOCTYPE html>
             <h2 id="chat-stage-title">Рабочая зона агента</h2>
             <p id="chat-stage-subtitle">Выберите вакансию.</p>
           </div>
-          <div class="chat-stage-actions">
-            <button class="panel-toggle" id="chat-history-btn" type="button">История</button>
-          </div>
         </header>
 
         <div id="chat-log">
@@ -1225,9 +995,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_QUERY_PARAM = 'state';
     const CHAT_STATE_STORAGE_KEY = 'hiring-agent:chat-state:' + (APP_BASE_PATH || 'root');
-    const CHAT_SESSION_HISTORY_KEY = 'hiring-agent:session-history:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_VERSION = 1;
-    const MAX_SESSION_HISTORY_ITEMS = 24;
     const STEP_LABELS = {
       auto_fetch:    'Загружаю данные вакансии',
       route_playbook:'Определяю плейбук',
@@ -1250,13 +1018,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
     let chatHistory = [];
     let pendingInitialChatState = loadInitialChatState();
-    let activeSessionKey = null;
-    let activeSessionCreatedAt = null;
-    let sessionHistoryIndex = loadSessionHistoryIndex();
-    let historyOpen = false;
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
-    const workspace = document.getElementById('workspace');
     const chatLog        = document.getElementById('chat-log');
     const emptyState     = document.getElementById('empty-state');
     const vacancySelect  = document.getElementById('vacancy-select');
@@ -1275,12 +1038,6 @@ const CHAT_HTML = `<!DOCTYPE html>
     const moderationLink = document.getElementById('moderation-link');
     const moderationCopy = document.getElementById('moderation-copy');
     const shortcutButtons = Array.from(document.querySelectorAll('.shortcut-btn'));
-    const historyList = document.getElementById('history-list');
-    const historyEmpty = document.getElementById('history-empty');
-    const historyToggleBtn = document.getElementById('history-toggle-btn');
-    const historyLauncherBtn = document.getElementById('history-launcher-btn');
-    const chatHistoryBtn = document.getElementById('chat-history-btn');
-    const newSessionBtn = document.getElementById('new-session-btn');
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
     function connect() {
@@ -1404,205 +1161,6 @@ const CHAT_HTML = `<!DOCTYPE html>
         .replace(/'/g, '&#39;')
         .replace(/\\n/g, '<br>');
       el.innerHTML = DOMPurify.sanitize(escaped);
-    }
-
-    function createSessionKey() {
-      return 'session-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-    }
-
-    function ensureActiveSession() {
-      if (!activeSessionKey) {
-        activeSessionKey = createSessionKey();
-      }
-      if (!activeSessionCreatedAt) {
-        activeSessionCreatedAt = new Date().toISOString();
-      }
-    }
-
-    function startNewSession(options = {}) {
-      const keepVacancy = options.keepVacancy !== false;
-      const nextVacancyId = keepVacancy ? selectedVacancyId : null;
-      const nextJobId = keepVacancy ? selectedVacancyJobId : null;
-      const nextVacancyTitle = keepVacancy ? selectedVacancyTitle : '';
-
-      activeSessionKey = createSessionKey();
-      activeSessionCreatedAt = new Date().toISOString();
-      clearActivePlaybookState();
-      chatLog.innerHTML = '';
-      chatHistory = [];
-
-      if (!keepVacancy || !nextVacancyId) {
-        selectedVacancyId = null;
-        selectedVacancyJobId = null;
-        selectedVacancyTitle = '';
-        vacancySelect.value = '';
-        localStorage.removeItem(LAST_VACANCY_KEY);
-        chatLog.appendChild(emptyState);
-      } else {
-        selectedVacancyId = nextVacancyId;
-        selectedVacancyJobId = nextJobId || null;
-        selectedVacancyTitle = nextVacancyTitle || '';
-        vacancySelect.value = String(nextVacancyId);
-        showWelcome(nextVacancyId, nextVacancyTitle || 'Новая вакансия');
-      }
-
-      syncContext();
-      updateSendEnabled();
-      persistChatState();
-    }
-
-    function stripMarkdown(text) {
-      const tick = String.fromCharCode(96);
-      return String(text ?? '')
-        .replace(new RegExp(tick + tick + tick + '[\\s\\S]*?' + tick + tick + tick, 'g'), ' ')
-        .replace(new RegExp(tick + '([^' + tick + ']+)' + tick, 'g'), '$1')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/[*_>#-]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
-
-    function getHistoryPreview(history) {
-      const latest = [...(Array.isArray(history) ? history : [])]
-        .reverse()
-        .find((entry) => entry?.kind === 'assistant' || entry?.kind === 'user');
-
-      if (!latest) return 'Сохранённый сценарий без сообщений.';
-
-      const source = latest.kind === 'assistant' ? latest.markdown : latest.text;
-      const clean = stripMarkdown(source);
-      return clean ? clean.slice(0, 140) : 'Сохранённый сценарий.';
-    }
-
-    function formatHistoryTime(value) {
-      if (!value) return '';
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return '';
-
-      return new Intl.DateTimeFormat('ru-RU', {
-        day: '2-digit',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit'
-      }).format(date);
-    }
-
-    function loadSessionHistoryIndex() {
-      try {
-        const raw = JSON.parse(localStorage.getItem(CHAT_SESSION_HISTORY_KEY) || '[]');
-        return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') : [];
-      } catch {
-        return [];
-      }
-    }
-
-    function saveSessionHistoryIndex() {
-      try {
-        localStorage.setItem(CHAT_SESSION_HISTORY_KEY, JSON.stringify(sessionHistoryIndex));
-      } catch {}
-    }
-
-    function renderSessionHistory() {
-      const items = Array.isArray(sessionHistoryIndex) ? sessionHistoryIndex : [];
-      const prioritizedItems = selectedVacancyId
-        ? [
-            ...items.filter((item) => String(item?.vacancyId ?? '') === String(selectedVacancyId)),
-            ...items.filter((item) => String(item?.vacancyId ?? '') !== String(selectedVacancyId))
-          ]
-        : items;
-
-      historyEmpty.hidden = prioritizedItems.length > 0;
-      historyList.innerHTML = '';
-
-      prioritizedItems.forEach((item) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'history-item' + (item.sessionKey === activeSessionKey ? ' active' : '');
-
-        const top = document.createElement('div');
-        top.className = 'history-item-top';
-
-        const title = document.createElement('div');
-        title.className = 'history-item-title';
-        title.textContent = item.vacancyTitle || 'Новая сессия';
-
-        const time = document.createElement('div');
-        time.className = 'history-item-time';
-        time.textContent = formatHistoryTime(item.updatedAt);
-
-        const preview = document.createElement('div');
-        preview.className = 'history-item-preview';
-        preview.textContent = item.preview || 'Без превью';
-
-        const meta = document.createElement('div');
-        meta.className = 'history-item-meta';
-
-        if (item.sessionKey === activeSessionKey) {
-          const currentBadge = document.createElement('span');
-          currentBadge.className = 'history-badge current';
-          currentBadge.textContent = 'Текущая';
-          meta.appendChild(currentBadge);
-        }
-
-        if (item.vacancyId) {
-          const vacancyBadge = document.createElement('span');
-          vacancyBadge.className = 'history-badge';
-          vacancyBadge.textContent = String(item.vacancyId) === String(selectedVacancyId) && selectedVacancyId
-            ? 'Текущая вакансия'
-            : 'Вакансия';
-          meta.appendChild(vacancyBadge);
-        }
-
-        const messagesBadge = document.createElement('span');
-        messagesBadge.className = 'history-badge';
-        messagesBadge.textContent = String(Array.isArray(item.state?.history) ? item.state.history.length : 0) + ' шагов';
-        meta.appendChild(messagesBadge);
-
-        top.appendChild(title);
-        top.appendChild(time);
-        button.appendChild(top);
-        button.appendChild(preview);
-        button.appendChild(meta);
-
-        button.addEventListener('click', () => {
-          restoreChatState(item.state);
-          setHistoryOpen(false);
-        });
-
-        historyList.appendChild(button);
-      });
-    }
-
-    function upsertSessionHistoryEntry(state) {
-      const normalized = normalizeChatState(state);
-      if (!normalized?.sessionKey) return;
-
-      const preview = getHistoryPreview(normalized.history);
-      const entry = {
-        sessionKey: normalized.sessionKey,
-        vacancyId: normalized.vacancyId,
-        vacancyTitle: normalized.vacancyTitle || 'Новая сессия',
-        updatedAt: normalized.updatedAt || new Date().toISOString(),
-        createdAt: normalized.createdAt || normalized.updatedAt || new Date().toISOString(),
-        preview,
-        state: normalized
-      };
-
-      sessionHistoryIndex = [
-        entry,
-        ...sessionHistoryIndex.filter((item) => item?.sessionKey !== entry.sessionKey)
-      ].slice(0, MAX_SESSION_HISTORY_ITEMS);
-
-      saveSessionHistoryIndex();
-      renderSessionHistory();
-    }
-
-    function setHistoryOpen(nextOpen) {
-      historyOpen = Boolean(nextOpen);
-      workspace.classList.toggle('history-open', historyOpen);
-      workspace.classList.toggle('history-collapsed', !historyOpen);
-      historyLauncherBtn.hidden = historyOpen;
-      historyToggleBtn.textContent = historyOpen ? 'Скрыть' : 'Показать';
     }
 
     // ── Messages ──────────────────────────────────────────────────────────────
@@ -1853,7 +1411,6 @@ const CHAT_HTML = `<!DOCTYPE html>
           chatStageSubtitle.textContent = 'Добавьте вакансию для начала работы.';
           composerMeta.textContent = 'Создайте вакансию.';
           syncShortcuts();
-          renderSessionHistory();
           return;
         }
 
@@ -1912,8 +1469,6 @@ const CHAT_HTML = `<!DOCTYPE html>
     });
 
     function onVacancySelected(vacancyId, title, jobId) {
-      activeSessionKey = createSessionKey();
-      activeSessionCreatedAt = new Date().toISOString();
       clearActivePlaybookState();
       selectedVacancyId = vacancyId;
       selectedVacancyJobId = jobId || null;
@@ -1943,8 +1498,6 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     function triggerCreateVacancy() {
-      activeSessionKey = createSessionKey();
-      activeSessionCreatedAt = new Date().toISOString();
       clearActivePlaybookState();
       selectedVacancyId = null;
       selectedVacancyJobId = null;
@@ -1959,13 +1512,6 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     createVacBtn.addEventListener('click', triggerCreateVacancy);
     emptyCreateVacBtn.addEventListener('click', triggerCreateVacancy);
-    historyToggleBtn.addEventListener('click', () => setHistoryOpen(false));
-    historyLauncherBtn.addEventListener('click', () => setHistoryOpen(true));
-    chatHistoryBtn.addEventListener('click', () => setHistoryOpen(true));
-    newSessionBtn.addEventListener('click', () => {
-      startNewSession({ keepVacancy: true });
-      setHistoryOpen(false);
-    });
     shortcutButtons.forEach((button) => {
       button.addEventListener('click', () => {
         if (!button.disabled) sendMessage(button.dataset.msg || '');
@@ -2054,12 +1600,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     function serializeChatState() {
-      ensureActiveSession();
       return {
         version: CHAT_STATE_VERSION,
-        sessionKey: activeSessionKey,
-        createdAt: activeSessionCreatedAt,
-        updatedAt: new Date().toISOString(),
         vacancyId: selectedVacancyId ? String(selectedVacancyId) : null,
         jobId: selectedVacancyJobId ? String(selectedVacancyJobId) : null,
         vacancyTitle: selectedVacancyTitle || '',
@@ -2121,9 +1663,6 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       return {
         version: Number(state.version) || CHAT_STATE_VERSION,
-        sessionKey: state.sessionKey ? String(state.sessionKey) : createSessionKey(),
-        createdAt: typeof state.createdAt === 'string' ? state.createdAt : new Date().toISOString(),
-        updatedAt: typeof state.updatedAt === 'string' ? state.updatedAt : new Date().toISOString(),
         vacancyId: state.vacancyId ? String(state.vacancyId) : null,
         jobId: state.jobId ? String(state.jobId) : null,
         vacancyTitle: typeof state.vacancyTitle === 'string' ? state.vacancyTitle : '',
@@ -2145,7 +1684,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       try {
         if (hasMeaningfulState) {
           sessionStorage.setItem(CHAT_STATE_STORAGE_KEY, JSON.stringify(state));
-          upsertSessionHistoryEntry(state);
         } else {
           sessionStorage.removeItem(CHAT_STATE_STORAGE_KEY);
         }
@@ -2176,8 +1714,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       if (!normalized) return;
 
       clearActivePlaybookState();
-      activeSessionKey = normalized.sessionKey;
-      activeSessionCreatedAt = normalized.createdAt || new Date().toISOString();
       activePlaybookKey = normalized.playbookKey;
       activePlaybookContext = normalized.playbookContext;
       selectedVacancyId = normalized.vacancyId;
@@ -2209,7 +1745,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
 
       updateSendEnabled();
-      renderSessionHistory();
       persistChatState();
     }
 
@@ -2218,9 +1753,6 @@ const CHAT_HTML = `<!DOCTYPE html>
     if (typeof marked?.use === 'function') {
       marked.use({ breaks: true, gfm: true });
     }
-
-    renderSessionHistory();
-    setHistoryOpen(window.innerWidth >= 1180);
 
     // Start WS
     connect();
