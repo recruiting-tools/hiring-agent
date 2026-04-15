@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import WsClient from "ws";
 import { createHiringAgentApp } from "../../services/hiring-agent/src/app.js";
@@ -2517,6 +2518,206 @@ test("hiring-agent: management-backed setup_communication supports vacancy_id di
     assert.equal(body.reply.kind, "communication_plan");
     assert.equal(body.reply.scenario_title, "Вакансия с отдельным vacancy_id");
     assert.equal(llmCalls.length, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed setup_communication generate-conversations keeps realistic mock contract", async () => {
+  const basePlan = {
+    scenario_title: "Базовый скрининг менеджера по продажам",
+    goal: "Договоренность о созвоне",
+    steps: [
+      { step: "Приветствие и вопрос о мотивации?", reminders_count: 1, comment: "Открываем диалог" },
+      { step: "Уточнение релевантного опыта B2B", reminders_count: 1, comment: "Проверяем fit" },
+      { step: "Сверка условий", reminders_count: 1, comment: "Снимаем риски по условиям" },
+      { step: "Приглашение на следующий этап", reminders_count: 2, comment: "Фиксируем созвон" }
+    ]
+  };
+  const basePlanHash = createHash("sha256").update(JSON.stringify(basePlan)).digest("hex");
+  let persistedExamples = null;
+  let llmCallCount = 0;
+
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.playbook_definitions d") && text.includes("d.trigger_description")) {
+      return [{
+        playbook_key: "setup_communication",
+        name: "Настроить общение с кандидатами",
+        trigger_description: "communication",
+        status: "available",
+        sort_order: 1,
+        step_count: 1
+      }];
+    }
+
+    throw new Error(`Unexpected management query: ${text}`);
+  };
+
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (/FROM chatbot\.jobs/.test(text) && /WHERE job_id = \$1\s+AND client_id = \$2/.test(text)) {
+      assert.deepEqual(values, ["job-owned", "tenant-alpha-001"]);
+      return [{ job_id: "job-owned", title: "Owned role" }];
+    }
+
+    if (/FROM chatbot\.vacancies/.test(text) && /WHERE vacancy_id = \$1/.test(text)) {
+      assert.deepEqual(values, ["vac-owned-1"]);
+      return [{
+        vacancy_id: "vac-owned-1",
+        job_id: "job-owned",
+        title: "Менеджер по продажам",
+        must_haves: ["B2B продажи", "CRM"],
+        nice_haves: ["Английский B2+"],
+        work_conditions: { salary_range: { min: 180000, max: 250000 } },
+        application_steps: [
+          { id: "intro", label: "Приветствие", owner: "agent" },
+          { id: "screen", label: "Скрининг", owner: "agent" },
+          { id: "sync", label: "Созвон", owner: "recruiter" }
+        ],
+        communication_plan: basePlan,
+        communication_plan_draft: null,
+        communication_examples: [
+          { kind: "first_message", title: "Деловой", message: "Здравствуйте! Что для вас важно в новой роли?" }
+        ],
+        communication_examples_plan_hash: basePlanHash
+      }];
+    }
+
+    if (/UPDATE chatbot\.vacancies/.test(text) && /communication_examples/.test(text)) {
+      assert.equal(values.at(-1), "vac-owned-1");
+      persistedExamples = JSON.parse(values[0]);
+      return [];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    managementSql,
+    llmAdapter: {
+      async generate(prompt) {
+        llmCallCount += 1;
+        assert.match(String(prompt), /тренировочные диалоги рекрутера и кандидата/i);
+        assert.match(String(prompt), /не для реальной отправки в HH/i);
+        assert.match(String(prompt), /Верни ровно 3 варианта/i);
+        return JSON.stringify([
+          {
+            title: "Опытный B2B кандидат",
+            summary: "5 лет в B2B, готов обсуждать переход",
+            turns: [
+              { speaker: "recruiter", message: "Здравствуйте! Подскажите, вам сейчас интересны предложения по продажам?" },
+              { speaker: "candidate", message: "Да, рассматриваю сильные варианты." },
+              { speaker: "recruiter", message: "Какой у вас последний релевантный опыт в B2B?" },
+              { speaker: "candidate", message: "Вёл enterprise-сделки, цикл до 6 месяцев." },
+              { speaker: "recruiter", message: "Отлично, давайте согласуем созвон на следующий этап завтра?" },
+              { speaker: "candidate", message: "Да, завтра после 14:00 удобно." }
+            ]
+          },
+          {
+            title: "Кандидат с фокусом на доход",
+            summary: "Стабильный результат, важны прозрачные KPI",
+            turns: [
+              { speaker: "recruiter", message: "Добрый день! Что для вас ключевое в новой роли сейчас?" },
+              { speaker: "candidate", message: "Прозрачная система бонусов и адекватный план." },
+              { speaker: "recruiter", message: "Какой план выполняли в текущей компании?" },
+              { speaker: "candidate", message: "В среднем 110-120% квартального плана." },
+              { speaker: "recruiter", message: "Понял, предлагаю перейти к интервью с руководителем, удобно в четверг?" },
+              { speaker: "candidate", message: "Да, четверг подходит." }
+            ]
+          },
+          {
+            title: "Кандидат из смежной индустрии",
+            summary: "Сильные навыки переговоров, адаптируется к продукту",
+            turns: [
+              { speaker: "recruiter", message: "Здравствуйте! Готовы обсудить вакансию менеджера по продажам?" },
+              { speaker: "candidate", message: "Да, с интересом посмотрю детали." },
+              { speaker: "recruiter", message: "Есть опыт сложных переговоров и длинного цикла?" },
+              { speaker: "candidate", message: "Да, цикл 3-5 месяцев, много работы с возражениями." },
+              { speaker: "recruiter", message: "Отлично, приглашаю вас на следующий этап — короткий созвон с командой, ок?" },
+              { speaker: "candidate", message: "Ок, договорились." }
+            ]
+          }
+        ]);
+      }
+    }
+  });
+
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementSql,
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "настроить общение: сгенерировать примеры общения",
+      action: "start_playbook",
+      playbook_key: "setup_communication",
+      job_id: "job-owned",
+      vacancy_id: "vac-owned-1"
+    }, "session=sess-alpha");
+
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "communication_plan");
+    assert.equal(llmCallCount, 1);
+    assert.equal(body.reply.conversation_examples.length, 3);
+
+    for (const example of body.reply.conversation_examples) {
+      assert.ok(Array.isArray(example.turns), "conversation should contain turns");
+      assert.ok(example.turns.length >= 4, "conversation should have 4+ turns");
+      const speakers = new Set(example.turns.map((turn) => turn.speaker));
+      assert.ok(speakers.has("recruiter"));
+      assert.ok(speakers.has("candidate"));
+
+      const recruiterTurns = example.turns.filter((turn) => turn.speaker === "recruiter");
+      const hasQuestion = recruiterTurns.some((turn) => /\?/.test(turn.message));
+      const hasNextStepInvite = recruiterTurns.some((turn) => /(интерв|созвон|следующ|этап|слот)/i.test(turn.message));
+      assert.ok(hasQuestion, "recruiter turns should include a question");
+      assert.ok(hasNextStepInvite, "conversation should include invite to next step");
+    }
+
+    assert.ok(Array.isArray(persistedExamples), "examples should be persisted");
+    assert.equal(persistedExamples.length, 4, "stored examples should keep first-message + 3 conversation examples");
+    assert.equal(persistedExamples.filter((item) => item.kind === "conversation_example").length, 3);
+    assert.equal(persistedExamples.filter((item) => item.kind === "first_message").length, 1);
   } finally {
     server.close();
   }
