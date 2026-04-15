@@ -2574,6 +2574,7 @@ export function createHiringAgentServer(app, options = {}) {
   const rootPath = appBasePath ? `${appBasePath}/` : "/";
   const sessionCookieName = options.sessionCookieName ?? process.env.SESSION_COOKIE_NAME ?? sessionCookieNameFromBasePath(appBasePath);
   const sessionCookiePath = appBasePath || "/";
+  let wss;
 
   const server = createServer(async (request, response) => {
     try {
@@ -2588,6 +2589,21 @@ export function createHiringAgentServer(app, options = {}) {
           || requestUrl.searchParams.get("include_playbooks") === "1";
         const result = await app.getHealth({ includePlaybooks });
         writeJson(response, result.status, result.body);
+        return;
+      }
+
+      if (request.method === "GET" && (requestUrl.pathname === "/health-web-socket" || normalizedPath === "/health-web-socket")) {
+        writeJson(response, 200, {
+          status: "ok",
+          app_env: appEnv,
+          websocket: {
+            enabled: Boolean(wss),
+            path: wsPath,
+            requires_auth: true,
+            heartbeat_interval_ms: 30_000,
+            check_hint: "perform a websocket upgrade and expect open or unauthorized close"
+          }
+        });
         return;
       }
 
@@ -2832,7 +2848,7 @@ export function createHiringAgentServer(app, options = {}) {
   });
 
   // ── WebSocket server ─────────────────────────────────────────────────────────
-  const wss = new WebSocketServer({ server, path: wsPath });
+  wss = new WebSocketServer({ server, path: wsPath });
 
   wss.on("connection", async (ws, req) => {
     console.log("[ws] new connection");
