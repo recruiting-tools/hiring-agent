@@ -1601,6 +1601,15 @@ function replyToMarkdown(reply) {
   };
 }
 
+function serializeReplyForClient(reply) {
+  const { markdown, actions } = replyToMarkdown(reply);
+  return {
+    markdown,
+    text: markdown,
+    actions
+  };
+}
+
 function tryParseStructuredReply(reply) {
   if (typeof reply !== "string") {
     return null;
@@ -1803,7 +1812,23 @@ export function createHiringAgentServer(app, options = {}) {
           job_id: body.job_id,
           vacancy_id: body.vacancy_id
         });
-        writeJson(response, result.status, result.body);
+
+        const bodyWithRender = (() => {
+          if (
+            result.status >= 200
+            && result.status < 300
+            && result.body
+            && Object.hasOwn(result.body, "reply")
+          ) {
+            return {
+              ...result.body,
+              ...serializeReplyForClient(result.body.reply)
+            };
+          }
+          return result.body;
+        })();
+
+        writeJson(response, result.status, bodyWithRender);
         return;
       }
 

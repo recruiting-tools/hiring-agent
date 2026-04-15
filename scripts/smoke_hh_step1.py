@@ -66,6 +66,29 @@ def run_smoke(base_url: str, vacancy_id: str) -> None:
     _require(status == 200, f"messages endpoint returned {status}")
     _require(isinstance(messages_payload.get("items"), list), "messages payload missing items")
 
+    negotiations_url = (
+        f"{base_url}/api/hh/negotiations/response?"
+        f"{urlencode({'vacancy_id': vacancy_id, 'per_page': '50'})}"
+    )
+    status, negotiations_payload = _request(negotiations_url)
+    _require(status == 200, f"negotiations endpoint returned {status}")
+    _require(isinstance(negotiations_payload.get("items"), list), "negotiations payload missing items")
+    _require("found" in negotiations_payload, "negotiations payload missing found")
+    _require("pages" in negotiations_payload, "negotiations payload missing pages")
+
+    if negotiations_payload["items"]:
+        first = negotiations_payload["items"][0]
+        _require("state" in first, "negotiation item missing state")
+        _require("resume" in first, "negotiation item missing resume")
+        _require("vacancy" in first, "negotiation item missing vacancy")
+        _require("updated_at" in first, "negotiation item missing updated_at")
+
+        resume_id = first["resume"]["id"]
+        resume_url = f"{base_url}/api/hh/resumes/{resume_id}"
+        status, resume_payload = _request(resume_url)
+        _require(status == 200, f"resume endpoint returned {status}")
+        _require("id" in resume_payload, "resume payload missing id")
+
     send_url = f"{messages_url}?{urlencode({'dry_run': 'true'})}"
     status, send_payload = _request(
         send_url,
