@@ -132,6 +132,13 @@ test("hiring-agent: POST /api/chat returns funnel payload for funnel request", a
     assert.equal(body.reply.playbook_key, "candidate_funnel");
     assert.equal(typeof body.reply.summary.total, "number");
     assert.ok(Array.isArray(body.reply.rows));
+    assert.equal(typeof body.text, "string");
+    assert.equal(typeof body.markdown, "string");
+    assert.equal(body.markdown, body.text);
+    assert.ok(body.text.includes("Воронка кандидатов"));
+    assert.ok(!body.text.includes("```json"));
+    assert.ok(Array.isArray(body.actions));
+    assert.deepEqual(body.actions, [{ label: "Обновить", message: "обнови воронку" }]);
   } finally {
     server.close();
   }
@@ -1223,6 +1230,101 @@ test("hiring-agent: GET /chat/:artifactId returns 404 on this API surface", asyn
     const sessionCookie = await login(server);
     const { status } = await req(server, "GET", "/chat/art-123", undefined, sessionCookie);
     assert.equal(status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: GET /chat/communication-examples returns HTML report for vacancy", async () => {
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((acc, chunk, index) => (
+      acc + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (text.includes("FROM chatbot.vacancies") && text.includes("WHERE vacancy_id = $1")) {
+      return [{
+        vacancy_id: "vac-test-1",
+        title: "Менеджер по продажам",
+        updated_at: "2026-04-15T08:00:00.000Z",
+        communication_plan: {
+          scenario_title: "Базовый сценарий",
+          goal: "Назначить интервью",
+          steps: [
+            { step: "Приветствие и вопрос", reminders_count: 1, comment: "Открыть контакт" },
+            { step: "Проверка опыта", reminders_count: 1, comment: "Квалификация" },
+            { step: "Сверка условий", reminders_count: 1, comment: "Снять риски" },
+            { step: "Приглашение на интервью", reminders_count: 2, comment: "Назначить слот" }
+          ]
+        },
+        communication_plan_draft: null,
+        communication_examples: [
+          {
+            title: "Сильный кандидат",
+            summary: "B2B опыт 5 лет, готов к интервью",
+            turns: [
+              { speaker: "recruiter", message: "Здравствуйте! Готовы обсудить роль?" },
+              { speaker: "candidate", message: "Да, интересно." },
+              { speaker: "recruiter", message: "Когда удобно выйти на интервью?" },
+              { speaker: "candidate", message: "Завтра после 14:00." }
+            ]
+          }
+        ]
+      }];
+    }
+
+    return [];
+  };
+
+  const server = createHiringAgentServer(createHiringAgentApp(), {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body, contentType } = await req(
+      server,
+      "GET",
+      "/chat/communication-examples?vacancy_id=vac-test-1",
+      undefined,
+      "session=sess-alpha"
+    );
+    assert.equal(status, 200);
+    assert.match(contentType ?? "", /text\/html/);
+    assert.match(body, /Примеры общения/);
+    assert.match(body, /Сильный кандидат/);
+    assert.match(body, /Завтра после 14:00/);
   } finally {
     server.close();
   }
@@ -2725,6 +2827,7 @@ test("hiring-agent: WebSocket renders communication_plan as markdown table and r
             actions: [
               { label: "Сохранить", message: "настроить общение: сохранить настройку коммуникаций" },
               { label: "Запустить", message: "настроить общение: запустить сценарий коммуникаций" },
+              { label: "Сгенерировать примеры общения", message: "настроить общение: сгенерировать примеры общения" },
               { label: "Поправить", message: "настроить общение: поправить сценарий коммуникаций" }
             ]
           }
@@ -2814,7 +2917,7 @@ test("hiring-agent: WebSocket renders communication_plan as markdown table and r
     assert.ok(!chunk.text.includes("```json"), "should not dump raw JSON");
     assert.deepEqual(
       done.actions.map((item) => item.label),
-      ["Сохранить", "Запустить", "Поправить"]
+      ["Сохранить", "Запустить", "Сгенерировать примеры общения", "Поправить"]
     );
   } finally {
     server.close();
@@ -2845,6 +2948,7 @@ test("hiring-agent: WebSocket parses stringified communication_plan reply and re
             actions: [
               { label: "Сохранить", message: "настроить общение: сохранить настройку коммуникаций" },
               { label: "Запустить", message: "настроить общение: запустить сценарий коммуникаций" },
+              { label: "Сгенерировать примеры общения", message: "настроить общение: сгенерировать примеры общения" },
               { label: "Поправить", message: "настроить общение: поправить сценарий коммуникаций" }
             ]
           })
@@ -2933,7 +3037,7 @@ test("hiring-agent: WebSocket parses stringified communication_plan reply and re
     assert.ok(!chunk.text.includes("```json"), "should not dump raw JSON");
     assert.deepEqual(
       done.actions.map((item) => item.label),
-      ["Сохранить", "Запустить", "Поправить"]
+      ["Сохранить", "Запустить", "Сгенерировать примеры общения", "Поправить"]
     );
   } finally {
     server.close();
