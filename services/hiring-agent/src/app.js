@@ -158,6 +158,8 @@ export function createHiringAgentApp(options = {}) {
   const tenantDbTimeoutMs = options.tenantDbTimeoutMs ?? TENANT_DB_TIMEOUT_MS;
   const managementSql = options.managementSql ?? null;
   const llmAdapter = options.llmAdapter ?? null;
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const hhVacancyFetchTimeoutMs = options.hhVacancyFetchTimeoutMs ?? null;
   const communicationPlanLlmConfig = options.communicationPlanLlmConfig ?? {};
   const createVacancyLlmConfig = options.createVacancyLlmConfig ?? {};
   const healthMetadata = {
@@ -607,7 +609,9 @@ export function createHiringAgentApp(options = {}) {
         llmAdapter,
         llmConfig: {
           createVacancy: createVacancyLlmConfig
-        }
+        },
+        fetchImpl,
+        hhVacancyFetchTimeoutMs
       });
 
       const runtimeVacancyId = runtimeResult.vacancyId ?? effectiveVacancyId ?? null;
