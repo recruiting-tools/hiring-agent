@@ -1,29 +1,16 @@
 import { hasFallbackSteps } from "./local-seed-fallback.js";
+import { ALWAYS_RUNNABLE_PLAYBOOK_KEYS, FALLBACK_ROUTES } from "./playbook-contracts.js";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
-  "candidate_funnel",
-  "setup_communication"
-]);
 
-const FALLBACK_ROUTES = [
-  {
-    playbook_key: "candidate_funnel",
-    keywords: ["воронк", "статус кандидат", "funnel", "pipeline"]
-  },
-  {
-    playbook_key: "setup_communication",
-    keywords: ["план коммуникац", "скрининг", "communication plan", "настроить общение", "настройте общение"]
-  },
-  {
-    playbook_key: "mass_broadcast",
-    keywords: ["всем кандидатам", "бродкаст", "массовое сообщение", "broadcast", "календарь", "рассылк"]
-  },
-  {
-    playbook_key: "view_vacancy",
-    keywords: ["покажи вакансию", "карточка вакансии", "информация по вакансии", "посмотри вакансию"]
-  }
-];
+function canonicalizePlaybookKey(playbookKey) {
+  return playbookKey === "candidate_broadcast" ? "mass_broadcast" : playbookKey;
+}
+
+const STATIC_FALLBACK_ROUTES = FALLBACK_ROUTES.map((route) => ({
+  ...route,
+  playbook_key: canonicalizePlaybookKey(route.playbook_key)
+}));
 
 const RUSSIAN_SUFFIXES = [
   "ироваться",
@@ -98,7 +85,7 @@ let cachePromise = null;
 export async function routePlaybook(message, managementSql = null) {
   const normalized = String(message ?? "").trim().toLowerCase();
   if (!managementSql) {
-    return matchRoute(normalized, FALLBACK_ROUTES);
+    return matchRoute(normalized, STATIC_FALLBACK_ROUTES);
   }
 
   const { routes, fromCache } = await getDbRoutes(managementSql);
@@ -139,13 +126,16 @@ async function getDbRoutes(managementSql, options = {}) {
       ORDER BY d.sort_order ASC, d.playbook_key ASC
     `.then((rows) => {
       const filtered = rows.filter((row) => (
-        ALWAYS_RUNNABLE_PLAYBOOKS.has(row.playbook_key)
+        ALWAYS_RUNNABLE_PLAYBOOK_KEYS.has(canonicalizePlaybookKey(row.playbook_key))
         || Number(row.step_count ?? 0) > 0
         || hasFallbackSteps(row.playbook_key)
       ));
-      cachedDefinitions = filtered;
+      cachedDefinitions = filtered.map((row) => ({
+        ...row,
+        playbook_key: canonicalizePlaybookKey(row.playbook_key)
+      }));
       cachedAt = Date.now();
-      return filtered;
+      return cachedDefinitions;
     });
 
     if (!forceRefresh) {
@@ -179,8 +169,9 @@ function matchRoute(normalizedMessage, routes) {
 
   for (const route of routes) {
     const keywords = Array.isArray(route?.keywords) ? route.keywords : [];
+    const playbookKey = canonicalizePlaybookKey(route?.playbook_key ?? null);
     if (keywords.some((keyword) => matchesKeyword(normalizedMessage, normalizedStemmedMessage, keyword))) {
-      return route.playbook_key;
+      return playbookKey;
     }
   }
   return null;

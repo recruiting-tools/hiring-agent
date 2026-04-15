@@ -1,41 +1,21 @@
 import { hasFallbackSteps } from "./local-seed-fallback.js";
+import { ALWAYS_RUNNABLE_PLAYBOOK_KEYS, FALLBACK_PLAYBOOKS } from "./playbook-contracts.js";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const ALWAYS_RUNNABLE_PLAYBOOKS = new Set([
-  "candidate_funnel",
-  "setup_communication"
-]);
 
-const FALLBACK_PLAYBOOKS = [
-  {
-    playbook_key: "candidate_funnel",
-    title: "Визуализация воронки",
-    name: "Визуализация воронки",
-    enabled: true,
-    status: "available"
-  },
-  {
-    playbook_key: "setup_communication",
-    title: "Настроить общение с кандидатами",
-    name: "Настроить общение с кандидатами",
-    enabled: true,
-    status: "available"
-  },
-  {
-    playbook_key: "view_vacancy",
-    title: "Карточка вакансии",
-    name: "Карточка вакансии",
-    enabled: true,
-    status: "available"
-  },
-  {
-    playbook_key: "mass_broadcast",
-    title: "Массовая рассылка кандидатам",
-    name: "Массовая рассылка кандидатам",
-    enabled: true,
-    status: "available"
+function canonicalizePlaybookKey(playbookKey) {
+  return playbookKey === "candidate_broadcast" ? "mass_broadcast" : playbookKey;
+}
+
+function dedupeByPlaybookKey(playbooks) {
+  const byKey = new Map();
+  for (const playbook of playbooks) {
+    const playbookKey = String(playbook?.playbook_key ?? "");
+    if (!playbookKey) continue;
+    byKey.set(playbookKey, playbook);
   }
-];
+  return [...byKey.values()];
+}
 
 let cachedPlaybooks = null;
 let cachedAt = 0;
@@ -47,11 +27,33 @@ export function clearPlaybookRegistryCache() {
   cachePromise = null;
 }
 
-export async function getPlaybookRegistry(managementSql = null) {
+export async function getPlaybookRegistry(managementSql = null, tenantId = null) {
   if (!managementSql) {
-    return structuredClone(FALLBACK_PLAYBOOKS);
+    return dedupeByPlaybookKey(
+      FALLBACK_PLAYBOOKS.map((playbook) => ({
+        ...playbook,
+        playbook_key: canonicalizePlaybookKey(playbook.playbook_key)
+      }))
+    );
   }
 
+  const baseRegistry = await getBaseRegistry(managementSql);
+  if (!tenantId) {
+    return structuredClone(baseRegistry);
+  }
+
+  const tenantOverrides = await getTenantPlaybookOverrides(managementSql, tenantId).catch(() => new Map());
+  return structuredClone(
+    baseRegistry.map((playbook) => ({
+      ...playbook,
+      enabled: tenantOverrides.has(playbook.playbook_key)
+        ? (playbook.enabled && tenantOverrides.get(playbook.playbook_key))
+        : playbook.enabled
+    }))
+  );
+}
+
+async function getBaseRegistry(managementSql) {
   if (cachedPlaybooks && (Date.now() - cachedAt) < CACHE_TTL_MS) {
     return structuredClone(cachedPlaybooks);
   }
@@ -72,11 +74,16 @@ export async function getPlaybookRegistry(managementSql = null) {
       GROUP BY d.playbook_key, d.name, d.trigger_description, d.status, d.sort_order
       ORDER BY d.sort_order ASC, d.playbook_key ASC
     `.then((rows) => {
-      cachedPlaybooks = rows.map((row) => ({
-        ...row,
-        title: row.name,
-        enabled: row.status === "available" && isRunnablePlaybook(row.playbook_key, row.step_count)
-      }));
+      const normalizedRows = rows.map((row) => {
+        const playbookKey = canonicalizePlaybookKey(row.playbook_key);
+        return {
+          ...row,
+          playbook_key: playbookKey,
+          title: row.name,
+          enabled: row.status === "available" && isRunnablePlaybook(playbookKey, row.step_count)
+        };
+      });
+      cachedPlaybooks = dedupeByPlaybookKey(normalizedRows);
       cachedAt = Date.now();
       return cachedPlaybooks;
     }).finally(() => {
@@ -87,15 +94,35 @@ export async function getPlaybookRegistry(managementSql = null) {
   return structuredClone(await cachePromise);
 }
 
-export async function findPlaybook(playbookKey, managementSql = null) {
-  const playbooks = await getPlaybookRegistry(managementSql);
-  return playbooks.find((playbook) => playbook.playbook_key === playbookKey) ?? null;
+async function getTenantPlaybookOverrides(managementSql, tenantId) {
+  if (!tenantId) {
+    return new Map();
+  }
+
+  const rows = await managementSql`
+    SELECT playbook_key, enabled
+    FROM management.tenant_playbook_access
+    WHERE tenant_id = ${tenantId}
+  `;
+
+  const overrides = new Map();
+  for (const row of rows) {
+    overrides.set(canonicalizePlaybookKey(row.playbook_key), row.enabled === true);
+  }
+
+  return overrides;
+}
+
+export async function findPlaybook(playbookKey, managementSql = null, tenantId = null) {
+  const playbooks = await getPlaybookRegistry(managementSql, tenantId);
+  const normalizedPlaybookKey = canonicalizePlaybookKey(playbookKey);
+  return playbooks.find((playbook) => playbook.playbook_key === normalizedPlaybookKey) ?? null;
 }
 
 function isRunnablePlaybook(playbookKey, stepCount) {
   return (
-    ALWAYS_RUNNABLE_PLAYBOOKS.has(playbookKey)
-    || Number(stepCount ?? 0) > 0
+    ALWAYS_RUNNABLE_PLAYBOOK_KEYS.has(playbookKey)
     || hasFallbackSteps(playbookKey)
+    || Number(stepCount ?? 0) > 0
   );
 }
