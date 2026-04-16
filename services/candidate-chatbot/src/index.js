@@ -15,6 +15,7 @@ import { TelegramNotifier } from "./telegram-notifier.js";
 import { runPollOnce } from "../../hh-connector/src/poll-loop.js";
 import { TokenRefresher } from "../../hh-connector/src/token-refresher.js";
 import { HhConnector } from "../../hh-connector/src/hh-connector.js";
+import { CronSender } from "../../hh-connector/src/cron-sender.js";
 
 let store;
 
@@ -124,12 +125,42 @@ const hhImportRunner = new HhConnector({
   vacancyMappings: []
 });
 
+const hhSendRunner = {
+  async sendDue() {
+    const startedAt = Date.now();
+    console.info(JSON.stringify({ event: "hh_send_runner_enter" }));
+    if (tokenRefresher) {
+      const refreshResult = await tokenRefresher.refreshIfNeeded();
+      console.info(JSON.stringify({
+        event: "hh_send_runner_after_refresh",
+        refresh_result: refreshResult,
+        elapsed_ms: Date.now() - startedAt
+      }));
+    }
+    const sender = new CronSender({ store, hhClient: hhPollClient });
+    const results = await sender.tick();
+    console.info(JSON.stringify({
+      event: "hh_send_runner_after_tick",
+      result_count: results.length,
+      elapsed_ms: Date.now() - startedAt
+    }));
+    return {
+      processed: results.length,
+      sent: results.filter((item) => item.sent).length,
+      skipped: results.filter((item) => item.skipped || item.duplicate).length,
+      failed: results.filter((item) => !item.sent && !item.skipped && !item.duplicate).length,
+      results
+    };
+  }
+};
+
 const port = Number(process.env.PORT ?? 3000);
 createHttpServer(app, {
   store,
   hhOAuthClient,
   hhPollRunner,
   hhImportRunner,
+  hhSendRunner,
   internalApiToken: process.env.INTERNAL_API_TOKEN ?? null
 }).listen(port, () => {
   console.log(`candidate-chatbot listening on :${port}`);

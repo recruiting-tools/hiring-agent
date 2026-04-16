@@ -597,7 +597,7 @@ const MODERATION_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhImportRunner, internalApiToken } = {}) {
+export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhImportRunner, hhSendRunner, internalApiToken } = {}) {
   return createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url, "http://localhost");
@@ -804,6 +804,36 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhIm
           windowEnd: body.window_end
         });
         writeJson(response, 200, result);
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/internal/hh-send") {
+        const startedAt = Date.now();
+        console.info(JSON.stringify({ event: "hh_send_endpoint_enter" }));
+        if (!isAuthorizedInternalRequest(request, internalApiToken)) {
+          writeJson(response, 401, { error: "unauthorized" });
+          return;
+        }
+        if (!hhSendRunner) {
+          writeJson(response, 503, { error: "hh_send_not_configured" });
+          return;
+        }
+        const hhSend = store ? await store.getFeatureFlag("hh_send") : null;
+        console.info(JSON.stringify({
+          event: "hh_send_endpoint_after_flag",
+          hh_send_enabled: hhSend?.enabled ?? null,
+          elapsed_ms: Date.now() - startedAt
+        }));
+        if (hhSend && hhSend.enabled === false) {
+          writeJson(response, 200, { ok: true, skipped: true, reason: "hh_send_disabled" });
+          return;
+        }
+        const result = await hhSendRunner.sendDue();
+        console.info(JSON.stringify({
+          event: "hh_send_endpoint_before_return",
+          elapsed_ms: Date.now() - startedAt
+        }));
+        writeJson(response, 200, { ok: true, ...(result ?? {}) });
         return;
       }
 
