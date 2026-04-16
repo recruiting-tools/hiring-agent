@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: hiring-agent-pr-gate-${{ github.ref }}
@@ -20,6 +21,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - name: Session trace
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash ./scripts/ci/session-trace.sh
 
       - name: Detect hiring-agent impact
         id: impact

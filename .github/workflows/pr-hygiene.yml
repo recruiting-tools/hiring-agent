@@ -13,6 +13,12 @@ jobs:
   up-to-date-with-main:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+      - name: Require session trace metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRACE_STRICT: "true"
+        run: bash ./scripts/ci/session-trace.sh
       - name: Ensure PR head includes latest main
         uses: actions/github-script@v7
         with:

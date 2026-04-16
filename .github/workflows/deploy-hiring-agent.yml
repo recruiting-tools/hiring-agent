@@ -19,6 +19,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  pull-requests: read
 
 concurrency:
   group: deploy-hiring-agent
@@ -49,6 +50,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
+      - name: Session trace
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash ./scripts/ci/session-trace.sh
 
       - uses: actions/setup-node@v5
         with:
@@ -264,6 +269,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+      - name: Session trace
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash ./scripts/ci/session-trace.sh
 
       - uses: actions/setup-node@v5
         with:

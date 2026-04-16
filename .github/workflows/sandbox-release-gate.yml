@@ -34,6 +34,10 @@ jobs:
       SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
     steps:
       - uses: actions/checkout@v5
+      - name: Session trace
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash ./scripts/ci/session-trace.sh
       - run: corepack enable pnpm
       - uses: actions/setup-node@v5
         with:

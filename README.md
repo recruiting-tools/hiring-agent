@@ -84,6 +84,7 @@ scripts/pr-worker.sh send-pr-ready \
 - Review comments/threads из GitHub прилетают только если отдельно настроен webhook relay на review events.
 - Если `Session ID` не указан в PR body, потом легко потерять связь между PR/run и конкретной сессией.
 - В branch name можно добавлять короткий suffix вроде `--s-019d92d2`, но это только удобство для глаз, не source of truth.
+- `PR Hygiene` теперь валит новые PR без `Session ID`, а workflow summary печатает `Session Trace` с PR/SHA/session id/callback.
 
 ### CI/CD Observability
 

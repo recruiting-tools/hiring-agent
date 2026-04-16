@@ -175,6 +175,7 @@ printf "%s\n\nSession ID: %s\n<!-- ci-callback: %s/api/sessions/%s/reply -->\n" 
 - Review comments/threads из GitHub требуют отдельного webhook relay (это не покрывается одним `ci-callback` маркером).
 - `Session ID` в PR body нужен для человека: потом можно быстро понять, какая именно сессия создала PR или ждёт callback.
 - Если очень хочется, можно добавлять короткий branch suffix вроде `--s-019d92d2`, но source of truth всё равно должен быть в PR body.
+- `PR Hygiene` теперь требует `Session ID` для новых PR, а workflows пишут `Session Trace` в log и step summary.
 
 ## Secrets (GitHub repo settings)
 
