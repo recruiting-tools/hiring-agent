@@ -320,6 +320,14 @@ export function createHiringAgentApp(options = {}) {
         requestedVacancyId,
         requestedVacancyFound: identity.requestedVacancyFound
       });
+      const recoveredVacancyScopedJobId = canRecoverFromVacancyScopedJobMiss({
+        explicitJobMissing,
+        requestedVacancyId,
+        requestedVacancyFound: identity.requestedVacancyFound,
+        vacancy: identity.vacancy,
+        effectiveJobId
+      });
+      const unresolvedJobMissing = explicitJobMissing && !legacyEchoedJobId && !recoveredVacancyScopedJobId;
 
       if (playbook.playbook_key === "candidate_funnel") {
         if (tenantSql && !effectiveJobId) {
@@ -343,7 +351,7 @@ export function createHiringAgentApp(options = {}) {
           };
         }
 
-        if (tenantSql && tenantId && explicitJobMissing) {
+        if (tenantSql && tenantId && unresolvedJobMissing) {
           return {
             status: 404,
             body: {
@@ -360,7 +368,12 @@ export function createHiringAgentApp(options = {}) {
                 () => executeWithDb({ sql: tenantSql, tenantId, jobId: effectiveJobId }),
                 { operation: "executeWithDb", timeoutMs: tenantDbTimeoutMs }
               )
-              : runCandidateFunnelPlaybook({ runtimeData: getDemoRuntimeData() })
+              : runCandidateFunnelPlaybook({ runtimeData: getDemoRuntimeData() }),
+            playbook_key: playbook.playbook_key,
+            playbook_active: false,
+            vacancy_id: effectiveVacancyId,
+            job_id: effectiveJobId,
+            vacancy_title: identity.vacancy?.title ?? null
           }
         };
       }
@@ -375,7 +388,7 @@ export function createHiringAgentApp(options = {}) {
           };
         }
 
-        if (explicitJobMissing && !legacyEchoedJobId) {
+        if (unresolvedJobMissing) {
           return {
             status: 404,
             body: {
@@ -416,7 +429,7 @@ export function createHiringAgentApp(options = {}) {
           };
         }
 
-        if (explicitJobMissing) {
+        if (unresolvedJobMissing) {
           return {
             status: 404,
             body: {
@@ -461,7 +474,7 @@ export function createHiringAgentApp(options = {}) {
           };
         }
 
-        if (explicitJobMissing) {
+        if (unresolvedJobMissing) {
           return {
             status: 404,
             body: {
@@ -621,7 +634,7 @@ export function createHiringAgentApp(options = {}) {
           };
         }
 
-        if (explicitJobMissing) {
+        if (unresolvedJobMissing) {
           return {
             status: 404,
             body: {
@@ -1029,6 +1042,23 @@ function isLegacyEchoedJobId({ requestedJobId, requestedVacancyId, requestedVaca
     && requestedVacancyId
     && requestedJobId === requestedVacancyId
     && requestedVacancyFound
+  );
+}
+
+function canRecoverFromVacancyScopedJobMiss({
+  explicitJobMissing,
+  requestedVacancyId,
+  requestedVacancyFound,
+  vacancy,
+  effectiveJobId
+}) {
+  return Boolean(
+    explicitJobMissing
+    && requestedVacancyId
+    && requestedVacancyFound
+    && vacancy?.job_id
+    && effectiveJobId
+    && vacancy.job_id === effectiveJobId
   );
 }
 

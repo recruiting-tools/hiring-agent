@@ -1699,6 +1699,23 @@ const CHAT_HTML = `<!DOCTYPE html>
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
+          if (data && (data.markdown || data.text)) {
+            const markdown = String(data.markdown || data.text || '');
+            currentAssistant.text += markdown;
+            renderMarkdown(currentAssistant.contentEl, currentAssistant.text);
+            pushChatHistoryEntry({
+              kind: 'assistant',
+              markdown: currentAssistant.text,
+              actions: []
+            });
+            currentAssistant.bubbleEl.classList.remove('streaming');
+            currentAssistant = null;
+            streaming = false;
+            updateSendEnabled();
+            scrollBottom();
+            return;
+          }
+
           throw new Error(data.message || data.error || 'Ошибка сервера');
         }
 
@@ -2226,6 +2243,10 @@ function replyToMarkdown(reply) {
   if (normalizedReply) {
     reply = normalizedReply;
   }
+  const mappedErrorReply = mapErrorBodyToReply(reply);
+  if (mappedErrorReply) {
+    reply = mappedErrorReply;
+  }
 
   if (!reply || typeof reply !== "object") {
     return { markdown: String(reply ?? "…"), actions: [] };
@@ -2333,6 +2354,35 @@ function serializeReplyForClient(reply) {
   };
 }
 
+function mapErrorBodyToReply(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body) || body.kind) {
+    return null;
+  }
+
+  if (body.error === "job_not_found" || body.error === "vacancy_not_found") {
+    return {
+      kind: "fallback_text",
+      text: "Не удалось найти актуальную вакансию для этого запроса. Выберите вакансию заново и повторите попытку."
+    };
+  }
+
+  if (typeof body.message === "string" && body.message.trim()) {
+    return {
+      kind: "fallback_text",
+      text: body.message.trim()
+    };
+  }
+
+  if (typeof body.error === "string" && body.error.trim()) {
+    return {
+      kind: "fallback_text",
+      text: body.error.trim()
+    };
+  }
+
+  return null;
+}
+
 function tryParseStructuredReply(reply) {
   if (typeof reply !== "string") {
     return null;
@@ -2373,7 +2423,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       client_context: clientContext ?? null,
     });
 
-    const reply = result.body?.reply ?? result.body;
+    const reply = result.body?.reply ?? mapErrorBodyToReply(result.body) ?? result.body;
     console.log("[ws] reply kind:", reply?.kind ?? "unknown", "status:", result.status);
 
     send({ type: "progress", tool: "render", label: "Генерирую ответ" });
@@ -2603,18 +2653,15 @@ export function createHiringAgentServer(app, options = {}) {
         });
 
         const bodyWithRender = (() => {
-          if (
-            result.status >= 200
-            && result.status < 300
-            && result.body
-            && Object.hasOwn(result.body, "reply")
-          ) {
-            return {
-              ...result.body,
-              ...serializeReplyForClient(result.body.reply)
-            };
+          const reply = result.body?.reply ?? mapErrorBodyToReply(result.body);
+          if (!result.body || !reply) {
+            return result.body;
           }
-          return result.body;
+
+          return {
+            ...result.body,
+            ...serializeReplyForClient(reply)
+          };
         })();
 
         writeJson(response, result.status, bodyWithRender);
