@@ -35,6 +35,30 @@ Org ID: `org-bold-wave-46400152`
 - drift в `sandbox` не чинится вручную, branch пересобирается через delete + recreate;
 - preview branches живут недолго и удаляются после merge/review.
 
+## `job_id` / `job_setup_id` Validation Checklist
+
+Для recruiter identity migration не ограничивайся только `migration up`.
+
+На ephemeral branch нужно отдельно проверить:
+
+1. canonical recruiter rows имеют `job_id`;
+2. active runtime sessions имеют `job_setup_id` или legacy `vacancy_id` fallback;
+3. recruiter smoke на том же SHA использует `job_id`-first path.
+
+Минимальные validation queries:
+
+```sql
+SELECT COUNT(*) AS rows_missing_job_id
+FROM chatbot.vacancies
+WHERE status <> 'archived'
+  AND job_id IS NULL;
+
+SELECT COUNT(*) AS rows_missing_runtime_key
+FROM management.playbook_sessions
+WHERE status = 'active'
+  AND COALESCE(job_setup_id, vacancy_id) IS NULL;
+```
+
 ## What Neon Branches Give Us
 
 - быстрые изолированные копии схемы и данных;
@@ -167,6 +191,13 @@ export SANDBOX_DATABASE_URL="postgres://<user>:<password>@ep-cold-heart-anca4sk3
 DATABASE_URL="$SANDBOX_DATABASE_URL" pnpm exec node scripts/migrate.js
 pnpm seed:sandbox
 pnpm smoke:sandbox
+```
+
+Для `job_id` cleanup release добавь:
+
+```bash
+DATABASE_URL="$SANDBOX_DATABASE_URL" psql -c "SELECT COUNT(*) FROM chatbot.vacancies WHERE status <> 'archived' AND job_id IS NULL"
+pnpm test:hiring-agent
 ```
 
 `neonctl` использует `NEON_API_KEY` из shell автоматически.

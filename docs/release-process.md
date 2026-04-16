@@ -26,6 +26,16 @@ feature branch
   -> main deploy workflows (Cloud Run / VM)
 ```
 
+## `job_id` Migration Gate
+
+Для миграции `vacancy_id -> job_id` считаем release готовым только если canonical recruiter path уже не зависит от `vacancy_id`:
+
+- `/api/jobs` и UI selector работают по `job_id`
+- websocket/chat canonical requests проходят с `job_id` без обязательного `vacancy_id`
+- report links строятся через `job_id`
+
+Подробный rollout, validation queries и cleanup sequence держим в [`docs/job-id-migration-runbook.md`](./job-id-migration-runbook.md).
+
 ## Команды (локально, до PR)
 
 ```bash
@@ -49,6 +59,11 @@ Advisory checks:
 
 - `impact-check` (риск-анализ по изменённым зонам)
 - `migration-check` (ephemeral Neon branch при schema-change в `services/candidate-chatbot/migrations/`)
+
+Для cleanup release по `job_id` migration перед merge дополнительно проверить:
+
+- validation queries из `docs/job-id-migration-runbook.md`
+- recruiter smoke matrix на том же SHA
 
 ## Sandbox Slots (`sandbox-1/2/3`)
 
