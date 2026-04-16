@@ -135,12 +135,23 @@ printf "%s\n\n<!-- ci-callback: %s/api/sessions/%s/reply -->\n" \
 | `WORKLOAD_IDENTITY_PROVIDER` | OIDC provider для GitHub Actions |
 | `SERVICE_ACCOUNT` | GCP service account email для deploy |
 | `DEPLOY_PUBLIC_URL` | Prod Cloud Run URL для post-deploy smoke |
+| `PROD_DATABASE_URL` | candidate-chatbot production DB URL |
 | `MANAGEMENT_DATABASE_URL` | control-plane DB для `hiring-agent` |
 | `OPENROUTER_API_KEY` | LLM routing key для `hiring-agent` |
 | `VM_SSH_KEY` | SSH private key для VM deploy workflows |
+| `HH_CLIENT_ID` | HH OAuth client id |
+| `HH_CLIENT_SECRET` | HH OAuth client secret |
+| `HH_REDIRECT_URI` | HH OAuth redirect URI |
+| `HH_VACANCY_JOB_MAP` | HH vacancy → job mapping (JSON) |
 | `HIRING_AGENT_SANDBOX_URL` | Base URL sandbox-окружения hiring-agent для chat smoke (`https://...`) |
 | `HIRING_AGENT_SANDBOX_DEMO_EMAIL` | Demo login email для hiring-agent sandbox smoke |
 | `HIRING_AGENT_SANDBOX_DEMO_PASSWORD` | Demo login password для hiring-agent sandbox smoke |
+
+### HH production cutover gating
+
+Перед включением HH sync/send в проде проверь:
+- `pnpm check:hh-cutover-readiness` (локальная/операторская валидация)
+- `docs/hh-cutover-deploy-runbook-128.md` как первичный source of truth по prereq/gating/rollback
 
 ## Impact check
 
