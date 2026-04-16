@@ -1,10 +1,7 @@
 // Keep legacy aliases only for persisted old payloads and seeded tenant rows.
 const LEGACY_PLAYBOOK_KEY_ALIASES = Object.freeze({
   assistant_capabilities: "agent_capabilities",
-  candidate_broadcast: "mass_broadcast",
-  write_vacancy_text: "view_vacancy",
-  "vacancy-text": "view_vacancy",
-  vacancy_text: "view_vacancy"
+  candidate_broadcast: "mass_broadcast"
 });
 
 const TENANT_LOCK_BYPASS_PLAYBOOK_KEYS = Object.freeze(
