@@ -137,7 +137,14 @@ gh secret list --env sandbox-3 | rg '^HIRING_AGENT_SANDBOX_DEMO_'
 Чтобы сессия получила уведомление о результате CI, включи в тело PR:
 
 ```html
+Session ID: SESSION_ID
 <!-- ci-callback: https://RELAY_URL/api/sessions/SESSION_ID/reply -->
+```
+
+Получить `SESSION_ID` можно так:
+
+```bash
+curl -s http://localhost:3000/api/sessions/my-id
 ```
 
 После завершения `sandbox-gate` CI отправит POST на этот URL:
@@ -152,11 +159,11 @@ gh secret list --env sandbox-3 | rg '^HIRING_AGENT_SANDBOX_DEMO_'
 ```bash
 PR_NUM=<номер_pr>
 RELAY_URL=<https://...>
-SESSION_ID=<session_id>
+SESSION_ID="$(curl -s http://localhost:3000/api/sessions/my-id)"
 
 BODY="$(gh pr view "$PR_NUM" --json body -q .body)"
-printf "%s\n\n<!-- ci-callback: %s/api/sessions/%s/reply -->\n" \
-  "$BODY" "$RELAY_URL" "$SESSION_ID" | gh pr edit "$PR_NUM" --body-file -
+printf "%s\n\nSession ID: %s\n<!-- ci-callback: %s/api/sessions/%s/reply -->\n" \
+  "$BODY" "$SESSION_ID" "$RELAY_URL" "$SESSION_ID" | gh pr edit "$PR_NUM" --body-file -
 ```
 
 Проверка:
@@ -166,6 +173,8 @@ printf "%s\n\n<!-- ci-callback: %s/api/sessions/%s/reply -->\n" \
 Ограничение:
 - Этот callback в текущем workflow отправляет CI-результаты.
 - Review comments/threads из GitHub требуют отдельного webhook relay (это не покрывается одним `ci-callback` маркером).
+- `Session ID` в PR body нужен для человека: потом можно быстро понять, какая именно сессия создала PR или ждёт callback.
+- Если очень хочется, можно добавлять короткий branch suffix вроде `--s-019d92d2`, но source of truth всё равно должен быть в PR body.
 
 ## Secrets (GitHub repo settings)
 
