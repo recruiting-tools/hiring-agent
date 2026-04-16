@@ -1702,9 +1702,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       return String(text ?? '')
         .replace(new RegExp(tick + tick + tick + '[\\s\\S]*?' + tick + tick + tick, 'g'), ' ')
         .replace(new RegExp(tick + '([^' + tick + ']+)' + tick, 'g'), '$1')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/\\[([^\\]]+)\\]\\([^)]+\\)/g, '$1')
         .replace(/[*_>#-]/g, ' ')
-        .replace(/\s+/g, ' ')
+        .replace(/\\s+/g, ' ')
         .trim();
     }
 
