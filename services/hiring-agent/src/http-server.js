@@ -304,6 +304,35 @@ const CHAT_HTML = `<!DOCTYPE html>
       backdrop-filter: blur(18px);
       box-shadow: var(--shadow-md);
     }
+    .status-content {
+      display: grid;
+      gap: 2px;
+    }
+    .status-dev-link {
+      width: 26px;
+      height: 26px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      color: var(--t3);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(157, 181, 224, 0.12);
+      transition: color 0.2s, background 0.2s, border-color 0.2s, transform 0.2s;
+      flex: 0 0 auto;
+    }
+    .status-dev-link:hover {
+      color: var(--t1);
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(157, 181, 224, 0.24);
+      transform: rotate(18deg);
+    }
+    .status-dev-link[hidden] {
+      display: none;
+    }
+    .status-dev-link svg {
+      width: 13px;
+      height: 13px;
+    }
     .status-pill strong {
       color: var(--t1);
       font-size: 13px;
@@ -889,10 +918,25 @@ const CHAT_HTML = `<!DOCTYPE html>
       </div>
       <div class="status-pill">
         <span id="status-dot" title="WebSocket"></span>
-        <div>
+        <div class="status-content">
           <strong id="connection-label">Подключение</strong>
           <div id="connection-copy">Соединяемся с агентом…</div>
         </div>
+        <a
+          id="status-dev-link"
+          class="status-dev-link"
+          href="#"
+          hidden
+          target="_blank"
+          rel="noopener"
+          aria-label="Открыть детали деплоя"
+          title="Открыть детали деплоя"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.21 7.2a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .67.39 1.28 1 1.51.16.07.33.1.51.1H21a2 2 0 0 1 0 4h-.09c-.67 0-1.28.39-1.51 1z"></path>
+          </svg>
+        </a>
       </div>
     </header>
 
@@ -1036,6 +1080,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     const emptyCreateVacBtn = document.getElementById('empty-create-vacancy-btn');
     const connectionLabel = document.getElementById('connection-label');
     const connectionCopy = document.getElementById('connection-copy');
+    const statusDevLink = document.getElementById('status-dev-link');
     const contextVacancyTitle = document.getElementById('context-vacancy-title');
     const contextVacancyCopy = document.getElementById('context-vacancy-copy');
     const chatStageTitle = document.getElementById('chat-stage-title');
@@ -1044,6 +1089,13 @@ const CHAT_HTML = `<!DOCTYPE html>
     const moderationLink = document.getElementById('moderation-link');
     const moderationCopy = document.getElementById('moderation-copy');
     const shortcutButtons = Array.from(document.querySelectorAll('.shortcut-btn'));
+    const historyList = document.getElementById('history-list');
+    const historyEmpty = document.getElementById('history-empty');
+    const historyToggleBtn = document.getElementById('history-toggle-btn');
+    const historyLauncherBtn = document.getElementById('history-launcher-btn');
+    const chatHistoryBtn = document.getElementById('chat-history-btn');
+    const newSessionBtn = document.getElementById('new-session-btn');
+    const copyLinkBtn = document.getElementById('copy-link-btn');
     let healthStatusTimer = null;
     let lastHealthStatus = null;
 
@@ -1057,6 +1109,23 @@ const CHAT_HTML = `<!DOCTYPE html>
       connectionCopy.title = resolvedTooltip;
     }
 
+    function updateStatusDevLink(statusPayload) {
+      const runUrl = statusPayload?.deploy?.run_url;
+      const isDeployStatus = statusPayload?.status_key === 'deploy_failed'
+        || statusPayload?.status_key === 'deploy_in_progress'
+        || statusPayload?.status_key === 'deploy_pending_switch';
+
+      if (!runUrl || !isDeployStatus) {
+        statusDevLink.hidden = true;
+        statusDevLink.removeAttribute('href');
+        statusDevLink.title = 'Детали деплоя недоступны';
+        return;
+      }
+
+      statusDevLink.hidden = false;
+      statusDevLink.href = runUrl;
+      statusDevLink.title = 'Открыть детали деплоя';
+    }
     function buildHealthTooltip(statusPayload) {
       if (!statusPayload || typeof statusPayload !== 'object') return '';
       const runtime = statusPayload.runtime || {};
@@ -1074,6 +1143,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     function applyHealthStatus(statusPayload, options = {}) {
       if (!statusPayload || typeof statusPayload !== 'object') return;
       lastHealthStatus = statusPayload;
+      updateStatusDevLink(statusPayload);
       const runtime = statusPayload.runtime || {};
       const tooltip = buildHealthTooltip(statusPayload);
       const wsOpen = ws && ws.readyState === WebSocket.OPEN;
