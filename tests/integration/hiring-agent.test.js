@@ -194,7 +194,7 @@ test("hiring-agent: routes via LLM when keyword router misses", async () => {
   assert.equal(llmCalls, 1);
 });
 
-test("hiring-agent: POST /api/chat returns display for assistant_capabilities in demo mode", async () => {
+test("hiring-agent: POST /api/chat returns registry-driven display for agent_capabilities in demo mode", async () => {
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {
     const sessionCookie = await login(server);
@@ -205,6 +205,25 @@ test("hiring-agent: POST /api/chat returns display for assistant_capabilities in
     assert.equal(body.reply.kind, "display");
     assert.equal(body.reply.content_type, "text");
     assert.equal(Object.hasOwn(body.reply, "content"), true);
+    assert.match(body.reply.content, /Возможности агента|Что умеет/i);
+    assert.match(body.reply.content, /Визуализация воронки/);
+    assert.match(body.reply.content, /Нужно выбрать вакансию:/);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: POST /api/chat falls back to agent_capabilities when routing is uncertain", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
+  try {
+    const sessionCookie = await login(server);
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "Сделай что-нибудь полезное, сам выбери"
+    }, sessionCookie);
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "display");
+    assert.equal(body.playbook_key, "agent_capabilities");
+    assert.match(body.reply.content, /Сейчас доступны/);
   } finally {
     server.close();
   }
@@ -477,11 +496,19 @@ test("hiring-agent: management-backed postChatMessage handles utility and requir
     if (text.includes("FROM management.playbook_definitions d")) {
       return [
         {
+          playbook_key: "agent_capabilities",
+          name: "Возможности агента",
+          trigger_description: "capabilities",
+          status: "available",
+          sort_order: 1,
+          step_count: 0
+        },
+        {
           playbook_key: "quick_start",
           name: "Быстрый старт",
           trigger_description: "quick start",
           status: "available",
-          sort_order: 1,
+          sort_order: 2,
           step_count: 1
         },
         {
@@ -489,7 +516,7 @@ test("hiring-agent: management-backed postChatMessage handles utility and requir
           name: "Посмотреть информацию по вакансии",
           trigger_description: "вакансия",
           status: "available",
-          sort_order: 2,
+          sort_order: 3,
           step_count: 2
         }
       ];
@@ -512,6 +539,17 @@ test("hiring-agent: management-backed postChatMessage handles utility and requir
   assert.equal(utilityResult.body.reply.kind, "display");
   assert.equal(utilityResult.body.reply.content_type, "text");
   assert.equal(Object.hasOwn(utilityResult.body.reply, "content"), true);
+
+  const helpResult = await app.postChatMessage({
+    action: "start_playbook",
+    playbook_key: "assistant_capabilities",
+    managementSql
+  });
+
+  assert.equal(helpResult.status, 200);
+  assert.equal(helpResult.body.playbook_key, "agent_capabilities");
+  assert.match(helpResult.body.reply.content, /Быстрый старт/);
+  assert.match(helpResult.body.reply.content, /Посмотреть информацию по вакансии/);
 
   const protectedResult = await app.postChatMessage({
     action: "start_playbook",
@@ -666,7 +704,7 @@ test("hiring-agent: postChatMessage returns playbook_not_found for unknown start
   assert.equal(result.body.error, "playbook_not_found");
 });
 
-test("hiring-agent: management-backed routing ignores available playbooks with zero steps", async () => {
+test("hiring-agent: management-backed routing falls back to agent_capabilities when zero-step playbook is requested", async () => {
   const managementSql = async (strings) => {
     const text = strings.join("");
 
@@ -720,8 +758,10 @@ test("hiring-agent: management-backed routing ignores available playbooks with z
   });
 
   assert.equal(result.status, 200);
-  assert.equal(result.body.reply.kind, "fallback_text");
-  assert.match(result.body.reply.text, /поддерживаю/i);
+  assert.equal(result.body.reply.kind, "display");
+  assert.equal(result.body.playbook_key, "agent_capabilities");
+  assert.match(result.body.reply.content, /Настроить общение с кандидатами/);
+  assert.doesNotMatch(result.body.reply.content, /Выборочная рассылка кандидатам/);
 });
 
 test("hiring-agent: create_vacancy stays locked when DB step_count is zero", async () => {

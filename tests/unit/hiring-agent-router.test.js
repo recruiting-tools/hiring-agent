@@ -10,8 +10,8 @@ test("router: maps communication request to setup_communication", async () => {
   assert.equal(await routePlaybook("Подготовь план коммуникации по вакансии"), "setup_communication");
 });
 
-test("router: maps capabilities request to assistant_capabilities", async () => {
-  assert.equal(await routePlaybook("Расскажи, что ты вообще умеешь?"), "assistant_capabilities");
+test("router: maps capabilities request to agent_capabilities", async () => {
+  assert.equal(await routePlaybook("Расскажи, что ты вообще умеешь?"), "agent_capabilities");
 });
 
 test("router: maps quick start request to quick_start", async () => {

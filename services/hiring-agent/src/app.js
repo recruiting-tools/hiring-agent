@@ -3,12 +3,12 @@ import { parseJsonResponse as parseRawJsonResponse } from "./json-response.js";
 import { executeWithDb, runCandidateFunnelPlaybook } from "./playbooks/candidate-funnel.js";
 import { runCommunicationPlanPlaybook } from "./playbooks/communication-plan.js";
 import { canBypassTenantPlaybookLock, canonicalizePlaybookKey } from "./playbooks/playbook-key-map.js";
+import { buildAgentCapabilitiesReply } from "./playbooks/agent-capabilities.js";
 import { findPlaybook, getPlaybookRegistry } from "./playbooks/registry.js";
 import { dispatch } from "./playbooks/runtime.js";
 import { routePlaybook } from "./playbooks/router.js";
 import {
   PLAYBOOKS_WITHOUT_VACANCY,
-  ROUTING_FALLBACK_TEXT,
   STATIC_UTILITY_PLAYBOOK_KEYS,
   buildStaticPlaybookReply
 } from "./playbooks/playbook-contracts.js";
@@ -16,6 +16,7 @@ import { createManagementStore } from "../../../packages/access-context/src/mana
 
 const TENANT_DB_TIMEOUT_MS = 5000;
 const DATA_RETENTION_CONFIRMATION_TEXT = "delete all my data";
+const AGENT_CAPABILITIES_PLAYBOOK_KEY = "agent_capabilities";
 const ACCOUNT_ACCESS_PLAYBOOK_KEY = "account_access";
 const DATA_RETENTION_PLAYBOOK_KEY = "data_retention";
 const DATA_RETENTION_TRIGGER_TEXT = `Введите ровно: ${DATA_RETENTION_CONFIRMATION_TEXT}`;
@@ -236,13 +237,13 @@ export function createHiringAgentApp(options = {}) {
       }
 
       if (!playbookKey) {
+        const registry = await getPlaybookRegistry(requestManagementSql, tenantId);
         return {
           status: 200,
           body: {
-            reply: {
-              kind: "fallback_text",
-              text: ROUTING_FALLBACK_TEXT
-            }
+            reply: buildAgentCapabilitiesReply(registry),
+            playbook_key: AGENT_CAPABILITIES_PLAYBOOK_KEY,
+            playbook_active: false
           }
         };
       }
@@ -564,6 +565,20 @@ export function createHiringAgentApp(options = {}) {
               tenantSql,
               tenantId
             })
+          }
+        };
+      }
+
+      if (playbook.playbook_key === AGENT_CAPABILITIES_PLAYBOOK_KEY) {
+        const registry = await getPlaybookRegistry(requestManagementSql, tenantId);
+        return {
+          status: 200,
+          body: {
+            reply: buildAgentCapabilitiesReply(registry, {
+              agentName: playbook.title ?? playbook.name ?? "Hiring Agent"
+            }),
+            playbook_key: playbook.playbook_key,
+            playbook_active: false
           }
         };
       }

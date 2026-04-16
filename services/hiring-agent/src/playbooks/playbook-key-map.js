@@ -1,4 +1,5 @@
 const LEGACY_PLAYBOOK_KEY_ALIASES = Object.freeze({
+  assistant_capabilities: "agent_capabilities",
   candidate_broadcast: "mass_broadcast",
   write_vacancy_text: "view_vacancy",
   "vacancy-text": "view_vacancy",

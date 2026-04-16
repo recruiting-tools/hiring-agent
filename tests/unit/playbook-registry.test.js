@@ -43,8 +43,8 @@ const baseDefinitions = [
     step_count: 1
   },
   {
-    playbook_key: "assistant_capabilities",
-    name: "Что ты умеешь",
+    playbook_key: "agent_capabilities",
+    name: "Возможности агента",
     trigger_description: "capabilities",
     status: "available",
     sort_order: 3,
@@ -62,7 +62,7 @@ const baseDefinitions = [
 
 test("registry: returns static fallback playbooks without management db", async () => {
   const fallback = await getPlaybookRegistry();
-  const capabilities = fallback.find((item) => item.playbook_key === "assistant_capabilities");
+  const capabilities = fallback.find((item) => item.playbook_key === "agent_capabilities");
   const quickStart = fallback.find((item) => item.playbook_key === "quick_start");
   const accountAccess = fallback.find((item) => item.playbook_key === "account_access");
   const dataRetention = fallback.find((item) => item.playbook_key === "data_retention");
@@ -129,4 +129,25 @@ test("registry: canonicalizes vacancy-text but keeps unrunnable zero-step view_v
   assert.equal(playbook.playbook_key, "view_vacancy");
   assert.equal(playbook.enabled, false);
   assert.equal(playbook.runnable, false);
+});
+
+test("registry: canonicalizes assistant_capabilities to agent_capabilities", async () => {
+  const managementSql = createFakeManagementSql({
+    definitions: [
+      {
+        playbook_key: "assistant_capabilities",
+        name: "Что ты умеешь",
+        trigger_description: "capabilities",
+        status: "available",
+        sort_order: 1,
+        step_count: 0
+      }
+    ],
+    access: []
+  });
+
+  const playbook = await findPlaybook("assistant_capabilities", managementSql, "tenant-capabilities-1");
+  assert.ok(playbook);
+  assert.equal(playbook.playbook_key, "agent_capabilities");
+  assert.equal(playbook.enabled, true);
 });
