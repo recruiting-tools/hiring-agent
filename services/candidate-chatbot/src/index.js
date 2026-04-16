@@ -117,12 +117,11 @@ const hhPollRunner = {
   }
 };
 
-const hhImportMappings = parseVacancyMappings(process.env.HH_VACANCY_JOB_MAP);
 const hhImportRunner = new HhConnector({
   store,
   hhClient: hhPollClient,
   chatbot: app,
-  vacancyMappings: hhImportMappings
+  vacancyMappings: []
 });
 
 const port = Number(process.env.PORT ?? 3000);
@@ -135,17 +134,6 @@ createHttpServer(app, {
 }).listen(port, () => {
   console.log(`candidate-chatbot listening on :${port}`);
 });
-
-function parseVacancyMappings(raw) {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((item) => item?.hh_vacancy_id && item?.job_id) : [];
-  } catch {
-    console.warn("Failed to parse HH_VACANCY_JOB_MAP");
-    return [];
-  }
-}
 
 function resolveHhRedirectUri(raw) {
   if (!raw) return null;

@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { HhImporter } from "./hh-importer.js";
 
+const DEFAULT_HH_COLLECTIONS = ["response", "phone_interview"];
+const VALID_COLLECTIONS = new Set(DEFAULT_HH_COLLECTIONS);
+
 export class HhConnector {
   constructor({ store, hhClient, chatbot, vacancyMappings = [] }) {
     this.store = store;
@@ -12,10 +15,144 @@ export class HhConnector {
 
   async syncApplicants({ windowStart, windowEnd, vacancyMappings = this.vacancyMappings } = {}) {
     if (!windowStart) throw new Error("syncApplicants requires windowStart");
-    if (!vacancyMappings?.length) {
-      return { ok: true, imported_collections: 0, imported_negotiations: 0, imported_messages: 0, results: [] };
+
+    const mappingsFromStore = await this.resolveVacancyMappings(vacancyMappings);
+    const validation = await this.validateVacancyMappings(mappingsFromStore);
+
+    if (!validation.validMappings.length) {
+      return {
+        ok: false,
+        imported_collections: 0,
+        imported_negotiations: 0,
+        imported_messages: 0,
+        results: [],
+        validation_errors: validation.validationErrors,
+        error:
+          validation.validationErrors.length === 0
+            ? "no_active_hh_mappings"
+            : "invalid_hh_mappings"
+      };
     }
-    return this.importer.syncApplicants({ vacancyMappings, windowStart, windowEnd });
+
+    const importerResult = await this.importer.syncApplicants({
+      vacancyMappings: validation.validMappings,
+      windowStart,
+      windowEnd
+    });
+
+    return {
+      ...importerResult,
+      ok: validation.validationErrors.length === 0,
+      validation_errors: validation.validationErrors
+    };
+  }
+
+  async resolveVacancyMappings(vacancyMappings) {
+    if (vacancyMappings?.length) {
+      return vacancyMappings.map(normalizeMapping);
+    }
+
+    if (!this.store?.getHhVacancyJobMappings) {
+      return this.vacancyMappings.map(normalizeMapping);
+    }
+
+    return (await this.store.getHhVacancyJobMappings({ enabledOnly: true })).map(normalizeMapping);
+  }
+
+  async validateVacancyMappings(mappings) {
+    const validationErrors = [];
+    const validMappings = [];
+    const seenVacancies = new Set();
+
+    for (const raw of mappings) {
+      const mapping = normalizeMapping(raw);
+
+      if (!mapping.hh_vacancy_id) {
+        validationErrors.push({ code: "invalid_hh_vacancy_id", hh_vacancy_id: mapping.hh_vacancy_id, error: "Missing hh_vacancy_id" });
+        continue;
+      }
+
+      if (!mapping.job_id) {
+        validationErrors.push({
+          code: "invalid_job_id",
+          hh_vacancy_id: mapping.hh_vacancy_id,
+          job_id: mapping.job_id,
+          error: "Missing job_id"
+        });
+        continue;
+      }
+
+      if (!Array.isArray(mapping.collections) || mapping.collections.length === 0) {
+        validationErrors.push({
+          code: "invalid_collections",
+          hh_vacancy_id: mapping.hh_vacancy_id,
+          job_id: mapping.job_id,
+          error: "collections must be a non-empty array"
+        });
+        continue;
+      }
+
+      const invalidCollection = mapping.collections.find((collection) => !VALID_COLLECTIONS.has(collection));
+      if (invalidCollection) {
+        validationErrors.push({
+          code: "invalid_collection",
+          hh_vacancy_id: mapping.hh_vacancy_id,
+          job_id: mapping.job_id,
+          collection: invalidCollection,
+          error: "Unsupported HH collection"
+        });
+        continue;
+      }
+
+      if (seenVacancies.has(mapping.hh_vacancy_id)) {
+        validationErrors.push({
+          code: "duplicate_mapping",
+          hh_vacancy_id: mapping.hh_vacancy_id,
+          job_id: mapping.job_id,
+          error: "Duplicate hh_vacancy_id in vacancy mappings"
+        });
+        continue;
+      }
+
+      const job = await getMaybeAsync(() => this.store?.getJob(mapping.job_id));
+      if (!job) {
+        validationErrors.push({
+          code: "missing_job",
+          hh_vacancy_id: mapping.hh_vacancy_id,
+          job_id: mapping.job_id,
+          error: "Job not found"
+        });
+        continue;
+      }
+
+      if (!mapping.client_id && job.client_id) {
+        validationErrors.push({
+          code: "tenant_binding_missing",
+          hh_vacancy_id: mapping.hh_vacancy_id,
+          job_id: mapping.job_id,
+          client_id: job.client_id,
+          error: "Mapping requires explicit client_id for tenant-scoped job"
+        });
+        continue;
+      }
+
+      if (mapping.client_id && job.client_id && mapping.client_id !== job.client_id) {
+        validationErrors.push({
+          code: "tenant_mismatch",
+          hh_vacancy_id: mapping.hh_vacancy_id,
+          job_id: mapping.job_id,
+          mapping_client_id: mapping.client_id,
+          job_client_id: job.client_id,
+          error: "Tenant mismatch between mapping and job"
+        });
+        continue;
+      }
+
+      seenVacancies.add(mapping.hh_vacancy_id);
+      validMappings.push(mapping);
+    }
+
+    return { validMappings, validationErrors };
   }
 
   // Poll all negotiations where next_poll_at <= now
@@ -111,5 +248,28 @@ export class HhConnector {
       next_poll_in_ms: pollIntervalMs
     });
     return { processed: true, new_messages: newMessages.length, awaiting_reply: isAwaitingReply };
+  }
+}
+
+function normalizeMapping(item) {
+  if (!item || typeof item !== "object") {
+    return {};
+  }
+  return {
+    hh_vacancy_id: String(item.hh_vacancy_id ?? "").trim(),
+    job_id: String(item.job_id ?? "").trim(),
+    client_id: item.client_id != null ? String(item.client_id).trim() : null,
+    collections: (Array.isArray(item.collections) ? Array.from(new Set(item.collections)) : DEFAULT_HH_COLLECTIONS)
+      .map((value) => String(value ?? "").trim())
+      .filter((value) => value.length > 0),
+    enabled: item.enabled !== false
+  };
+}
+
+async function getMaybeAsync(factory) {
+  try {
+    return await factory();
+  } catch {
+    return null;
   }
 }
