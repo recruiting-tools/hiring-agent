@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import bcrypt from "bcryptjs";
 import { WebSocketServer } from "ws";
 import { createSession, getRecruiterByEmail, parseCookies, resolveSession } from "./auth.js";
@@ -193,7 +195,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
           return;
         }
 
-        showError(data.error || "Не удалось войти.");
+        showError(data.message || data.error || "Не удалось войти.");
       } catch (_error) {
         showError("Сеть недоступна. Повторите попытку.");
       } finally {
@@ -1008,6 +1010,10 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     // ── State ─────────────────────────────────────────────────────────────────
     let ws = null;
+    let wsConnectTimer = null;
+    let wsRetryTimer = null;
+    let preferHttpFallback = false;
+    let wsGeneration = 0;
     let streaming = false;
     let selectedVacancyId = null;
     let selectedVacancyJobId = null;
@@ -1038,33 +1044,234 @@ const CHAT_HTML = `<!DOCTYPE html>
     const moderationLink = document.getElementById('moderation-link');
     const moderationCopy = document.getElementById('moderation-copy');
     const shortcutButtons = Array.from(document.querySelectorAll('.shortcut-btn'));
+    let healthStatusTimer = null;
+    let lastHealthStatus = null;
+
+    function setStatusPresentation({ title, message, connected = false, tooltip = '' }) {
+      connectionLabel.textContent = title;
+      connectionCopy.textContent = message;
+      statusDot.classList.toggle('connected', Boolean(connected));
+      const resolvedTooltip = tooltip || [title, message].filter(Boolean).join(' — ');
+      statusDot.title = resolvedTooltip;
+      connectionLabel.title = resolvedTooltip;
+      connectionCopy.title = resolvedTooltip;
+    }
+
+    function buildHealthTooltip(statusPayload) {
+      if (!statusPayload || typeof statusPayload !== 'object') return '';
+      const runtime = statusPayload.runtime || {};
+      const deploy = statusPayload.deploy || {};
+      const parts = [];
+      if (deploy.state) parts.push('deploy: ' + deploy.state);
+      if (deploy.expected_sha) parts.push('next sha: ' + deploy.expected_sha);
+      if (runtime.mode) parts.push('mode: ' + runtime.mode);
+      if (runtime.app_env) parts.push('env: ' + runtime.app_env);
+      if (runtime.deploy_sha) parts.push('sha: ' + runtime.deploy_sha);
+      if (runtime.started_at) parts.push('started: ' + runtime.started_at);
+      return parts.join(' | ');
+    }
+
+    function applyHealthStatus(statusPayload, options = {}) {
+      if (!statusPayload || typeof statusPayload !== 'object') return;
+      lastHealthStatus = statusPayload;
+      const runtime = statusPayload.runtime || {};
+      const tooltip = buildHealthTooltip(statusPayload);
+      const wsOpen = ws && ws.readyState === WebSocket.OPEN;
+      const reconnecting = options.reconnecting === true;
+
+      if (statusPayload.status_key === 'auth_required') {
+        setStatusPresentation({
+          title: statusPayload.title || 'Нужен повторный вход',
+          message: statusPayload.message || 'Сессия истекла. Войдите снова.',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      if (statusPayload.status_key === 'deploy_failed'
+        || statusPayload.status_key === 'deploy_in_progress'
+        || statusPayload.status_key === 'deploy_pending_switch') {
+        setStatusPresentation({
+          title: statusPayload.title || 'Проверяем обновление сервера',
+          message: statusPayload.message || 'Проверяем ход обновления сервера…',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      if (wsOpen) {
+        setStatusPresentation({
+          title: 'Агент на связи',
+          message: 'Подключение установлено. Можно продолжать работу.',
+          connected: true,
+          tooltip
+        });
+        return;
+      }
+
+      if (reconnecting) {
+        setStatusPresentation({
+          title: 'Связь временно пропала',
+          message: 'Пробуем восстановить подключение автоматически…',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      if (preferHttpFallback && runtime.health_ok) {
+        setStatusPresentation({
+          title: 'Работаем без live-канала',
+          message: 'Сервер отвечает. Если нужно, можно продолжать через обычные запросы.',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      setStatusPresentation({
+        title: statusPayload.title || 'Проверяем состояние сервера',
+        message: statusPayload.message || 'Проверяем доступность сервера…',
+        connected: false,
+        tooltip
+      });
+    }
+
+    async function refreshHealthStatus(options = {}) {
+      try {
+        const response = await fetch(withBasePath('/health_status'), {
+          headers: { accept: 'application/json' }
+        });
+
+        if (response.status === 401) {
+          applyHealthStatus({
+            status_key: 'auth_required',
+            title: 'Нужен повторный вход',
+            message: 'Сессия истекла. Войдите снова.'
+          }, options);
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error('health_status_http_' + response.status);
+        }
+
+        const payload = await response.json();
+        applyHealthStatus(payload, options);
+      } catch (_error) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          setStatusPresentation({
+            title: 'Агент на связи',
+            message: 'Чат работает, но служебный статус сервера сейчас недоступен.',
+            connected: true
+          });
+          return;
+        }
+
+        setStatusPresentation({
+          title: 'Не удаётся проверить сервер',
+          message: 'Статус сервера сейчас недоступен. Пробуем подключиться снова.',
+          connected: false
+        });
+      }
+    }
+
+    function scheduleHealthStatusPolling() {
+      if (healthStatusTimer) clearInterval(healthStatusTimer);
+      healthStatusTimer = setInterval(() => {
+        void refreshHealthStatus();
+      }, 10000);
+    }
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
+    function clearWsTimers() {
+      if (wsConnectTimer) {
+        clearTimeout(wsConnectTimer);
+        wsConnectTimer = null;
+      }
+      if (wsRetryTimer) {
+        clearTimeout(wsRetryTimer);
+        wsRetryTimer = null;
+      }
+    }
+
+    function scheduleReconnect() {
+      if (wsRetryTimer) return;
+      wsRetryTimer = setTimeout(() => {
+        wsRetryTimer = null;
+        connect();
+      }, 3000);
+    }
+
+    function setHttpFallbackStatus(copy) {
+      applyHealthStatus(lastHealthStatus || {
+        status_key: 'runtime_available',
+        runtime: { health_ok: true },
+        title: 'Сервер отвечает',
+        message: 'Можно продолжать работу.'
+      });
+      if (copy) {
+        connectionCopy.textContent = copy;
+      }
+    }
+
     function connect() {
+      clearWsTimers();
+      const currentGeneration = ++wsGeneration;
       ws = new WebSocket(WS_URL);
+      setStatusPresentation({
+        title: 'Подключаем чат',
+        message: 'Налаживаем связь с агентом…',
+        connected: false
+      });
+      void refreshHealthStatus();
+
+      wsConnectTimer = setTimeout(() => {
+        if (wsGeneration !== currentGeneration) return;
+        if (ws && ws.readyState === WebSocket.CONNECTING) {
+          preferHttpFallback = true;
+          setHttpFallbackStatus('Прямое соединение отвечает слишком долго. Пока работаем через обычные запросы.');
+          updateSendEnabled();
+          try { ws.close(); } catch {}
+        }
+      }, 8000);
 
       ws.onopen = () => {
-        statusDot.classList.add('connected');
-        connectionLabel.textContent = 'Агент на связи';
-        connectionCopy.textContent = 'Соединение установлено.';
+        clearWsTimers();
+        preferHttpFallback = false;
+        applyHealthStatus(lastHealthStatus || {
+          status_key: 'runtime_available',
+          runtime: { health_ok: true }
+        });
         updateSendEnabled();
       };
 
       ws.onclose = (ev) => {
+        clearWsTimers();
         streaming = false;
         currentAssistant = null;
-        statusDot.classList.remove('connected');
-        connectionLabel.textContent = 'Подключение потеряно';
-        connectionCopy.textContent = 'Переподключение...';
+        if (preferHttpFallback) {
+          setHttpFallbackStatus('Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.');
+        } else {
+          applyHealthStatus(lastHealthStatus || {
+            status_key: 'connecting',
+            title: 'Связь временно пропала',
+            message: 'Пробуем восстановить подключение автоматически…'
+          }, { reconnecting: true });
+        }
         updateSendEnabled();
         if (ev.code === 4001) { window.location = LOGIN_PATH; return; }
-        setTimeout(connect, 3000); // auto-reconnect
+        void refreshHealthStatus({ reconnecting: true });
+        scheduleReconnect();
       };
 
       ws.onerror = () => {
-        statusDot.classList.remove('connected');
-        connectionLabel.textContent = 'Ошибка соединения';
-        connectionCopy.textContent = 'WebSocket недоступен.';
+        preferHttpFallback = true;
+        setHttpFallbackStatus('Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.');
+        updateSendEnabled();
+        void refreshHealthStatus();
       };
 
       ws.onmessage = (ev) => {
@@ -1135,7 +1342,7 @@ const CHAT_HTML = `<!DOCTYPE html>
             currentAssistant.contentEl.appendChild(errEl);
             pushChatHistoryEntry({
               kind: 'assistant',
-              markdown: (currentAssistant.text || '') + '\n\n❌ ' + (data.message || 'Ошибка сервера'),
+              markdown: (currentAssistant.text || '') + '\\n\\n❌ ' + (data.message || 'Ошибка сервера'),
               actions: []
             });
             currentAssistant = null;
@@ -1372,7 +1579,6 @@ const CHAT_HTML = `<!DOCTYPE html>
     function sendMessage(text) {
       if (!text || !text.trim()) return;
       if (streaming) return;
-      if (!ws || ws.readyState !== 1) return;
 
       streaming = true;
       updateSendEnabled();
@@ -1383,14 +1589,105 @@ const CHAT_HTML = `<!DOCTYPE html>
       msgInput.value = '';
       msgInput.style.height = 'auto';
 
-      ws.send(JSON.stringify({
+      const payload = {
         type: 'message',
         text: text.trim(),
         vacancyId: selectedVacancyId,
         jobId: selectedVacancyJobId || null,
         playbookKey: activePlaybookKey || null,
         clientContext: activePlaybookContext || null
-      }));
+      };
+
+      if (!preferHttpFallback && ws && ws.readyState === 1) {
+        ws.send(JSON.stringify(payload));
+        return;
+      }
+
+      void sendMessageHttp(payload);
+    }
+
+    async function sendMessageHttp(payload) {
+      try {
+        const response = await fetch(withBasePath('/api/chat'), {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: payload.text,
+            playbook_key: payload.playbookKey || null,
+            client_context: payload.clientContext || null,
+            vacancy_id: payload.vacancyId || null,
+            job_id: payload.jobId || null
+          })
+        });
+
+        if (response.status === 401) {
+          window.location = LOGIN_PATH;
+          return;
+        }
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.message || data.error || 'Ошибка сервера');
+        }
+
+        applyServerState({
+          playbookActive: Boolean(data.playbook_active),
+          playbookKey: data.playbook_key || null,
+          sessionId: data.session_id || null,
+          vacancyId: data.vacancy_id || null,
+          jobId: data.job_id || null,
+          vacancyTitle: data.vacancy_title || null,
+          replyKind: data.reply?.kind || null,
+          reply: data.reply || null
+        });
+        activePlaybookContext = data.reply || null;
+
+        const markdown = String(data.markdown || data.text || '');
+        currentAssistant.text += markdown;
+        renderMarkdown(currentAssistant.contentEl, currentAssistant.text);
+
+        if (Array.isArray(data.actions) && data.actions.length > 0) {
+          data.actions.forEach(({ label, message }) => {
+            const btn = document.createElement('button');
+            btn.className = 'action-btn';
+            btn.textContent = label;
+            btn.dataset.msg = message;
+            btn.addEventListener('click', () => sendMessage(message));
+            currentAssistant.actionsEl.appendChild(btn);
+          });
+        }
+
+        pushChatHistoryEntry({
+          kind: 'assistant',
+          markdown: currentAssistant.text,
+          actions: Array.isArray(data.actions) ? data.actions : []
+        });
+
+        currentAssistant.bubbleEl.classList.remove('streaming');
+        currentAssistant = null;
+        streaming = false;
+        updateSendEnabled();
+        scrollBottom();
+      } catch (error) {
+        if (currentAssistant) {
+          currentAssistant.bubbleEl.classList.remove('streaming');
+          const errEl = document.createElement('p');
+          errEl.style.color = 'var(--red)';
+          errEl.style.fontSize = '13px';
+          errEl.textContent = '❌ ' + (error?.message || 'Ошибка сервера');
+          currentAssistant.contentEl.appendChild(errEl);
+          pushChatHistoryEntry({
+            kind: 'assistant',
+            markdown: (currentAssistant.text || '') + '\\n\\n❌ ' + (error?.message || 'Ошибка сервера'),
+            actions: []
+          });
+          currentAssistant = null;
+        }
+        streaming = false;
+        updateSendEnabled();
+      }
     }
 
     // ── Vacancy selector ──────────────────────────────────────────────────────
@@ -1579,7 +1876,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     sendBtn.addEventListener('click', () => sendMessage(msgInput.value));
 
     function updateSendEnabled() {
-      const ready = ws?.readyState === 1 && !streaming && msgInput.value.trim().length > 0;
+      const transportReady = preferHttpFallback || ws?.readyState === 1;
+      const ready = transportReady && !streaming && msgInput.value.trim().length > 0;
       sendBtn.disabled = !ready;
     }
 
@@ -1619,7 +1917,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         bytes.forEach((byte) => {
           binary += String.fromCharCode(byte);
         });
-        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        return btoa(binary).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/g, '');
       } catch {
         return '';
       }
@@ -1755,6 +2053,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     // Start WS
+    void refreshHealthStatus();
+    scheduleHealthStatusPolling();
     connect();
 
     // Load vacancies
@@ -2054,6 +2354,20 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
 
+      if (request.method === "GET" && (requestUrl.pathname === "/health_status" || normalizedPath === "/health_status")) {
+        const cookies = parseCookies(request.headers.cookie ?? "");
+        const sessionToken = cookies[sessionCookieName];
+        const session = await resolveSession(managementSql, sessionToken);
+        const result = await app.getHealth();
+        writeJson(response, 200, await buildHealthStatusResponse({
+          health: result.body,
+          session,
+          requestUrl,
+          appBasePath
+        }));
+        return;
+      }
+
       if (routePath === null) {
         writeJson(response, 404, { error: "not_found" });
         return;
@@ -2075,7 +2389,10 @@ export function createHiringAgentServer(app, options = {}) {
         const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
 
         if (!email || !password) {
-          writeJson(response, 400, { error: "email and password required" });
+          writeJson(response, 400, {
+            error: "missing_credentials",
+            message: "Укажите email и пароль."
+          });
           return;
         }
 
@@ -2088,7 +2405,10 @@ export function createHiringAgentServer(app, options = {}) {
 
         const activeRecruiter = !managementSql || recruiter?.status === "active";
         if (!recruiter || !validPassword || !activeRecruiter) {
-          writeJson(response, 401, { error: "Invalid credentials" });
+          writeJson(response, 401, {
+            error: "invalid_credentials",
+            message: "Не удалось войти. Проверьте email и пароль."
+          });
           return;
         }
 
@@ -2122,7 +2442,7 @@ export function createHiringAgentServer(app, options = {}) {
         });
         if (!accessContext) return;
 
-        const chatbotBaseUrl = process.env.CHATBOT_BASE_URL || "https://candidate-chatbot.recruiter-assistant.com";
+        const chatbotBaseUrl = process.env.CHATBOT_BASE_URL ?? process.env.CANDIDATE_CHATBOT_BASE_URL ?? "";
         const recruiterToken = await getChatbotRecruiterToken(accessContext.tenantSql, accessContext.recruiterId);
         const chatbotModerationBase = recruiterToken ? `${chatbotBaseUrl}/recruiter/${recruiterToken}` : "";
 
@@ -2429,6 +2749,208 @@ async function readJsonBody(request) {
 function writeJson(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
+}
+
+async function buildHealthStatusResponse({ health, session, requestUrl, appBasePath }) {
+  const authenticated = Boolean(session);
+  const runtimeOk = health?.status === "ok";
+  const loginPath = joinBasePath(appBasePath, "/login");
+  const deploy = await readDeployStatus();
+  const runtime = {
+    health_ok: runtimeOk,
+    service: health?.service ?? "hiring-agent",
+    mode: health?.mode ?? "unknown",
+    app_env: health?.app_env ?? "unknown",
+    deploy_sha: health?.deploy_sha ?? "unknown",
+    started_at: health?.started_at ?? null,
+    port: health?.port ?? null
+  };
+
+  if (!authenticated) {
+    return {
+      status_key: "auth_required",
+      title: "Нужен повторный вход",
+      message: "Сессия истекла или ещё не создана. Войдите, чтобы продолжить работу.",
+      severity: "warning",
+      deploy,
+      runtime,
+      auth: {
+        authenticated: false,
+        login_path: loginPath
+      },
+      details: {
+        request_path: requestUrl.pathname,
+        reason: "no_active_session"
+      }
+    };
+  }
+
+  if (deploy?.state === "failed") {
+    return {
+      status_key: "deploy_failed",
+      title: "Обновление сервера завершилось с ошибкой",
+      message: "Это не похоже на обычное ожидание. Последняя выкладка не завершилась.",
+      severity: "warning",
+      deploy,
+      runtime,
+      auth: {
+        authenticated: true,
+        recruiter_email: session.email ?? null,
+        recruiter_status: session.recruiter_status ?? null,
+        tenant_status: session.tenant_status ?? null
+      },
+      details: {
+        request_path: requestUrl.pathname
+      }
+    };
+  }
+
+  if (deploy?.state === "in_progress" || deploy?.state === "queued") {
+    return {
+      status_key: "deploy_in_progress",
+      title: "Идёт обновление сервера",
+      message: formatDeployInProgressMessage(deploy, runtime),
+      severity: "info",
+      deploy,
+      runtime,
+      auth: {
+        authenticated: true,
+        recruiter_email: session.email ?? null,
+        recruiter_status: session.recruiter_status ?? null,
+        tenant_status: session.tenant_status ?? null
+      },
+      details: {
+        request_path: requestUrl.pathname,
+        sha_matches_expected: runtime.deploy_sha === (deploy.expected_sha ?? runtime.deploy_sha)
+      }
+    };
+  }
+
+  if (deploy?.state === "succeeded" && deploy.expected_sha && runtime.deploy_sha !== deploy.expected_sha) {
+    return {
+      status_key: "deploy_pending_switch",
+      title: "Новый релиз уже выложен",
+      message: "Обновление завершилось, но публичный сервер ещё не переключился на новую версию.",
+      severity: "info",
+      deploy,
+      runtime,
+      auth: {
+        authenticated: true,
+        recruiter_email: session.email ?? null,
+        recruiter_status: session.recruiter_status ?? null,
+        tenant_status: session.tenant_status ?? null
+      },
+      details: {
+        request_path: requestUrl.pathname,
+        sha_matches_expected: false
+      }
+    };
+  }
+
+  if (runtimeOk) {
+    return {
+      status_key: "runtime_available",
+      title: "Сервер отвечает",
+      message: "Сервис доступен. Если live-канал задерживается, можно продолжать через обычные запросы.",
+      severity: "info",
+      deploy,
+      runtime,
+      auth: {
+        authenticated: true,
+        recruiter_email: session.email ?? null,
+        recruiter_status: session.recruiter_status ?? null,
+        tenant_status: session.tenant_status ?? null
+      },
+      details: {
+        request_path: requestUrl.pathname
+      }
+    };
+  }
+
+  return {
+    status_key: "runtime_unavailable",
+    title: "Сервер отвечает нестабильно",
+    message: "Сервис доступен, но сообщил о проблеме со своим состоянием.",
+    severity: "warning",
+    deploy,
+    runtime,
+    auth: {
+      authenticated: true,
+      recruiter_email: session.email ?? null,
+      recruiter_status: session.recruiter_status ?? null,
+      tenant_status: session.tenant_status ?? null
+    },
+    details: {
+      request_path: requestUrl.pathname
+    }
+  };
+}
+
+async function readDeployStatus() {
+  const candidates = [
+    process.env.DEPLOY_STATUS_FILE,
+    path.resolve(process.cwd(), "deploy-status.json"),
+    path.resolve(process.cwd(), "../deploy-status.json")
+  ].filter(Boolean);
+
+  for (const filename of candidates) {
+    try {
+      const raw = await readFile(filename, "utf8");
+      const parsed = JSON.parse(raw);
+      return normalizeDeployStatus(parsed);
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") continue;
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function normalizeDeployStatus(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const startedAt = typeof raw.started_at === "string" ? raw.started_at : null;
+  const completedAt = typeof raw.completed_at === "string" ? raw.completed_at : null;
+  const updatedAt = typeof raw.updated_at === "string" ? raw.updated_at : null;
+  return {
+    state: typeof raw.state === "string" ? raw.state : "unknown",
+    target: typeof raw.target === "string" ? raw.target : null,
+    expected_sha: typeof raw.expected_sha === "string" ? raw.expected_sha : null,
+    started_at: startedAt,
+    completed_at: completedAt,
+    updated_at: updatedAt,
+    avg_duration_sec: Number.isFinite(Number(raw.avg_duration_sec)) ? Number(raw.avg_duration_sec) : null,
+    elapsed_sec: startedAt ? Math.max(0, Math.round((Date.now() - Date.parse(startedAt)) / 1000)) : null,
+    run_url: typeof raw.run_url === "string" ? raw.run_url : null,
+    workflow: typeof raw.workflow === "string" ? raw.workflow : null
+  };
+}
+
+function formatDeployInProgressMessage(deploy, runtime) {
+  const bits = [];
+  if (deploy.avg_duration_sec) {
+    bits.push(`Обычно это занимает около ${formatDurationSeconds(deploy.avg_duration_sec)}.`);
+  } else {
+    bits.push("Обычно это занимает несколько минут.");
+  }
+
+  if (deploy.elapsed_sec != null) {
+    bits.push(`Сейчас прошло ${formatDurationSeconds(deploy.elapsed_sec)}.`);
+  }
+
+  if (deploy.expected_sha && runtime.deploy_sha && deploy.expected_sha !== runtime.deploy_sha) {
+    bits.push("Пока ещё работает предыдущая версия сервиса.");
+  }
+
+  return bits.join(" ");
+}
+
+function formatDurationSeconds(totalSeconds) {
+  const safeSeconds = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  if (minutes === 0) return `${seconds} сек`;
+  return `${minutes} мин ${seconds} сек`;
 }
 
 function escapeHtml(value) {

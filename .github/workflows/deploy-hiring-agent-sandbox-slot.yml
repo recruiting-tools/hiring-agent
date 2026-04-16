@@ -40,6 +40,7 @@ jobs:
       VM_USER: ${{ secrets.VM_USER }}
       DEPLOY_REF: ${{ inputs.deploy_ref }}
       SANDBOX_PUBLIC_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
+      HIRING_AGENT_PUBLIC_HOST: ${{ vars.HIRING_AGENT_PUBLIC_HOST || secrets.HIRING_AGENT_PUBLIC_HOST }}
       SANDBOX_DEMO_EMAIL: ${{ secrets.HIRING_AGENT_SANDBOX_DEMO_EMAIL }}
       SANDBOX_DEMO_PASSWORD: ${{ secrets.HIRING_AGENT_SANDBOX_DEMO_PASSWORD }}
       SANDBOX_DEMO_RECRUITER_ID: recruiter-demo-001
@@ -102,6 +103,7 @@ jobs:
           [ -n "${VM_HOST:-}" ] || { echo "Missing secret: VM_HOST"; exit 1; }
           [ -n "${VM_USER:-}" ] || { echo "Missing secret: VM_USER"; exit 1; }
           [ -n "${SANDBOX_PUBLIC_URL:-}" ] || { echo "Missing secret: SANDBOX_PUBLIC_URL"; exit 1; }
+          [ -n "${HIRING_AGENT_PUBLIC_HOST:-}" ] || { echo "Missing secret/var: HIRING_AGENT_PUBLIC_HOST"; exit 1; }
           [ -n "${{ secrets.VM_SSH_KEY }}" ] || { echo "Missing secret: VM_SSH_KEY"; exit 1; }
           [ -n "${{ secrets.MANAGEMENT_DATABASE_URL }}" ] || { echo "Missing secret: MANAGEMENT_DATABASE_URL"; exit 1; }
           [ -n "${{ secrets.OPENROUTER_API_KEY }}" ] || { echo "Missing secret: OPENROUTER_API_KEY"; exit 1; }
@@ -111,7 +113,7 @@ jobs:
             echo "Refusing sandbox deploy: target_port must not be production port 3101";
             exit 1;
           }
-          expected_url="https://hiring-chat.recruiter-assistant.com${{ steps.slot.outputs.base_path }}"
+          expected_url="https://${HIRING_AGENT_PUBLIC_HOST}${{ steps.slot.outputs.base_path }}"
           [ "${SANDBOX_PUBLIC_URL%/}" = "$expected_url" ] || {
             echo "Invalid SANDBOX_PUBLIC_URL: expected '$expected_url' but got '${SANDBOX_PUBLIC_URL%/}'";
             exit 1;
@@ -129,6 +131,8 @@ jobs:
         run: ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
 
       - name: Ensure nginx routes for sandbox paths
+        env:
+          HIRING_AGENT_PUBLIC_HOST: ${{ env.HIRING_AGENT_PUBLIC_HOST }}
         run: |
           SNIPPET_B64=$(cat <<'NGINX' | base64 -w0
           location = /sandbox-001 { return 301 /sandbox-001/; }
@@ -170,7 +174,7 @@ jobs:
           NGINX
           )
 
-          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" SNIPPET_B64="$SNIPPET_B64" bash -s << 'EOF'
+          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" HIRING_AGENT_PUBLIC_HOST="$HIRING_AGENT_PUBLIC_HOST" SNIPPET_B64="$SNIPPET_B64" bash -s << 'EOF'
             set -euo pipefail
             if ! sudo -n true 2>/dev/null; then
               echo "ERROR: sudo without password is required to configure nginx sandbox routes"
@@ -179,14 +183,14 @@ jobs:
 
             echo "$SNIPPET_B64" | base64 -d | sudo tee /etc/nginx/snippets/hiring-agent-sandbox-locations.conf >/dev/null
 
-            SITE_FILE=$(sudo grep -Rls "server_name .*hiring-chat\\.recruiter-assistant\\.com" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -n1 || true)
+            SITE_FILE=$(sudo grep -Rls "server_name .*${HIRING_AGENT_PUBLIC_HOST//./\\.}" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -n1 || true)
             if [ -z "$SITE_FILE" ]; then
-              echo "ERROR: could not locate nginx server block for hiring-chat.recruiter-assistant.com"
+              echo "ERROR: could not locate nginx server block for ${HIRING_AGENT_PUBLIC_HOST}"
               exit 1
             fi
 
             if ! sudo grep -q "hiring-agent-sandbox-locations.conf" "$SITE_FILE"; then
-              sudo sed -i '/server_name .*hiring-chat\.recruiter-assistant\.com.*;/a\    include /etc/nginx/snippets/hiring-agent-sandbox-locations.conf;' "$SITE_FILE"
+              sudo sed -i "/server_name .*${HIRING_AGENT_PUBLIC_HOST//./\\.}.*;/a\\    include \\/etc\\/nginx\\/snippets\\/hiring-agent-sandbox-locations.conf;" "$SITE_FILE"
             fi
 
             sudo nginx -t
@@ -272,6 +276,8 @@ jobs:
           PLAYWRIGHT_SMOKE_BASE_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
           PLAYWRIGHT_SMOKE_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
           PLAYWRIGHT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
+          MONITOR_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
+          MONITOR_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
         run: |
           set -euo pipefail
           HEALTH=$(curl -sf "${PLAYWRIGHT_SMOKE_BASE_URL%/}/health" 2>/dev/null || echo '{}')
@@ -285,4 +291,5 @@ jobs:
           [ "$APP_ENV" = "sandbox" ] || exit 1
           [ "$DEPLOY_SHA" = "${{ steps.resolve_sha.outputs.sha }}" ] || exit 1
 
+          pnpm monitor:hiring-agent -- --base-url "${PLAYWRIGHT_SMOKE_BASE_URL%/}" --require-auth-ws
           node scripts/playwright-smoke.mjs

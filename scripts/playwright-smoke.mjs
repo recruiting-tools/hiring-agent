@@ -11,7 +11,8 @@ const BASE_URL = (
   process.env.PLAYWRIGHT_SMOKE_BASE_URL
   ?? process.env.BASE_URL
   ?? process.env.SANDBOX_URL
-  ?? "https://hiring-chat.recruiter-assistant.com"
+  ?? process.env.SANDBOX_BASE_URL
+  ?? ""
 ).replace(/\/$/, "");
 const EMAIL = process.env.PLAYWRIGHT_SMOKE_EMAIL ?? process.env.SANDBOX_DEMO_EMAIL ?? process.env.DEMO_EMAIL;
 const PASSWORD = process.env.PLAYWRIGHT_SMOKE_PASSWORD ?? process.env.SANDBOX_DEMO_PASSWORD ?? process.env.DEMO_PASSWORD;
@@ -35,6 +36,12 @@ function hasConversationExamples(text) {
     || text.includes("рекрутер")
     || text.includes("кандидат")
   );
+}
+
+if (!BASE_URL) {
+  console.error("ERROR: PLAYWRIGHT_SMOKE_BASE_URL is required.");
+  console.error("       Fallbacks: BASE_URL, SANDBOX_URL, SANDBOX_BASE_URL.");
+  process.exit(1);
 }
 
 if (!EMAIL || !PASSWORD) {
@@ -135,6 +142,25 @@ async function run() {
       if (!loginRedirectOk) {
         fail("redirected to chat after login", `still at ${currentUrl}`);
       }
+    }
+
+    // ── 4b. Live connection established ──────────────────────────────────────
+    console.log("3b. WebSocket connection");
+    const connectionLabel = page.locator("#connection-label");
+    const connectionCopy = page.locator("#connection-copy");
+    let connectionText = "";
+    let connectionDetails = "";
+    for (let i = 0; i < 20; i += 1) {
+      connectionText = await connectionLabel.textContent().catch(() => "");
+      connectionDetails = await connectionCopy.textContent().catch(() => "");
+      if ((connectionText || "").includes("Агент на связи")) break;
+      await page.waitForTimeout(500);
+    }
+
+    if ((connectionText || "").includes("Агент на связи")) {
+      pass("websocket connected");
+    } else {
+      fail("websocket connected", `label=${JSON.stringify(connectionText)} copy=${JSON.stringify(connectionDetails)}`);
     }
 
     // select first real vacancy
