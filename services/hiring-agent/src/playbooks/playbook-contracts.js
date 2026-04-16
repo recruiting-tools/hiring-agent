@@ -4,7 +4,7 @@ export const ALWAYS_RUNNABLE_PLAYBOOK_KEYS = Object.freeze(
     "setup_communication",
     "account_access",
     "data_retention",
-    "assistant_capabilities",
+    "agent_capabilities",
     "quick_start"
   ])
 );
@@ -19,16 +19,20 @@ export const FALLBACK_ROUTES = Object.freeze([
     keywords: ["план коммуникац", "скрининг", "communication plan", "настроить общение", "настройте общение"]
   },
   {
-    playbook_key: "assistant_capabilities",
+    playbook_key: "agent_capabilities",
     keywords: [
       "что ты умеешь",
+      "какие есть фичи",
+      "какие сценарии доступны",
+      "что доступно",
       "чем ты умеешь",
       "что ты вообще умеешь",
       "что ты можешь делать",
       "чем ты можешь",
       "помощь",
       "справка",
-      "что умеет"
+      "что умеет",
+      "help"
     ]
   },
   {
@@ -96,9 +100,10 @@ export const FALLBACK_PLAYBOOKS = Object.freeze([
     status: "available"
   },
   {
-    playbook_key: "assistant_capabilities",
-    title: "Что ты умеешь",
-    name: "Что ты умеешь",
+    playbook_key: "agent_capabilities",
+    title: "Возможности агента",
+    name: "Возможности агента",
+    trigger_description: "Подсказывает доступные сценарии, примеры запросов и ограничения по текущему реестру.",
     enabled: true,
     status: "available"
   },
@@ -106,6 +111,7 @@ export const FALLBACK_PLAYBOOKS = Object.freeze([
     playbook_key: "quick_start",
     title: "Быстрый старт",
     name: "Быстрый старт",
+    trigger_description: "Показывает краткий сценарий первого запуска и порядок действий.",
     enabled: true,
     status: "available"
   },
@@ -141,7 +147,6 @@ export const FALLBACK_PLAYBOOKS = Object.freeze([
 
 export const STATIC_UTILITY_PLAYBOOK_KEYS = Object.freeze(
   new Set([
-    "assistant_capabilities",
     "quick_start"
   ])
 );
@@ -150,7 +155,7 @@ export const PLAYBOOKS_WITHOUT_VACANCY = Object.freeze(
   new Set([
     "candidate_funnel",
     "setup_communication",
-    "assistant_capabilities",
+    "agent_capabilities",
     "quick_start",
     "create_vacancy",
     "account_access",
@@ -158,20 +163,7 @@ export const PLAYBOOKS_WITHOUT_VACANCY = Object.freeze(
   ])
 );
 
-export const ROUTING_FALLBACK_TEXT = "Я пока поддерживаю воронку по кандидатам, план коммуникации, выборочную рассылку, управление доступом к hh.ru, очистку данных и полезные справочные сценарии.";
-
 export const STATIC_UTILITY_REPLIES = Object.freeze({
-  assistant_capabilities: Object.freeze({
-    kind: "display",
-    content_type: "text",
-    lines: [
-      "Что умеет <name>:",
-      "• Собирать структуру вакансии и готовить данные под воронку кандидатов.",
-      "• Подстраивать сценарий коммуникации и давать примеры первых сообщений.",
-      "• Формировать массовую рассылку и запускать контактную волны.",
-      "• Показывать быстрый старт и подсказки по работе с чатом."
-    ]
-  }),
   quick_start: Object.freeze({
     kind: "display",
     content_type: "text",
