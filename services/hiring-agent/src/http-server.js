@@ -249,6 +249,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         linear-gradient(180deg, #08101d 0%, #09111f 35%, #0c1525 100%);
       color: var(--t1);
       min-height: 100dvh;
+      overflow: hidden;
     }
     a { color: inherit; }
     button,
@@ -261,6 +262,10 @@ const CHAT_HTML = `<!DOCTYPE html>
       width: min(calc(100% - 32px), var(--shell-width));
       margin: 0 auto;
       padding: 28px 0 32px;
+      min-height: 100dvh;
+      max-height: 100dvh;
+      display: flex;
+      flex-direction: column;
     }
     .topbar {
       display: flex;
@@ -304,35 +309,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       backdrop-filter: blur(18px);
       box-shadow: var(--shadow-md);
     }
-    .status-content {
-      display: grid;
-      gap: 2px;
-    }
-    .status-dev-link {
-      width: 26px;
-      height: 26px;
-      display: inline-grid;
-      place-items: center;
-      border-radius: 999px;
-      color: var(--t3);
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(157, 181, 224, 0.12);
-      transition: color 0.2s, background 0.2s, border-color 0.2s, transform 0.2s;
-      flex: 0 0 auto;
-    }
-    .status-dev-link:hover {
-      color: var(--t1);
-      background: rgba(255, 255, 255, 0.08);
-      border-color: rgba(157, 181, 224, 0.24);
-      transform: rotate(18deg);
-    }
-    .status-dev-link[hidden] {
-      display: none;
-    }
-    .status-dev-link svg {
-      width: 13px;
-      height: 13px;
-    }
     .status-pill strong {
       color: var(--t1);
       font-size: 13px;
@@ -352,10 +328,17 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
     .workspace {
       display: grid;
-      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(280px, 320px);
+      grid-template-areas: "history chat sidebar";
       gap: 20px;
       align-items: stretch;
-      min-height: calc(100dvh - 170px);
+      flex: 1;
+      min-height: 0;
+      transition: grid-template-columns 0.22s ease;
+      position: relative;
+    }
+    .workspace.history-collapsed {
+      grid-template-columns: 0 minmax(0, 1fr) minmax(280px, 320px);
     }
     .panel {
       border: 1px solid var(--edge);
@@ -364,10 +347,175 @@ const CHAT_HTML = `<!DOCTYPE html>
       backdrop-filter: blur(18px);
       box-shadow: var(--shadow-lg);
     }
+    .history-panel {
+      grid-area: history;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    .workspace.history-collapsed .history-panel {
+      opacity: 0;
+      transform: translateX(-18px);
+      pointer-events: none;
+    }
+    .history-panel-inner {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: 100%;
+    }
+    .history-panel-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--edge);
+    }
+    .history-panel-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .history-panel-header p {
+      margin-top: 6px;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--t2);
+    }
+    .history-panel-toolbar {
+      display: grid;
+      gap: 10px;
+      padding: 14px 20px 16px;
+      border-bottom: 1px solid var(--edge);
+    }
+    .panel-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 12px;
+      border: 1px solid var(--edge);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--t2);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .panel-toggle:hover {
+      border-color: var(--edge-strong);
+      color: var(--t1);
+    }
+    .history-launcher {
+      position: absolute;
+      left: 0;
+      top: 12px;
+      z-index: 3;
+    }
+    .history-launcher[hidden] {
+      display: none;
+    }
+    .history-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .history-list::-webkit-scrollbar { width: 4px; }
+    .history-list::-webkit-scrollbar-track { background: transparent; }
+    .history-list::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 2px; }
+    .history-empty {
+      margin: 10px 12px 14px;
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px dashed var(--edge);
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--t2);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .history-empty[hidden] {
+      display: none;
+    }
+    .history-item {
+      width: 100%;
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      text-align: left;
+      border-radius: 18px;
+      border: 1px solid var(--edge);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--t1);
+      cursor: pointer;
+    }
+    .history-item.active {
+      border-color: rgba(105, 162, 255, 0.45);
+      background: linear-gradient(180deg, rgba(105, 162, 255, 0.14), rgba(255, 255, 255, 0.03));
+      box-shadow: inset 0 0 0 1px rgba(105, 162, 255, 0.08);
+    }
+    .history-item:hover {
+      border-color: var(--edge-strong);
+      transform: translateY(-1px);
+    }
+    .history-item-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .history-item-title {
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.45;
+      color: var(--t1);
+    }
+    .history-item-time {
+      flex-shrink: 0;
+      font-size: 11px;
+      color: var(--t3);
+      white-space: nowrap;
+    }
+    .history-item-preview {
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--t2);
+    }
+    .history-item-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .history-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 9px;
+      border-radius: 999px;
+      border: 1px solid var(--edge);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--t2);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .history-badge.current {
+      border-color: rgba(105, 162, 255, 0.45);
+      color: var(--acc-strong);
+      background: rgba(105, 162, 255, 0.1);
+    }
     .sidebar {
+      grid-area: sidebar;
       display: grid;
       gap: 16px;
       align-content: start;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
     }
     .sidebar-card {
       padding: 20px;
@@ -507,9 +655,11 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     .chat-stage {
+      grid-area: chat;
       display: flex;
       flex-direction: column;
       min-height: 0;
+      height: 100%;
       overflow: hidden;
       background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 12%),
@@ -543,6 +693,12 @@ const CHAT_HTML = `<!DOCTYPE html>
       color: var(--t2);
       line-height: 1.5;
     }
+    .chat-stage-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
     #logout-btn {
       flex-shrink: 0;
       padding: 11px 14px;
@@ -559,6 +715,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     #chat-log {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       padding: 26px 22px 18px;
       display: flex;
@@ -851,17 +1008,51 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
       .workspace {
         grid-template-columns: 1fr;
-        min-height: auto;
+        grid-template-areas:
+          "chat"
+          "sidebar";
+        flex: 1;
+        min-height: 0;
+      }
+      .history-panel {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: min(88vw, 360px);
+        height: 100dvh;
+        z-index: 20;
+        border-radius: 0 26px 26px 0;
+        border-left: 0;
+        transform: translateX(-100%);
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .workspace.history-open .history-panel {
+        transform: translateX(0);
+        box-shadow: 0 30px 80px rgba(2, 8, 23, 0.58);
+      }
+      .workspace.history-collapsed .history-panel {
+        opacity: 1;
+        transform: translateX(-100%);
+      }
+      .history-launcher {
+        position: fixed;
+        left: 16px;
+        top: 84px;
       }
       .sidebar {
         order: 2;
+        overflow: visible;
+        padding-right: 0;
       }
       .chat-stage {
-        min-height: 70dvh;
+        min-height: 0;
       }
       .chat-stage-header {
         flex-direction: column;
         align-items: flex-start;
+      }
+      .chat-stage-actions {
+        width: 100%;
       }
       .bubble {
         max-width: 100%;
@@ -884,6 +1075,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
       .workspace {
         gap: 0;
+      }
+      .history-panel {
+        width: min(92vw, 360px);
       }
       .sidebar {
         gap: 0;
@@ -918,29 +1112,33 @@ const CHAT_HTML = `<!DOCTYPE html>
       </div>
       <div class="status-pill">
         <span id="status-dot" title="WebSocket"></span>
-        <div class="status-content">
+        <div>
           <strong id="connection-label">Подключение</strong>
           <div id="connection-copy">Соединяемся с агентом…</div>
         </div>
-        <a
-          id="status-dev-link"
-          class="status-dev-link"
-          href="#"
-          hidden
-          target="_blank"
-          rel="noopener"
-          aria-label="Открыть детали деплоя"
-          title="Открыть детали деплоя"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.21 7.2a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .67.39 1.28 1 1.51.16.07.33.1.51.1H21a2 2 0 0 1 0 4h-.09c-.67 0-1.28.39-1.51 1z"></path>
-          </svg>
-        </a>
       </div>
     </header>
 
-    <main class="workspace">
+    <main class="workspace" id="workspace">
+      <aside class="history-panel panel" id="history-panel">
+        <div class="history-panel-inner">
+          <div class="history-panel-header">
+            <div>
+              <h2>История сессий</h2>
+              <p>Недавние сценарии и быстрый возврат к прошлым чатам.</p>
+            </div>
+            <button class="panel-toggle" id="history-toggle-btn" type="button">Скрыть</button>
+          </div>
+          <div class="history-panel-toolbar">
+            <button class="primary-btn" id="new-session-btn" type="button">Новая сессия</button>
+          </div>
+          <div class="history-empty" id="history-empty">Список появится после первой сохранённой сессии.</div>
+          <div class="history-list" id="history-list"></div>
+        </div>
+      </aside>
+
+      <button class="panel-toggle history-launcher" id="history-launcher-btn" type="button" hidden>История</button>
+
       <aside class="sidebar">
         <section class="sidebar-card panel">
           <h2>Контекст</h2>
@@ -1001,6 +1199,10 @@ const CHAT_HTML = `<!DOCTYPE html>
             <h2 id="chat-stage-title">Рабочая зона агента</h2>
             <p id="chat-stage-subtitle">Выберите вакансию.</p>
           </div>
+          <div class="chat-stage-actions">
+            <button class="panel-toggle" id="chat-history-btn" type="button">История</button>
+            <button class="panel-toggle" id="copy-link-btn" type="button" disabled>Скопировать ссылку</button>
+          </div>
         </header>
 
         <div id="chat-log">
@@ -1040,8 +1242,12 @@ const CHAT_HTML = `<!DOCTYPE html>
     const CHATBOT_MODERATION_BASE = '__CHATBOT_MODERATION_BASE__';
     const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_QUERY_PARAM = 'state';
+    const CHAT_STATE_HASH_PREFIX = 'state=';
+    const CHAT_SESSION_HASH_PREFIX = 's=';
     const CHAT_STATE_STORAGE_KEY = 'hiring-agent:chat-state:' + (APP_BASE_PATH || 'root');
+    const CHAT_SESSION_HISTORY_KEY = 'hiring-agent:session-history:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_VERSION = 1;
+    const MAX_SESSION_HISTORY_ITEMS = 24;
     const STEP_LABELS = {
       auto_fetch:    'Загружаю данные вакансии',
       route_playbook:'Определяю плейбук',
@@ -1054,10 +1260,6 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     // ── State ─────────────────────────────────────────────────────────────────
     let ws = null;
-    let wsConnectTimer = null;
-    let wsRetryTimer = null;
-    let preferHttpFallback = false;
-    let wsGeneration = 0;
     let streaming = false;
     let selectedVacancyId = null;
     let selectedVacancyJobId = null;
@@ -1065,11 +1267,15 @@ const CHAT_HTML = `<!DOCTYPE html>
     let selectedVacancyTitle = '';
     let activePlaybookKey = null;
     let activePlaybookContext = null;
+    let activeSessionId = null;
     let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
     let chatHistory = [];
-    let pendingInitialChatState = loadInitialChatState();
+    let pendingInitialChatStatePromise = loadInitialChatState();
+    let sessionHistoryIndex = loadSessionHistoryIndex();
+    let historyOpen = window.matchMedia('(min-width: 981px)').matches;
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
+    const workspace = document.getElementById('workspace');
     const chatLog        = document.getElementById('chat-log');
     const emptyState     = document.getElementById('empty-state');
     const vacancySelect  = document.getElementById('vacancy-select');
@@ -1080,7 +1286,6 @@ const CHAT_HTML = `<!DOCTYPE html>
     const emptyCreateVacBtn = document.getElementById('empty-create-vacancy-btn');
     const connectionLabel = document.getElementById('connection-label');
     const connectionCopy = document.getElementById('connection-copy');
-    const statusDevLink = document.getElementById('status-dev-link');
     const contextVacancyTitle = document.getElementById('context-vacancy-title');
     const contextVacancyCopy = document.getElementById('context-vacancy-copy');
     const chatStageTitle = document.getElementById('chat-stage-title');
@@ -1096,252 +1301,33 @@ const CHAT_HTML = `<!DOCTYPE html>
     const chatHistoryBtn = document.getElementById('chat-history-btn');
     const newSessionBtn = document.getElementById('new-session-btn');
     const copyLinkBtn = document.getElementById('copy-link-btn');
-    let healthStatusTimer = null;
-    let lastHealthStatus = null;
-
-    function setStatusPresentation({ title, message, connected = false, tooltip = '' }) {
-      connectionLabel.textContent = title;
-      connectionCopy.textContent = message;
-      statusDot.classList.toggle('connected', Boolean(connected));
-      const resolvedTooltip = tooltip || [title, message].filter(Boolean).join(' — ');
-      statusDot.title = resolvedTooltip;
-      connectionLabel.title = resolvedTooltip;
-      connectionCopy.title = resolvedTooltip;
-    }
-
-    function updateStatusDevLink(statusPayload) {
-      const runUrl = statusPayload?.deploy?.run_url;
-      const isDeployStatus = statusPayload?.status_key === 'deploy_failed'
-        || statusPayload?.status_key === 'deploy_in_progress'
-        || statusPayload?.status_key === 'deploy_pending_switch';
-
-      if (!runUrl || !isDeployStatus) {
-        statusDevLink.hidden = true;
-        statusDevLink.removeAttribute('href');
-        statusDevLink.title = 'Детали деплоя недоступны';
-        return;
-      }
-
-      statusDevLink.hidden = false;
-      statusDevLink.href = runUrl;
-      statusDevLink.title = 'Открыть детали деплоя';
-    }
-    function buildHealthTooltip(statusPayload) {
-      if (!statusPayload || typeof statusPayload !== 'object') return '';
-      const runtime = statusPayload.runtime || {};
-      const deploy = statusPayload.deploy || {};
-      const parts = [];
-      if (deploy.state) parts.push('deploy: ' + deploy.state);
-      if (deploy.expected_sha) parts.push('next sha: ' + deploy.expected_sha);
-      if (runtime.mode) parts.push('mode: ' + runtime.mode);
-      if (runtime.app_env) parts.push('env: ' + runtime.app_env);
-      if (runtime.deploy_sha) parts.push('sha: ' + runtime.deploy_sha);
-      if (runtime.started_at) parts.push('started: ' + runtime.started_at);
-      return parts.join(' | ');
-    }
-
-    function applyHealthStatus(statusPayload, options = {}) {
-      if (!statusPayload || typeof statusPayload !== 'object') return;
-      lastHealthStatus = statusPayload;
-      updateStatusDevLink(statusPayload);
-      const runtime = statusPayload.runtime || {};
-      const tooltip = buildHealthTooltip(statusPayload);
-      const wsOpen = ws && ws.readyState === WebSocket.OPEN;
-      const reconnecting = options.reconnecting === true;
-
-      if (statusPayload.status_key === 'auth_required') {
-        setStatusPresentation({
-          title: statusPayload.title || 'Нужен повторный вход',
-          message: statusPayload.message || 'Сессия истекла. Войдите снова.',
-          connected: false,
-          tooltip
-        });
-        return;
-      }
-
-      if (statusPayload.status_key === 'deploy_failed'
-        || statusPayload.status_key === 'deploy_in_progress'
-        || statusPayload.status_key === 'deploy_pending_switch') {
-        setStatusPresentation({
-          title: statusPayload.title || 'Проверяем обновление сервера',
-          message: statusPayload.message || 'Проверяем ход обновления сервера…',
-          connected: false,
-          tooltip
-        });
-        return;
-      }
-
-      if (wsOpen) {
-        setStatusPresentation({
-          title: 'Агент на связи',
-          message: 'Подключение установлено. Можно продолжать работу.',
-          connected: true,
-          tooltip
-        });
-        return;
-      }
-
-      if (reconnecting) {
-        setStatusPresentation({
-          title: 'Связь временно пропала',
-          message: 'Пробуем восстановить подключение автоматически…',
-          connected: false,
-          tooltip
-        });
-        return;
-      }
-
-      if (preferHttpFallback && runtime.health_ok) {
-        setStatusPresentation({
-          title: 'Работаем без live-канала',
-          message: 'Сервер отвечает. Если нужно, можно продолжать через обычные запросы.',
-          connected: false,
-          tooltip
-        });
-        return;
-      }
-
-      setStatusPresentation({
-        title: statusPayload.title || 'Проверяем состояние сервера',
-        message: statusPayload.message || 'Проверяем доступность сервера…',
-        connected: false,
-        tooltip
-      });
-    }
-
-    async function refreshHealthStatus(options = {}) {
-      try {
-        const response = await fetch(withBasePath('/health_status'), {
-          headers: { accept: 'application/json' }
-        });
-
-        if (response.status === 401) {
-          applyHealthStatus({
-            status_key: 'auth_required',
-            title: 'Нужен повторный вход',
-            message: 'Сессия истекла. Войдите снова.'
-          }, options);
-          return;
-        }
-
-        if (!response.ok) {
-          throw new Error('health_status_http_' + response.status);
-        }
-
-        const payload = await response.json();
-        applyHealthStatus(payload, options);
-      } catch (_error) {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          setStatusPresentation({
-            title: 'Агент на связи',
-            message: 'Чат работает, но служебный статус сервера сейчас недоступен.',
-            connected: true
-          });
-          return;
-        }
-
-        setStatusPresentation({
-          title: 'Не удаётся проверить сервер',
-          message: 'Статус сервера сейчас недоступен. Пробуем подключиться снова.',
-          connected: false
-        });
-      }
-    }
-
-    function scheduleHealthStatusPolling() {
-      if (healthStatusTimer) clearInterval(healthStatusTimer);
-      healthStatusTimer = setInterval(() => {
-        void refreshHealthStatus();
-      }, 10000);
-    }
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
-    function clearWsTimers() {
-      if (wsConnectTimer) {
-        clearTimeout(wsConnectTimer);
-        wsConnectTimer = null;
-      }
-      if (wsRetryTimer) {
-        clearTimeout(wsRetryTimer);
-        wsRetryTimer = null;
-      }
-    }
-
-    function scheduleReconnect() {
-      if (wsRetryTimer) return;
-      wsRetryTimer = setTimeout(() => {
-        wsRetryTimer = null;
-        connect();
-      }, 3000);
-    }
-
-    function setHttpFallbackStatus(copy) {
-      applyHealthStatus(lastHealthStatus || {
-        status_key: 'runtime_available',
-        runtime: { health_ok: true },
-        title: 'Сервер отвечает',
-        message: 'Можно продолжать работу.'
-      });
-      if (copy) {
-        connectionCopy.textContent = copy;
-      }
-    }
-
     function connect() {
-      clearWsTimers();
-      const currentGeneration = ++wsGeneration;
       ws = new WebSocket(WS_URL);
-      setStatusPresentation({
-        title: 'Подключаем чат',
-        message: 'Налаживаем связь с агентом…',
-        connected: false
-      });
-      void refreshHealthStatus();
-
-      wsConnectTimer = setTimeout(() => {
-        if (wsGeneration !== currentGeneration) return;
-        if (ws && ws.readyState === WebSocket.CONNECTING) {
-          preferHttpFallback = true;
-          setHttpFallbackStatus('Прямое соединение отвечает слишком долго. Пока работаем через обычные запросы.');
-          updateSendEnabled();
-          try { ws.close(); } catch {}
-        }
-      }, 8000);
 
       ws.onopen = () => {
-        clearWsTimers();
-        preferHttpFallback = false;
-        applyHealthStatus(lastHealthStatus || {
-          status_key: 'runtime_available',
-          runtime: { health_ok: true }
-        });
+        statusDot.classList.add('connected');
+        connectionLabel.textContent = 'Агент на связи';
+        connectionCopy.textContent = 'Соединение установлено.';
         updateSendEnabled();
       };
 
       ws.onclose = (ev) => {
-        clearWsTimers();
         streaming = false;
         currentAssistant = null;
-        if (preferHttpFallback) {
-          setHttpFallbackStatus('Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.');
-        } else {
-          applyHealthStatus(lastHealthStatus || {
-            status_key: 'connecting',
-            title: 'Связь временно пропала',
-            message: 'Пробуем восстановить подключение автоматически…'
-          }, { reconnecting: true });
-        }
+        statusDot.classList.remove('connected');
+        connectionLabel.textContent = 'Подключение потеряно';
+        connectionCopy.textContent = 'Переподключение...';
         updateSendEnabled();
         if (ev.code === 4001) { window.location = LOGIN_PATH; return; }
-        void refreshHealthStatus({ reconnecting: true });
-        scheduleReconnect();
+        setTimeout(connect, 3000); // auto-reconnect
       };
 
       ws.onerror = () => {
-        preferHttpFallback = true;
-        setHttpFallbackStatus('Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.');
-        updateSendEnabled();
-        void refreshHealthStatus();
+        statusDot.classList.remove('connected');
+        connectionLabel.textContent = 'Ошибка соединения';
+        connectionCopy.textContent = 'WebSocket недоступен.';
       };
 
       ws.onmessage = (ev) => {
@@ -1400,6 +1386,7 @@ const CHAT_HTML = `<!DOCTYPE html>
           streaming = false;
           updateSendEnabled();
           scrollBottom();
+          void saveServerChatState();
         }
 
         if (data.type === 'error') {
@@ -1419,6 +1406,7 @@ const CHAT_HTML = `<!DOCTYPE html>
           }
           streaming = false;
           updateSendEnabled();
+          void saveServerChatState();
         }
       };
     }
@@ -1438,6 +1426,180 @@ const CHAT_HTML = `<!DOCTYPE html>
         .replace(/'/g, '&#39;')
         .replace(/\\n/g, '<br>');
       el.innerHTML = DOMPurify.sanitize(escaped);
+    }
+
+    function stripMarkdown(text) {
+      const tick = String.fromCharCode(96);
+      return String(text ?? '')
+        .replace(new RegExp(tick + tick + tick + '[\\s\\S]*?' + tick + tick + tick, 'g'), ' ')
+        .replace(new RegExp(tick + '([^' + tick + ']+)' + tick, 'g'), '$1')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/[*_>#-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function getHistoryPreview(history) {
+      const latest = [...(Array.isArray(history) ? history : [])]
+        .reverse()
+        .find((entry) => entry?.kind === 'assistant' || entry?.kind === 'user');
+
+      if (!latest) return 'Сохранённый сценарий без сообщений.';
+
+      const source = latest.kind === 'assistant' ? latest.markdown : latest.text;
+      const clean = stripMarkdown(source);
+      return clean ? clean.slice(0, 140) : 'Сохранённый сценарий.';
+    }
+
+    function formatHistoryTime(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '';
+
+      return new Intl.DateTimeFormat('ru-RU', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(date);
+    }
+
+    function isDesktopHistoryLayout() {
+      return window.matchMedia('(min-width: 981px)').matches;
+    }
+
+    function loadSessionHistoryIndex() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(CHAT_SESSION_HISTORY_KEY) || '[]');
+        return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveSessionHistoryIndex() {
+      try {
+        localStorage.setItem(CHAT_SESSION_HISTORY_KEY, JSON.stringify(sessionHistoryIndex));
+      } catch {}
+    }
+
+    function setHistoryOpen(nextOpen) {
+      historyOpen = Boolean(nextOpen);
+      workspace.classList.toggle('history-open', historyOpen);
+      workspace.classList.toggle('history-collapsed', !historyOpen);
+      historyLauncherBtn.hidden = historyOpen;
+      historyToggleBtn.textContent = historyOpen ? 'Скрыть' : 'Показать';
+      chatHistoryBtn.textContent = historyOpen ? 'Скрыть историю' : 'История';
+    }
+
+    function updateCopyLinkButton() {
+      copyLinkBtn.disabled = !activeSessionId;
+    }
+
+    async function copyCurrentSessionLink() {
+      if (!activeSessionId) return;
+      const url = new URL(window.location.href);
+      url.searchParams.delete(CHAT_STATE_QUERY_PARAM);
+      url.hash = CHAT_SESSION_HASH_PREFIX + encodeURIComponent(activeSessionId);
+
+      try {
+        await navigator.clipboard.writeText(url.toString());
+        copyLinkBtn.textContent = 'Ссылка скопирована';
+        setTimeout(() => {
+          copyLinkBtn.textContent = 'Скопировать ссылку';
+        }, 1600);
+      } catch {}
+    }
+
+    function renderSessionHistory() {
+      const items = Array.isArray(sessionHistoryIndex) ? sessionHistoryIndex : [];
+      const prioritizedItems = selectedVacancyId
+        ? [
+            ...items.filter((item) => String(item?.vacancyId ?? '') === String(selectedVacancyId)),
+            ...items.filter((item) => String(item?.vacancyId ?? '') !== String(selectedVacancyId))
+          ]
+        : items;
+
+      historyEmpty.hidden = prioritizedItems.length > 0;
+      historyList.innerHTML = '';
+
+      prioritizedItems.forEach((item) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'history-item' + (item.sessionId === activeSessionId ? ' active' : '');
+
+        const top = document.createElement('div');
+        top.className = 'history-item-top';
+
+        const title = document.createElement('div');
+        title.className = 'history-item-title';
+        title.textContent = item.vacancyTitle || 'Новая сессия';
+
+        const time = document.createElement('div');
+        time.className = 'history-item-time';
+        time.textContent = formatHistoryTime(item.updatedAt);
+
+        const preview = document.createElement('div');
+        preview.className = 'history-item-preview';
+        preview.textContent = item.preview || 'Без превью';
+
+        const meta = document.createElement('div');
+        meta.className = 'history-item-meta';
+
+        if (item.sessionId === activeSessionId) {
+          const currentBadge = document.createElement('span');
+          currentBadge.className = 'history-badge current';
+          currentBadge.textContent = 'Текущая';
+          meta.appendChild(currentBadge);
+        }
+
+        if (item.vacancyId) {
+          const vacancyBadge = document.createElement('span');
+          vacancyBadge.className = 'history-badge';
+          vacancyBadge.textContent = String(item.vacancyId) === String(selectedVacancyId) && selectedVacancyId
+            ? 'Текущая вакансия'
+            : 'Вакансия';
+          meta.appendChild(vacancyBadge);
+        }
+
+        top.appendChild(title);
+        top.appendChild(time);
+        button.appendChild(top);
+        button.appendChild(preview);
+        button.appendChild(meta);
+
+        button.addEventListener('click', async () => {
+          const snapshot = await fetchChatStateBySessionId(item.sessionId);
+          if (!snapshot) return;
+          restoreChatState(snapshot);
+          if (!isDesktopHistoryLayout()) {
+            setHistoryOpen(false);
+          }
+        });
+
+        historyList.appendChild(button);
+      });
+    }
+
+    function upsertSessionHistoryEntry(state) {
+      const normalized = normalizeChatState(state);
+      if (!normalized?.sessionId) return;
+
+      const entry = {
+        sessionId: normalized.sessionId,
+        vacancyId: normalized.vacancyId,
+        vacancyTitle: normalized.vacancyTitle || 'Новая сессия',
+        updatedAt: new Date().toISOString(),
+        preview: getHistoryPreview(normalized.history)
+      };
+
+      sessionHistoryIndex = [
+        entry,
+        ...sessionHistoryIndex.filter((item) => item?.sessionId !== entry.sessionId)
+      ].slice(0, MAX_SESSION_HISTORY_ITEMS);
+
+      saveSessionHistoryIndex();
+      renderSessionHistory();
     }
 
     // ── Messages ──────────────────────────────────────────────────────────────
@@ -1629,6 +1791,11 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     function applyServerState(data) {
+      if (data.sessionId) {
+        activeSessionId = String(data.sessionId);
+        updateCopyLinkButton();
+      }
+
       if (data.playbookActive && data.playbookKey) {
         activePlaybookKey = data.playbookKey;
       } else {
@@ -1644,11 +1811,13 @@ const CHAT_HTML = `<!DOCTYPE html>
       upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
       syncContext();
       persistChatState();
+      renderSessionHistory();
     }
 
     function sendMessage(text) {
       if (!text || !text.trim()) return;
       if (streaming) return;
+      if (!ws || ws.readyState !== 1) return;
 
       streaming = true;
       updateSendEnabled();
@@ -1659,7 +1828,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       msgInput.value = '';
       msgInput.style.height = 'auto';
 
-      const payload = {
+      ws.send(JSON.stringify({
         type: 'message',
         text: text.trim(),
         vacancyId: selectedVacancyId,
@@ -1818,10 +1987,13 @@ const CHAT_HTML = `<!DOCTYPE html>
         createOpt.textContent = '+ Создать вакансию';
         vacancySelect.appendChild(createOpt);
 
-        if (pendingInitialChatState) {
-          restoreChatState(pendingInitialChatState);
-          pendingInitialChatState = null;
-          return;
+        if (pendingInitialChatStatePromise) {
+          const pendingInitialChatState = await pendingInitialChatStatePromise;
+          pendingInitialChatStatePromise = null;
+          if (pendingInitialChatState) {
+            restoreChatState(pendingInitialChatState);
+            return;
+          }
         }
 
         const savedMatch = jobs.find((job) => String(job.vacancy_id) === savedVacancyId);
@@ -1854,6 +2026,8 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     function onVacancySelected(vacancyId, title, jobId) {
       clearActivePlaybookState();
+      activeSessionId = null;
+      updateCopyLinkButton();
       selectedVacancyId = vacancyId;
       selectedVacancyJobId = jobId || null;
       selectedVacancyTitle = title || '';
@@ -1883,6 +2057,8 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     function triggerCreateVacancy() {
       clearActivePlaybookState();
+      activeSessionId = null;
+      updateCopyLinkButton();
       selectedVacancyId = null;
       selectedVacancyJobId = null;
       selectedVacancyTitle = '';
@@ -1938,6 +2114,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       syncShortcuts();
       persistChatState();
+      renderSessionHistory();
     }
 
     function syncShortcuts() {
@@ -1963,8 +2140,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     sendBtn.addEventListener('click', () => sendMessage(msgInput.value));
 
     function updateSendEnabled() {
-      const transportReady = preferHttpFallback || ws?.readyState === 1;
-      const ready = transportReady && !streaming && msgInput.value.trim().length > 0;
+      const ready = ws?.readyState === 1 && !streaming && msgInput.value.trim().length > 0;
       sendBtn.disabled = !ready;
     }
 
@@ -1987,6 +2163,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     function serializeChatState() {
       return {
         version: CHAT_STATE_VERSION,
+        sessionId: activeSessionId ? String(activeSessionId) : null,
         vacancyId: selectedVacancyId ? String(selectedVacancyId) : null,
         jobId: selectedVacancyJobId ? String(selectedVacancyJobId) : null,
         vacancyTitle: selectedVacancyTitle || '',
@@ -2048,6 +2225,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       return {
         version: Number(state.version) || CHAT_STATE_VERSION,
+        sessionId: state.sessionId ? String(state.sessionId) : null,
         vacancyId: state.vacancyId ? String(state.vacancyId) : null,
         jobId: state.jobId ? String(state.jobId) : null,
         vacancyTitle: typeof state.vacancyTitle === 'string' ? state.vacancyTitle : '',
@@ -2064,7 +2242,6 @@ const CHAT_HTML = `<!DOCTYPE html>
         || state.playbookKey
         || state.history.length > 0
       );
-      const encoded = hasMeaningfulState ? encodeChatState(state) : '';
 
       try {
         if (hasMeaningfulState) {
@@ -2075,16 +2252,31 @@ const CHAT_HTML = `<!DOCTYPE html>
       } catch {}
 
       const nextUrl = new URL(window.location.href);
-      if (encoded) {
-        nextUrl.searchParams.set(CHAT_STATE_QUERY_PARAM, encoded);
-      } else {
-        nextUrl.searchParams.delete(CHAT_STATE_QUERY_PARAM);
-      }
+      nextUrl.searchParams.delete(CHAT_STATE_QUERY_PARAM);
+      nextUrl.hash = activeSessionId
+        ? CHAT_SESSION_HASH_PREFIX + encodeURIComponent(activeSessionId)
+        : '';
       history.replaceState(null, '', nextUrl.toString());
+      updateCopyLinkButton();
     }
 
-    function loadInitialChatState() {
-      const fromUrl = decodeChatState(new URLSearchParams(window.location.search).get(CHAT_STATE_QUERY_PARAM));
+    async function loadInitialChatState() {
+      const hashSessionId = window.location.hash.startsWith('#' + CHAT_SESSION_HASH_PREFIX)
+        ? decodeURIComponent(window.location.hash.slice(CHAT_SESSION_HASH_PREFIX.length + 1))
+        : '';
+      if (hashSessionId) {
+        activeSessionId = hashSessionId;
+        const fromServer = await fetchChatStateBySessionId(hashSessionId);
+        if (fromServer) return fromServer;
+        activeSessionId = null;
+      }
+
+      const hashState = window.location.hash.startsWith('#' + CHAT_STATE_HASH_PREFIX)
+        ? window.location.hash.slice(CHAT_STATE_HASH_PREFIX.length + 1)
+        : '';
+      const fromUrl = decodeChatState(
+        hashState || new URLSearchParams(window.location.search).get(CHAT_STATE_QUERY_PARAM)
+      );
       if (fromUrl) return fromUrl;
 
       try {
@@ -2099,6 +2291,8 @@ const CHAT_HTML = `<!DOCTYPE html>
       if (!normalized) return;
 
       clearActivePlaybookState();
+      activeSessionId = normalized.sessionId || activeSessionId;
+      updateCopyLinkButton();
       activePlaybookKey = normalized.playbookKey;
       activePlaybookContext = normalized.playbookContext;
       selectedVacancyId = normalized.vacancyId;
@@ -2131,6 +2325,44 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       updateSendEnabled();
       persistChatState();
+      upsertSessionHistoryEntry(normalized);
+    }
+
+    async function fetchChatStateBySessionId(sessionId) {
+      if (!sessionId) return null;
+
+      try {
+        const res = await fetch(withBasePath('/api/chat-state?session_id=' + encodeURIComponent(sessionId)));
+        if (res.status === 401) {
+          window.location = LOGIN_PATH;
+          return null;
+        }
+        if (!res.ok) {
+          return null;
+        }
+        const data = await res.json();
+        return normalizeChatState(data.snapshot);
+      } catch {
+        return null;
+      }
+    }
+
+    async function saveServerChatState() {
+      if (!activeSessionId) return;
+
+      try {
+        const res = await fetch(withBasePath('/api/chat-state'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            session_id: activeSessionId,
+            snapshot: serializeChatState()
+          })
+        });
+        if (res.ok) {
+          upsertSessionHistoryEntry(serializeChatState());
+        }
+      } catch {}
     }
 
     // ── Init ──────────────────────────────────────────────────────────────────
@@ -2140,9 +2372,35 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     // Start WS
-    void refreshHealthStatus();
-    scheduleHealthStatusPolling();
     connect();
+
+    historyToggleBtn.addEventListener('click', () => setHistoryOpen(!historyOpen));
+    historyLauncherBtn.addEventListener('click', () => setHistoryOpen(true));
+    chatHistoryBtn.addEventListener('click', () => setHistoryOpen(!historyOpen));
+    newSessionBtn.addEventListener('click', () => {
+      if (selectedVacancyId) {
+        onVacancySelected(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
+      } else {
+        chatLog.innerHTML = '';
+        clearChatHistory();
+        clearActivePlaybookState();
+        activeSessionId = null;
+        updateCopyLinkButton();
+        chatLog.appendChild(emptyState);
+        syncContext();
+      }
+      if (!isDesktopHistoryLayout()) {
+        setHistoryOpen(false);
+      }
+    });
+    copyLinkBtn.addEventListener('click', () => {
+      void copyCurrentSessionLink();
+    });
+    window.addEventListener('resize', () => {
+      if (isDesktopHistoryLayout() && !historyOpen) {
+        historyLauncherBtn.hidden = false;
+      }
+    });
 
     // Load vacancies
     loadVacancies();
@@ -2151,6 +2409,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     chatLog.innerHTML = '';
     chatLog.appendChild(emptyState);
     syncContext();
+    renderSessionHistory();
+    setHistoryOpen(isDesktopHistoryLayout());
   </script>
 </body>
 </html>`;
