@@ -600,13 +600,9 @@ test("hiring-agent: postChatMessage returns playbook_locked when tenant access d
   assert.equal(result.body.reply.playbook_key, "quick_start");
 });
 
-test("hiring-agent: legacy vacancy-text stays locked when DB-backed view_vacancy has zero steps", async () => {
+test("hiring-agent: explicit legacy vacancy-text key is no longer accepted", async () => {
   const managementSql = async (strings) => {
     const text = strings.join("");
-
-    if (text.includes("FROM management.tenant_playbook_access")) {
-      return [{ playbook_key: "vacancy-text", enabled: false }];
-    }
 
     if (text.includes("FROM management.playbook_definitions d")) {
       return [
@@ -665,7 +661,7 @@ test("hiring-agent: legacy vacancy-text stays locked when DB-backed view_vacancy
 
   assert.equal(result.status, 200);
   assert.equal(result.body.reply.kind, "playbook_locked");
-  assert.equal(result.body.reply.playbook_key, "view_vacancy");
+  assert.equal(result.body.reply.playbook_key, "vacancy-text");
   assert.match(result.body.reply.message, /не настроены шаги выполнения/i);
 });
 

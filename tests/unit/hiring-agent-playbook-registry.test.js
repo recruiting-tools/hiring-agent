@@ -34,19 +34,11 @@ test("registry: only working zero-step management playbooks remain enabled", asy
           step_count: 0
         },
         {
-          playbook_key: "write_vacancy_text",
-          name: "Показать текст вакансии",
-          trigger_description: "vacancy text",
-          status: "available",
-          sort_order: 4,
-          step_count: 0
-        },
-        {
           playbook_key: "account_access",
           name: "Управление доступом к hh.ru",
           trigger_description: "revoke hh",
           status: "available",
-          sort_order: 5,
+          sort_order: 4,
           step_count: 0
         },
         {
@@ -54,7 +46,7 @@ test("registry: only working zero-step management playbooks remain enabled", asy
           name: "Очистка данных аккаунта",
           trigger_description: "wipe data",
           status: "available",
-          sort_order: 6,
+          sort_order: 5,
           step_count: 0
         }
       ];
@@ -67,7 +59,7 @@ test("registry: only working zero-step management playbooks remain enabled", asy
   assert.equal(playbooks.find((item) => item.playbook_key === "candidate_funnel")?.enabled, true);
   assert.equal(playbooks.find((item) => item.playbook_key === "setup_communication")?.enabled, true);
   assert.equal(playbooks.find((item) => item.playbook_key === "create_vacancy")?.enabled, false);
-  assert.equal(playbooks.find((item) => item.playbook_key === "view_vacancy")?.enabled, false);
+  assert.equal(playbooks.find((item) => item.playbook_key === "view_vacancy"), undefined);
   assert.equal(playbooks.find((item) => item.playbook_key === "account_access")?.enabled, true);
   assert.equal(playbooks.find((item) => item.playbook_key === "data_retention")?.enabled, true);
 });
@@ -90,11 +82,6 @@ test("router: only working zero-step management playbooks remain routable", asyn
       step_count: 0
     },
     {
-      playbook_key: "write_vacancy_text",
-      keywords: ["текст вакансии"],
-      step_count: 0
-    },
-    {
       playbook_key: "account_access",
       keywords: ["отключить hh"],
       step_count: 0
@@ -109,7 +96,6 @@ test("router: only working zero-step management playbooks remain routable", asyn
   assert.equal(await routePlaybook("покажи воронку по кандидатам", managementSql), "candidate_funnel");
   assert.equal(await routePlaybook("настроить общение с кандидатами", managementSql), "setup_communication");
   assert.equal(await routePlaybook("создать вакансию", managementSql), null);
-  assert.equal(await routePlaybook("покажи текст вакансии", managementSql), null);
   assert.equal(await routePlaybook("отключить hh", managementSql), "account_access");
   assert.equal(await routePlaybook("очистить данные", managementSql), "data_retention");
 });
