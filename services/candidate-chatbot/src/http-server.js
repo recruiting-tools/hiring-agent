@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 
 const LOGIN_HTML = `<!DOCTYPE html>
@@ -628,9 +629,19 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhIm
         return;
       }
 
-      if (request.method === "GET" && requestUrl.pathname === "/hh-callback/") {
+      if (request.method === "GET" && (requestUrl.pathname === "/hh-callback/" || requestUrl.pathname === "/hh-callback")) {
         if (!hhOAuthClient) {
           writeJson(response, 503, { error: "hh_oauth_not_configured" });
+          return;
+        }
+        if (!store) {
+          writeJson(response, 503, { error: "hh_state_store_not_configured" });
+          return;
+        }
+
+        const state = requestUrl.searchParams.get("state");
+        if (!state) {
+          writeJson(response, 400, { error: "missing_state" });
           return;
         }
         const code = requestUrl.searchParams.get("code");
@@ -638,14 +649,110 @@ export function createHttpServer(app, { store, hhOAuthClient, hhPollRunner, hhIm
           writeJson(response, 400, { error: "missing_code" });
           return;
         }
-        const tokens = await hhOAuthClient.exchangeCodeForTokens(code);
-        const me = await hhOAuthClient.getMe();
+
+        const stateKey = stateStorageKey(state);
+        const stateRow = await store.getHhOAuthTokens(stateKey);
+        if (!stateRow || stateRow.token_type !== "oauth_state") {
+          writeJson(response, 400, { error: "invalid_oauth_state" });
+          return;
+        }
+        if (stateRow.metadata?.consumed_at || stateRow.token_type === "oauth_state_consumed") {
+          writeJson(response, 400, { error: "oauth_state_consumed" });
+          return;
+        }
+        if (!stateRow.expires_at || new Date(stateRow.expires_at).getTime() <= Date.now()) {
+          await store.setHhOAuthTokens(stateKey, {
+            ...stateRow,
+            token_type: "oauth_state_expired",
+            metadata: {
+              ...(stateRow.metadata ?? {}),
+              expired_at: new Date().toISOString()
+            }
+          });
+          writeJson(response, 400, { error: "oauth_state_expired" });
+          return;
+        }
+
+        try {
+          const tokens = await hhOAuthClient.exchangeCodeForTokens(code);
+          const me = await hhOAuthClient.getMe();
+          await store.setHhOAuthTokens(stateKey, {
+            ...stateRow,
+            access_token: state,
+            token_type: "oauth_state_consumed",
+            metadata: {
+              ...(stateRow.metadata ?? {}),
+              consumed_at: new Date().toISOString()
+            }
+          });
+          writeJson(response, 200, {
+            ok: true,
+            provider: "hh",
+            employer_id: me.id ?? null,
+            manager_id: me.manager?.id ?? null,
+            expires_at: tokens.expires_at
+          });
+        } catch (error) {
+          await store.setHhOAuthTokens(stateKey, {
+            ...stateRow,
+            access_token: state,
+            token_type: "oauth_state_error",
+            metadata: {
+              ...(stateRow.metadata ?? {}),
+              error_code: error?.code ?? "error",
+              error_message: error?.message ?? "OAuth exchange failed",
+              failed_at: new Date().toISOString()
+            }
+          });
+          if (error?.status === 401) {
+            writeJson(response, 401, {
+              error: "hh_oauth_exchange_failed",
+              message: error.message
+            });
+            return;
+          }
+          writeJson(response, 400, {
+            error: "hh_oauth_exchange_failed",
+            message: error.message
+          });
+        }
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/hh-authorize/") {
+        if (!hhOAuthClient) {
+          writeJson(response, 503, { error: "hh_oauth_not_configured" });
+          return;
+        }
+        if (!store) {
+          writeJson(response, 503, { error: "hh_state_store_not_configured" });
+          return;
+        }
+        const state = randomState();
+        const stateKey = stateStorageKey(state);
+        const stateExpiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        await store.setHhOAuthTokens(stateKey, {
+          access_token: state,
+          token_type: "oauth_state",
+          expires_at: stateExpiresAt,
+          metadata: {
+            redirect_uri: hhOAuthClient.redirectUri,
+            created_at: new Date().toISOString(),
+            user_agent: request.headers["user-agent"] ?? null,
+            referer: request.headers["referer"] ?? null
+          }
+        });
+        const authorizeUrl = buildHhAuthorizeUrl({
+          clientId: hhOAuthClient.clientId,
+          redirectUri: hhOAuthClient.redirectUri,
+          state
+        });
         writeJson(response, 200, {
           ok: true,
           provider: "hh",
-          employer_id: me.id ?? null,
-          manager_id: me.manager?.id ?? null,
-          expires_at: tokens.expires_at
+          authorize_url: authorizeUrl,
+          state,
+          expires_at: stateExpiresAt
         });
         return;
       }
@@ -848,6 +955,23 @@ function parseCookies(cookieHeader) {
 function isValidIsoDateTime(value) {
   if (typeof value !== "string" || !value.trim()) return false;
   return Number.isFinite(new Date(value).getTime());
+}
+
+function randomState() {
+  return randomBytes(16).toString("hex");
+}
+
+function stateStorageKey(state) {
+  return `hh_state:hh:${state}`;
+}
+
+function buildHhAuthorizeUrl({ clientId, redirectUri, state }) {
+  const authorizeUrl = new URL("https://hh.ru/oauth/authorize");
+  authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("client_id", String(clientId));
+  authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+  authorizeUrl.searchParams.set("state", state);
+  return authorizeUrl.toString();
 }
 
 function writeJson(response, status, body) {

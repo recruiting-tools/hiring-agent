@@ -82,11 +82,17 @@ const notificationDispatcher = new NotificationDispatcher(store, telegramClient)
 
 const app = createCandidateChatbot({ store, llmAdapter, notificationDispatcher });
 
-const hhOAuthClient = process.env.HH_CLIENT_ID && process.env.HH_CLIENT_SECRET && process.env.HH_REDIRECT_URI
+const hhRedirectUri = resolveHhRedirectUri(process.env.HH_REDIRECT_URI);
+const hasHhOAuthConfig = process.env.HH_CLIENT_ID || process.env.HH_CLIENT_SECRET || hhRedirectUri;
+if (hasHhOAuthConfig && !(process.env.HH_CLIENT_ID && process.env.HH_CLIENT_SECRET && hhRedirectUri)) {
+  throw new Error("Invalid HH OAuth configuration: set HH_CLIENT_ID, HH_CLIENT_SECRET and HH_REDIRECT_URI (/hh-callback)");
+}
+
+const hhOAuthClient = process.env.HH_CLIENT_ID && process.env.HH_CLIENT_SECRET && hhRedirectUri
   ? new HhApiClient({
       clientId: process.env.HH_CLIENT_ID,
       clientSecret: process.env.HH_CLIENT_SECRET,
-      redirectUri: process.env.HH_REDIRECT_URI,
+      redirectUri: hhRedirectUri,
       tokenStore: {
         getTokens: () => store.getHhOAuthTokens("hh"),
         setTokens: (tokens) => store.setHhOAuthTokens("hh", tokens)
@@ -138,5 +144,19 @@ function parseVacancyMappings(raw) {
   } catch {
     console.warn("Failed to parse HH_VACANCY_JOB_MAP");
     return [];
+  }
+}
+
+function resolveHhRedirectUri(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (!["/hh-callback", "/hh-callback/"].includes(parsed.pathname)) {
+      throw new Error("Invalid HH callback path");
+    }
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch (error) {
+    console.error(error);
+    return null;
   }
 }

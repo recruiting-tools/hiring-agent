@@ -255,10 +255,12 @@ test("http server exposes webhook and pending queue endpoints", async () => {
   }
 });
 
-test("http server: GET /hh-callback/ exchanges code, stores tokens and returns employer info", async () => {
+test("http server: GET /hh-authorize/ stores durable oauth state", async () => {
   const { app, store } = createRuntime();
   const calls = [];
   const hhOAuthClient = {
+    clientId: "hh-client-id",
+    redirectUri: "https://example.test/hh-callback/",
     async exchangeCodeForTokens(code) {
       calls.push({ type: "exchange", code });
       return store.setHhOAuthTokens("hh", {
@@ -280,19 +282,123 @@ test("http server: GET /hh-callback/ exchanges code, stores tokens and returns e
   const { port } = server.address();
 
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/hh-callback/?code=oauth-code-123`);
-    const body = await response.json();
-    const tokens = await store.getHhOAuthTokens("hh");
+    const authorizeResponse = await fetch(`http://127.0.0.1:${port}/hh-authorize/`);
+    const authorizeBody = await authorizeResponse.json();
+    const authorizeState = await store.getHhOAuthTokens(`hh_state:hh:${authorizeBody.state}`);
 
-    assert.equal(response.status, 200);
-    assert.equal(body.ok, true);
-    assert.equal(body.employer_id, "employer-001");
-    assert.equal(body.manager_id, "manager-001");
+    assert.equal(authorizeResponse.status, 200);
+    assert.equal(authorizeBody.ok, true);
+    assert.equal(authorizeBody.provider, "hh");
+    assert.equal(authorizeBody.state, authorizeState?.access_token);
+    assert.equal(authorizeState.token_type, "oauth_state");
+    assert.match(authorizeBody.authorize_url, /https:\/\/hh\.ru\/oauth\/authorize\?/);
+
+    const callbackResponse = await fetch(`http://127.0.0.1:${port}/hh-callback/?code=oauth-code-123&state=${authorizeBody.state}`);
+    const callbackBody = await callbackResponse.json();
+    const tokens = await store.getHhOAuthTokens("hh");
+    const consumedState = await store.getHhOAuthTokens(`hh_state:hh:${authorizeBody.state}`);
+
+    assert.equal(callbackResponse.status, 200);
+    assert.equal(callbackBody.ok, true);
+    assert.equal(callbackBody.employer_id, "employer-001");
+    assert.equal(callbackBody.manager_id, "manager-001");
     assert.equal(tokens.access_token, "access-001");
+    assert.equal(consumedState.token_type, "oauth_state_consumed");
     assert.deepEqual(calls, [
       { type: "exchange", code: "oauth-code-123" },
       { type: "me" }
     ]);
+  } finally {
+    server.close();
+  }
+});
+
+test("http server: /hh-callback/ requires state, rejects missing/invalid/expired states", async () => {
+  const { app, store } = createRuntime();
+  const hhOAuthClient = {
+    clientId: "hh-client-id",
+    clientSecret: "hh-client-secret",
+    redirectUri: "https://example.test/hh-callback/",
+    async exchangeCodeForTokens() {
+      assert.fail("exchangeCodeForTokens should not be called");
+    },
+    async getMe() {
+      assert.fail("getMe should not be called");
+    }
+  };
+  const server = createHttpServer(app, { store, hhOAuthClient });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const missingStateResponse = await fetch(`http://127.0.0.1:${port}/hh-callback/?code=oauth-code`);
+    const missingStateBody = await missingStateResponse.json();
+    assert.equal(missingStateResponse.status, 400);
+    assert.equal(missingStateBody.error, "missing_state");
+
+    const invalidStateResponse = await fetch(`http://127.0.0.1:${port}/hh-callback/?code=oauth-code&state=missing-state`);
+    const invalidStateBody = await invalidStateResponse.json();
+    assert.equal(invalidStateResponse.status, 400);
+    assert.equal(invalidStateBody.error, "invalid_oauth_state");
+
+    const expiredState = "expired-state";
+    await store.setHhOAuthTokens(`hh_state:hh:${expiredState}`, {
+      access_token: expiredState,
+      token_type: "oauth_state",
+      expires_at: "2000-01-01T00:00:00.000Z",
+      metadata: { redirect_uri: "https://example.test/hh-callback/" }
+    });
+    const expiredStateResponse = await fetch(`http://127.0.0.1:${port}/hh-callback/?code=oauth-code&state=expired-state`);
+    const expiredStateBody = await expiredStateResponse.json();
+    const expiredStateRow = await store.getHhOAuthTokens(`hh_state:hh:${expiredState}`);
+    assert.equal(expiredStateResponse.status, 400);
+    assert.equal(expiredStateBody.error, "oauth_state_expired");
+    assert.equal(expiredStateRow.token_type, "oauth_state_expired");
+  } finally {
+    server.close();
+  }
+});
+
+test("http server: /hh-callback/ handles oauth exchange failures", async () => {
+  const { app, store } = createRuntime();
+  const calls = [];
+  const hhOAuthClient = {
+    clientId: "hh-client-id",
+    redirectUri: "https://example.test/hh-callback/",
+    async exchangeCodeForTokens() {
+      calls.push({ type: "exchange" });
+      const error = new Error("token exchange failed");
+      error.status = 500;
+      throw error;
+    },
+    async getMe() {
+      calls.push({ type: "me" });
+      assert.fail("getMe should not be called");
+    }
+  };
+  const state = "state-failure-500";
+  await store.setHhOAuthTokens(`hh_state:hh:${state}`, {
+    access_token: state,
+    token_type: "oauth_state",
+    expires_at: "2026-12-31T23:59:59.000Z",
+    metadata: { redirect_uri: "https://example.test/hh-callback/" }
+  });
+
+  const server = createHttpServer(app, { store, hhOAuthClient });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const failedResponse = await fetch(`http://127.0.0.1:${port}/hh-callback/?code=oauth-code&state=${state}`);
+    const failedBody = await failedResponse.json();
+    const failedState = await store.getHhOAuthTokens(`hh_state:hh:${state}`);
+
+    assert.equal(failedResponse.status, 400);
+    assert.equal(failedBody.error, "hh_oauth_exchange_failed");
+    assert.equal(failedState.token_type, "oauth_state_error");
+    assert.equal(calls.length, 1);
   } finally {
     server.close();
   }
