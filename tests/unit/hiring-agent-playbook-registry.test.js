@@ -3,7 +3,7 @@ import test from "node:test";
 import { getPlaybookRegistry } from "../../services/hiring-agent/src/playbooks/registry.js";
 import { routePlaybook } from "../../services/hiring-agent/src/playbooks/router.js";
 
-test("registry: candidate_funnel remains enabled without DB steps", async () => {
+test("registry: only working zero-step management playbooks remain enabled", async () => {
   const managementSql = async (strings) => {
     const text = strings.join("");
 
@@ -66,13 +66,13 @@ test("registry: candidate_funnel remains enabled without DB steps", async () => 
   const playbooks = await getPlaybookRegistry(managementSql);
   assert.equal(playbooks.find((item) => item.playbook_key === "candidate_funnel")?.enabled, true);
   assert.equal(playbooks.find((item) => item.playbook_key === "setup_communication")?.enabled, true);
-  assert.equal(playbooks.find((item) => item.playbook_key === "create_vacancy")?.enabled, true);
-  assert.equal(playbooks.find((item) => item.playbook_key === "view_vacancy")?.enabled, true);
+  assert.equal(playbooks.find((item) => item.playbook_key === "create_vacancy")?.enabled, false);
+  assert.equal(playbooks.find((item) => item.playbook_key === "view_vacancy")?.enabled, false);
   assert.equal(playbooks.find((item) => item.playbook_key === "account_access")?.enabled, true);
   assert.equal(playbooks.find((item) => item.playbook_key === "data_retention")?.enabled, true);
 });
 
-test("router: candidate_funnel remains routable without DB steps", async () => {
+test("router: only working zero-step management playbooks remain routable", async () => {
   const managementSql = async () => ([
     {
       playbook_key: "candidate_funnel",
@@ -108,8 +108,8 @@ test("router: candidate_funnel remains routable without DB steps", async () => {
 
   assert.equal(await routePlaybook("покажи воронку по кандидатам", managementSql), "candidate_funnel");
   assert.equal(await routePlaybook("настроить общение с кандидатами", managementSql), "setup_communication");
-  assert.equal(await routePlaybook("создать вакансию", managementSql), "create_vacancy");
-  assert.equal(await routePlaybook("покажи текст вакансии", managementSql), "view_vacancy");
+  assert.equal(await routePlaybook("создать вакансию", managementSql), null);
+  assert.equal(await routePlaybook("покажи текст вакансии", managementSql), null);
   assert.equal(await routePlaybook("отключить hh", managementSql), "account_access");
   assert.equal(await routePlaybook("очистить данные", managementSql), "data_retention");
 });

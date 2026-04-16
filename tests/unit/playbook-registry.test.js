@@ -109,7 +109,7 @@ test("registry: disables tenant playbook when tenant override is false", async (
   assert.equal(playbook.enabled, false);
 });
 
-test("registry: canonicalizes vacancy-text and ignores stale tenant lock override", async () => {
+test("registry: canonicalizes vacancy-text but keeps unrunnable zero-step view_vacancy disabled", async () => {
   const managementSql = createFakeManagementSql({
     definitions: [
       {
@@ -127,5 +127,6 @@ test("registry: canonicalizes vacancy-text and ignores stale tenant lock overrid
   const playbook = await findPlaybook("view_vacancy", managementSql, "tenant-legacy-1");
   assert.ok(playbook);
   assert.equal(playbook.playbook_key, "view_vacancy");
-  assert.equal(playbook.enabled, true);
+  assert.equal(playbook.enabled, false);
+  assert.equal(playbook.runnable, false);
 });
