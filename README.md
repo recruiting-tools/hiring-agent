@@ -60,11 +60,11 @@ pnpm gate:sandbox
 ```bash
 PR_NUM=<номер_pr>
 RELAY_URL=<https://...>
-SESSION_ID=<session_id>
+SESSION_ID="$(curl -s http://localhost:3000/api/sessions/my-id)"
 
 BODY="$(gh pr view "$PR_NUM" --json body -q .body)"
-printf "%s\n\n<!-- ci-callback: %s/api/sessions/%s/reply -->\n" \
-  "$BODY" "$RELAY_URL" "$SESSION_ID" | gh pr edit "$PR_NUM" --body-file -
+printf "%s\n\nSession ID: %s\n<!-- ci-callback: %s/api/sessions/%s/reply -->\n" \
+  "$BODY" "$SESSION_ID" "$RELAY_URL" "$SESSION_ID" | gh pr edit "$PR_NUM" --body-file -
 ```
 3. Ждешь `sandbox-gate` и callback в сессию (`success|failure` + ссылка на run).
 4. Передаешь задачу deploy-сессии:
@@ -82,6 +82,8 @@ scripts/pr-worker.sh send-pr-ready \
 Ограничение callback:
 - Маркер `ci-callback` в текущем pipeline отправляет только CI-статус.
 - Review comments/threads из GitHub прилетают только если отдельно настроен webhook relay на review events.
+- Если `Session ID` не указан в PR body, потом легко потерять связь между PR/run и конкретной сессией.
+- В branch name можно добавлять короткий suffix вроде `--s-019d92d2`, но это только удобство для глаз, не source of truth.
 
 ### CI/CD Observability
 
