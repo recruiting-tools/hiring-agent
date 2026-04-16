@@ -1517,15 +1517,17 @@ test("hiring-agent: GET /chat/:artifactId returns 404 on this API surface", asyn
   }
 });
 
-test("hiring-agent: GET /chat/communication-examples returns HTML report for vacancy", async () => {
+test("hiring-agent: GET /chat/communication-examples returns HTML report for job_id-first contract", async () => {
   const tenantSql = async (strings, ...values) => {
     const text = strings.reduce((acc, chunk, index) => (
       acc + chunk + (index < values.length ? `$${index + 1}` : "")
     ), "");
 
-    if (text.includes("FROM chatbot.vacancies") && text.includes("WHERE vacancy_id = $1")) {
+    if (text.includes("FROM chatbot.vacancies") && text.includes("WHERE job_id = $1")) {
+      assert.deepEqual(values, ["job-test-1"]);
       return [{
         vacancy_id: "vac-test-1",
+        job_id: "job-test-1",
         title: "Менеджер по продажам",
         updated_at: "2026-04-15T08:00:00.000Z",
         communication_plan: {
@@ -1598,13 +1600,15 @@ test("hiring-agent: GET /chat/communication-examples returns HTML report for vac
     const { status, body, contentType } = await req(
       server,
       "GET",
-      "/chat/communication-examples?vacancy_id=vac-test-1",
+      "/chat/communication-examples?job_id=job-test-1",
       undefined,
       "session=sess-alpha"
     );
     assert.equal(status, 200);
     assert.match(contentType ?? "", /text\/html/);
     assert.match(body, /Примеры общения/);
+    assert.match(body, /job_id:/);
+    assert.match(body, /job-test-1/);
     assert.match(body, /Сильный кандидат/);
     assert.match(body, /Завтра после 14:00/);
   } finally {
@@ -1730,7 +1734,15 @@ test("hiring-agent: management-backed GET /api/vacancies resolves tenant sql via
   try {
     const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
     assert.equal(status, 200);
-    assert.deepEqual(body.vacancies, [{ vacancy_id: "vac-1", job_id: "job-1", title: "Alpha role", status: "active", extraction_status: "complete" }]);
+    assert.deepEqual(body.vacancies, [{
+      vacancy_id: "vac-1",
+      job_id: "job-1",
+      job_setup_id: "vac-1",
+      title: "Alpha role",
+      status: "active",
+      extraction_status: "complete"
+    }]);
+    assert.deepEqual(body.jobs, body.vacancies);
   } finally {
     server.close();
   }
@@ -1800,10 +1812,12 @@ test("hiring-agent: management-backed GET /api/vacancies falls back to chatbot.j
     assert.deepEqual(body.vacancies, [{
       vacancy_id: "job-1",
       job_id: "job-1",
+      job_setup_id: "job-1",
       title: "Alpha role",
       status: "active",
       extraction_status: "pending"
     }]);
+    assert.deepEqual(body.jobs, body.vacancies);
   } finally {
     server.close();
   }
@@ -1880,8 +1894,8 @@ test("hiring-agent: management-backed GET /api/vacancies merges jobs without vac
     const { status, body } = await req(server, "GET", "/api/vacancies", undefined, "session=sess-alpha");
     assert.equal(status, 200);
     assert.deepEqual(body.vacancies, [
-      { vacancy_id: "vac-1", job_id: "job-1", title: "Alpha role", status: "active", extraction_status: "complete" },
-      { vacancy_id: "job-2", job_id: "job-2", title: "Beta role", status: "active", extraction_status: "pending" }
+      { vacancy_id: "vac-1", job_id: "job-1", job_setup_id: "vac-1", title: "Alpha role", status: "active", extraction_status: "complete" },
+      { vacancy_id: "job-2", job_id: "job-2", job_setup_id: "job-2", title: "Beta role", status: "active", extraction_status: "pending" }
     ]);
     assert.deepEqual(body.jobs, body.vacancies);
   } finally {
@@ -1975,9 +1989,9 @@ test("hiring-agent: management-backed GET /api/vacancies keeps two recruiter ses
     const beta = await req(server, "GET", "/api/vacancies", undefined, "session=sess-beta");
 
     assert.equal(alpha.status, 200);
-    assert.deepEqual(alpha.body.vacancies, [{ vacancy_id: "vac-alpha-1", job_id: "job-alpha-1", title: "Alpha role", status: "active", extraction_status: "complete" }]);
+    assert.deepEqual(alpha.body.vacancies, [{ vacancy_id: "vac-alpha-1", job_id: "job-alpha-1", job_setup_id: "vac-alpha-1", title: "Alpha role", status: "active", extraction_status: "complete" }]);
     assert.equal(beta.status, 200);
-    assert.deepEqual(beta.body.vacancies, [{ vacancy_id: "vac-beta-1", job_id: "job-beta-1", title: "Beta role", status: "active", extraction_status: "complete" }]);
+    assert.deepEqual(beta.body.vacancies, [{ vacancy_id: "vac-beta-1", job_id: "job-beta-1", job_setup_id: "vac-beta-1", title: "Beta role", status: "active", extraction_status: "complete" }]);
   } finally {
     server.close();
   }
@@ -3780,7 +3794,7 @@ test("hiring-agent: management-backed WebSocket uses tenant sql resolved at conn
   }
 });
 
-test("hiring-agent: management-backed WebSocket forwards recruiterId to app", async () => {
+test("hiring-agent: management-backed WebSocket accepts job_id without vacancy_id", async () => {
   const app = {
     getHealth() {
       return { status: 200, body: { status: "ok" } };
@@ -3788,8 +3802,8 @@ test("hiring-agent: management-backed WebSocket forwards recruiterId to app", as
     async postChatMessage(input) {
       assert.equal(input.recruiterId, "rec-alpha-001");
       assert.equal(input.tenantId, "tenant-alpha-001");
-      assert.equal(input.vacancy_id, "job-ws-owned");
-      assert.equal(input.job_id, null);
+      assert.equal(input.vacancy_id, undefined);
+      assert.equal(input.job_id, "job-ws-owned");
       return {
         status: 200,
         body: {
@@ -3859,7 +3873,7 @@ test("hiring-agent: management-backed WebSocket forwards recruiterId to app", as
         ws.send(JSON.stringify({
           type: "message",
           text: "ping",
-          vacancyId: "job-ws-owned"
+          jobId: "job-ws-owned"
         }));
       });
       ws.on("message", (data) => {
@@ -3976,6 +3990,7 @@ test("hiring-agent: management-backed WebSocket forwards explicit playbookKey an
     assert.equal(done.sessionId, "sess-ws-create-1");
     assert.equal(done.vacancyId, "vac-ws-create-1");
     assert.equal(done.jobId, "job-ws-create-1");
+    assert.equal(done.jobSetupId, "vac-ws-create-1");
     assert.equal(done.vacancyTitle, "Новая вакансия");
   } finally {
     server.close();
