@@ -707,6 +707,8 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
       return {
         session_id: "sess-1",
         playbook_key: input.playbookKey,
+        job_id: input.jobId,
+        job_setup_id: input.jobSetupId ?? input.vacancyId,
         vacancy_id: input.vacancyId,
         current_step_order: input.currentStepOrder,
         context: input.context,
@@ -749,7 +751,8 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
   assert.deepEqual(calls[1][0], "create");
   assert.deepEqual(calls[1][1].context, {
     vacancy_id: "vac-7",
-    job_id: "job-7"
+    job_id: "job-7",
+    job_setup_id: "vac-7"
   });
   assert.deepEqual(calls.at(-1), [
     "update",
@@ -759,10 +762,13 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
       context: {
         vacancy_id: "vac-7",
         job_id: "job-7",
+        job_setup_id: "vac-7",
         vacancy: { vacancy_id: "vac-7", job_id: "job-7", raw_text: "raw text", title: "Ops manager" },
         raw_vacancy_text: "raw text"
       },
-      vacancyId: "vac-7"
+      vacancyId: "vac-7",
+      jobId: "job-7",
+      jobSetupId: "vac-7"
     }
   ]);
 });
@@ -786,9 +792,11 @@ test("playbook runtime: parses stringified session context before injecting vaca
       return {
         sessionId: "sess-existing",
         playbookKey: "setup_communication",
+        jobId: "job-prod-004",
+        jobSetupId: "job-prod-004",
         vacancyId: "job-prod-004",
         currentStepOrder: 0,
-        context: "{\"vacancy_id\":\"job-prod-004\"}",
+        context: "{\"vacancy_id\":\"job-prod-004\",\"job_id\":\"job-prod-004\",\"job_setup_id\":\"job-prod-004\"}",
         callStack: [],
         status: "active"
       };
@@ -829,9 +837,13 @@ test("playbook runtime: parses stringified session context before injecting vaca
     {
       currentStepOrder: 0,
       context: {
-        vacancy_id: "job-prod-004"
+        vacancy_id: "job-prod-004",
+        job_id: "job-prod-004",
+        job_setup_id: "job-prod-004"
       },
-      vacancyId: "job-prod-004"
+      vacancyId: "job-prod-004",
+      jobId: "job-prod-004",
+      jobSetupId: "job-prod-004"
     }
   ]);
 });
