@@ -3,6 +3,7 @@ import { HhImporter } from "./hh-importer.js";
 
 const DEFAULT_HH_COLLECTIONS = ["response", "phone_interview"];
 const VALID_COLLECTIONS = new Set(DEFAULT_HH_COLLECTIONS);
+const HH_NEGOTIATION_NOT_FOUND_BACKOFF_MS = 30 * 24 * 60 * 60 * 1000;
 
 export class HhConnector {
   constructor({ store, hhClient, chatbot, vacancyMappings = [] }) {
@@ -168,6 +169,17 @@ export class HhConnector {
         processed += 1;
         results.push({ hh_negotiation_id: neg.hh_negotiation_id, ...result });
       } catch (err) {
+        if (err?.status === 404) {
+          await this.deferMissingNegotiation(neg.hh_negotiation_id);
+          results.push({
+            hh_negotiation_id: neg.hh_negotiation_id,
+            processed: false,
+            skipped: true,
+            reason: "hh_negotiation_not_found",
+            error: err instanceof Error ? err.message : String(err)
+          });
+          continue;
+        }
         failed += 1;
         results.push({
           hh_negotiation_id: neg.hh_negotiation_id,
@@ -183,6 +195,22 @@ export class HhConnector {
       failed
     });
     return { due_count: due.length, processed, failed, results };
+  }
+
+  async deferMissingNegotiation(hhNegotiationId) {
+    const pollState = await getMaybeAsync(() => this.store.getHhPollState(hhNegotiationId));
+    const nowIso = new Date().toISOString();
+    await this.store.upsertHhPollState(hhNegotiationId, {
+      last_polled_at: nowIso,
+      hh_updated_at: pollState?.hh_updated_at ?? null,
+      last_sender: pollState?.last_sender ?? null,
+      awaiting_reply: false,
+      next_poll_at: new Date(Date.now() + HH_NEGOTIATION_NOT_FOUND_BACKOFF_MS).toISOString()
+    });
+    console.warn("[hh-connector] pollNegotiation_missing", {
+      hh_negotiation_id: hhNegotiationId,
+      next_poll_in_ms: HH_NEGOTIATION_NOT_FOUND_BACKOFF_MS
+    });
   }
 
   // Poll a single negotiation
