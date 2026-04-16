@@ -12,8 +12,8 @@
 | `Single PR Owner` | `.github/workflows/pr-single-owner.yml` | PR в `main` | блокирует merge если в PR >1 commit author |
 | `PR Merge Bot` | `.github/workflows/pr-merge-bot.yml` | label/sync/schedule | auto-merge PR с label `automerge`, когда все required checks зелёные |
 | `Deploy to Production` | `.github/workflows/deploy-prod.yml` | push в `main` | deploy `candidate-chatbot` в Cloud Run + smoke |
-| `Deploy hiring-agent to VM` | `.github/workflows/deploy-hiring-agent.yml` | push в `main` (path-filter), manual dispatch | mandatory `sandbox-3` pre-prod deploy of same SHA + auth websocket/UI smoke + only then prod deploy |
-| `Deploy hiring-agent to sandbox slot` | `.github/workflows/deploy-hiring-agent-sandbox-slot.yml` | manual dispatch | deploy выбранного ref в `sandbox-1/2/3` |
+| `Deploy hiring-agent to VM` | `.github/workflows/deploy-hiring-agent.yml` | push в `main` (path-filter), manual dispatch | mandatory `preprod` deploy of same SHA + auth websocket/jobs smoke + only then prod deploy |
+| `Deploy hiring-agent to sandbox slot` | `.github/workflows/deploy-hiring-agent-sandbox-slot.yml` | manual dispatch | deploy выбранного ref в `dev-slot-1`, `dev-slot-2` или `preprod` |
 
 ## Flow
 
@@ -23,8 +23,8 @@ feature branch
   -> PR в main (+ ci-callback при необходимости)
   -> CI checks: gate + hygiene + single-owner
   -> merge
-  -> hiring-agent: same SHA to sandbox-3
-  -> auth websocket probe + Playwright UI smoke on sandbox-3
+  -> hiring-agent: same SHA to preprod
+  -> auth websocket probe + jobs smoke on preprod
   -> only then main prod deploy workflow continues
   -> main deploy workflows (Cloud Run / VM)
 ```
@@ -52,6 +52,16 @@ Advisory checks:
 
 - `impact-check` (риск-анализ по изменённым зонам)
 - `migration-check` (ephemeral Neon branch при schema-change в `services/candidate-chatbot/migrations/`)
+
+## Slot Names
+
+Logical names:
+
+- `dev-slot-1` -> physical `sandbox-1`
+- `dev-slot-2` -> physical `sandbox-2`
+- `preprod` -> physical `sandbox-3`
+
+В workflow logs, run names и документации используем logical names. GitHub Environment secrets пока физически остаются на `sandbox-1/2/3`.
 
 ## Sandbox Slots (`sandbox-1/2/3`)
 
@@ -85,17 +95,17 @@ Advisory checks:
 
 ### Canonical Pre-Prod Path For `hiring-agent`
 
-`sandbox-3` теперь считается canonical pre-prod slot для `hiring-agent`.
-`sandbox-1` и `sandbox-2` остаются для ручной разработки и ad-hoc smoke.
+`preprod` (physical `sandbox-3`) теперь считается canonical pre-prod slot для `hiring-agent`.
+`dev-slot-1` и `dev-slot-2` (physical `sandbox-1/2`) остаются для ручной разработки и ad-hoc smoke.
 
 Перед prod deploy workflow обязан:
 
-1. выкатить **тот же SHA** в `sandbox-3`;
+1. выкатить **тот же SHA** в `preprod`;
 2. проверить локальный runtime (`/health` на slot port);
 3. прогнать public auth websocket probe:
    `pnpm monitor:hiring-agent -- --base-url <sandbox-url> --require-auth-ws`
-4. прогнать browser UI smoke:
-   login -> дождаться статуса `Агент на связи` -> выбрать вакансию -> получить ответ.
+4. прогнать authenticated jobs smoke:
+   login -> получить session cookie -> вызвать `/api/jobs` -> убедиться, что ответ содержит массив вакансий/jobs.
 
 Если любой из этих шагов падает, prod deploy не начинается.
 

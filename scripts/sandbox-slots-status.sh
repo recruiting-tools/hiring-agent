@@ -5,6 +5,15 @@ WORKFLOW_NAME="${WORKFLOW_NAME:-Deploy hiring-agent to sandbox slot}"
 LIMIT="${LIMIT:-200}"
 SLOTS=("sandbox-1" "sandbox-2" "sandbox-3")
 
+display_slot() {
+  case "$1" in
+    sandbox-1) echo "dev-slot-1" ;;
+    sandbox-2) echo "dev-slot-2" ;;
+    sandbox-3) echo "preprod" ;;
+    *) echo "$1" ;;
+  esac
+}
+
 if ! command -v gh >/dev/null 2>&1; then
   echo "gh is required"
   exit 1
@@ -31,8 +40,10 @@ for slot in "${SLOTS[@]}"; do
     | .[0]
   ' <<<"$runs_json")"
 
+  label="$(display_slot "$slot")"
+
   if [[ "$run" == "null" ]]; then
-    printf "%-10s %-8s %-28s %-26s %s\n" "$slot" "free" "-" "-" "-"
+    printf "%-10s %-8s %-28s %-26s %s\n" "$label" "free" "-" "-" "-"
     continue
   fi
 
@@ -40,5 +51,5 @@ for slot in "${SLOTS[@]}"; do
   ref="$(jq -r '.headBranch // "-"' <<<"$run")"
   started="$(jq -r '.startedAt // .createdAt // "-"' <<<"$run")"
   url="$(jq -r '.url // "-"' <<<"$run")"
-  printf "%-10s %-8s %-28s %-26s %s\n" "$slot" "$state" "$ref" "$started" "$url"
+  printf "%-10s %-8s %-28s %-26s %s\n" "$label" "$state" "$ref" "$started" "$url"
 done

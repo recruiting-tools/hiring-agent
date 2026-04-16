@@ -7,6 +7,8 @@ on:
       - 'services/hiring-agent/**'
       - 'infra/hiring-agent/**'
       - 'scripts/deploy-hiring-agent.sh'
+      - 'scripts/monitor-hiring-agent.js'
+      - '.github/workflows/deploy-hiring-agent.yml'
   workflow_dispatch:
     inputs:
       target_port:
@@ -23,9 +25,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  preprod-sandbox:
+  preprod:
     runs-on: ubuntu-latest
     environment: sandbox-3
+    name: Preprod Gate (sandbox-3)
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
@@ -47,16 +50,13 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - uses: actions/setup-node@v5
         with:
           node-version: 20
+          package-manager-cache: false
 
-      - run: corepack enable pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: corepack enable
+      - run: corepack pnpm install --frozen-lockfile
 
       - name: Validate required secrets
         run: |
@@ -172,7 +172,7 @@ jobs:
       - name: Deploy sandbox build
         env:
           REPO_URL: git@github.com:recruiting-tools/hiring-agent.git
-          DEPLOY_TARGET: sandbox-1
+          DEPLOY_TARGET: preprod
           DEPLOY_AVG_DURATION_SEC: '180'
           DEPLOY_WORKFLOW_NAME: Deploy hiring-agent to VM
           DEPLOY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -220,25 +220,30 @@ jobs:
           MONITOR_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
         run: |
           set -euo pipefail
-          pnpm monitor:hiring-agent -- --base-url "${HIRING_AGENT_BASE_URL%/}" --expected-env sandbox --expected-port "${TARGET_PORT}" --require-auth-ws
+          echo "::group::Sandbox websocket monitor"
+          corepack pnpm monitor:hiring-agent -- --base-url "${HIRING_AGENT_BASE_URL%/}" --expected-env sandbox --expected-port "${TARGET_PORT}" --require-auth-ws
+          echo "::endgroup::"
 
           COOKIE_JAR="$(mktemp)"
           trap 'rm -f "$COOKIE_JAR"' EXIT
 
+          echo "::group::Sandbox authenticated jobs smoke"
           curl -sf -c "$COOKIE_JAR" \
             -H 'content-type: application/json' \
             -d "{\"email\":\"${HIRING_AGENT_SMOKE_EMAIL}\",\"password\":\"${HIRING_AGENT_SMOKE_PASSWORD}\"}" \
             "${HIRING_AGENT_BASE_URL%/}/auth/login" >/tmp/hiring-agent-login.json
 
-          grep -q 'session_sandbox_003' "$COOKIE_JAR" || { echo "Expected sandbox session cookie"; cat "$COOKIE_JAR"; exit 1; }
+          grep -q "${SESSION_COOKIE_NAME}" "$COOKIE_JAR" || { echo "Expected sandbox session cookie ${SESSION_COOKIE_NAME}"; cat "$COOKIE_JAR"; exit 1; }
+          echo "Session cookie present: ${SESSION_COOKIE_NAME}"
 
           JOBS_JSON="$(curl -sf -b "$COOKIE_JAR" "${HIRING_AGENT_BASE_URL%/}/api/jobs")"
           echo "$JOBS_JSON" | jq .
           echo "$JOBS_JSON" | jq -e '(.jobs // .vacancies // []) | type == "array"' >/dev/null
+          echo "::endgroup::"
 
   deploy:
     runs-on: ubuntu-latest
-    needs: preprod-sandbox
+    needs: preprod
     env:
       VM_HOST: ${{ vars.VM_HOST || secrets.VM_HOST }}
       VM_USER: ${{ vars.VM_USER || secrets.VM_USER }}
@@ -249,16 +254,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - uses: actions/setup-node@v5
         with:
           node-version: 20
+          package-manager-cache: false
 
-      - run: corepack enable pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: corepack enable
+      - run: corepack pnpm install --frozen-lockfile
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v3
@@ -333,12 +335,15 @@ jobs:
       - name: Post-deploy smoke
         run: |
           [ -n "${HIRING_AGENT_PUBLIC_URL:-}" ] || { echo "Missing HIRING_AGENT_PUBLIC_URL"; exit 1; }
+          echo "::group::Public health"
           HEALTH=$(curl -sf "${HIRING_AGENT_PUBLIC_URL%/}/health" 2>/dev/null || echo '{}')
           STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
           MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
           DEPLOY_SHA=$(echo "$HEALTH" | jq -r '.deploy_sha // "unknown"')
           APP_ENV=$(echo "$HEALTH" | jq -r '.app_env // "unknown"')
           echo "Health: $STATUS / $MODE / sha=$DEPLOY_SHA / env=$APP_ENV"
+          echo "$HEALTH" | jq .
+          echo "::endgroup::"
           [ "$STATUS" = "ok" ] || { echo "SMOKE FAILED: status=$STATUS"; exit 1; }
           [ "$MODE" = "management-auth" ] || { echo "SMOKE FAILED: mode=$MODE (expected management-auth)"; exit 1; }
           [ "$DEPLOY_SHA" = "${{ github.sha }}" ] || { echo "SMOKE FAILED: deploy_sha=$DEPLOY_SHA expected=${{ github.sha }}"; exit 1; }
@@ -346,7 +351,9 @@ jobs:
       - name: Post-deploy websocket probe
         run: |
           [ -n "${HIRING_AGENT_PUBLIC_URL:-}" ] || { echo "Missing HIRING_AGENT_PUBLIC_URL"; exit 1; }
-          pnpm monitor:hiring-agent -- --base-url "${HIRING_AGENT_PUBLIC_URL%/}"
+          echo "::group::Websocket monitor"
+          corepack pnpm monitor:hiring-agent -- --base-url "${HIRING_AGENT_PUBLIC_URL%/}"
+          echo "::endgroup::"
 
       - name: Mark deploy status failed on VM
         if: failure()

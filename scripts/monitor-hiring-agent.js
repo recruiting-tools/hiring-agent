@@ -55,7 +55,7 @@ try {
 }
 
 try {
-  const login = await fetchText(`${baseUrl}/login`, timeoutMs);
+  const login = await withSingleRetry(() => fetchText(`${baseUrl}/login`, timeoutMs));
   const ok = login.statusCode === 200 && /<html/i.test(login.text);
   checks.push({
     name: "public_login",
@@ -80,7 +80,12 @@ const monitorPassword = process.env.MONITOR_PASSWORD;
 
 if (monitorEmail && monitorPassword) {
   try {
-    sessionCookie = await loginAndGetSessionCookie({ baseUrl, email: monitorEmail, password: monitorPassword, timeoutMs });
+    sessionCookie = await withSingleRetry(() => loginAndGetSessionCookie({
+      baseUrl,
+      email: monitorEmail,
+      password: monitorPassword,
+      timeoutMs
+    }));
     checks.push({
       name: "auth_login",
       ok: true,

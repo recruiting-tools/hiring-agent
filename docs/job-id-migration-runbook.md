@@ -73,7 +73,7 @@
 3. Прогнать migrations.
 4. Прогнать validation queries.
 5. Прогнать app smoke на том же SHA.
-6. Только после этого выкатывать тот же SHA в `sandbox-3`, затем в prod.
+6. Только после этого выкатывать тот же SHA в `preprod` (physical `sandbox-3`), затем в prod.
 
 ## Validation Queries
 
@@ -119,6 +119,6 @@ Cleanup migration can ship only when:
 
 - CI passed on PR SHA
 - ephemeral Neon validation passed
-- `sandbox-3` deploy of the same SHA passed
-- auth/websocket/UI smoke passed on `sandbox-3`
+- `preprod` deploy of the same SHA passed
+- auth/websocket/jobs smoke passed on `preprod`
 - no canonical client path still requires `vacancy_id`
