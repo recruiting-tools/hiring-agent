@@ -56,6 +56,22 @@ export const FALLBACK_ROUTES = Object.freeze([
     keywords: ["рассылк", "всем кандидатам", "бродкаст", "массовое сообщение", "broadcast", "календарь"]
   },
   {
+    playbook_key: "reject_candidate",
+    keywords: ["отклони кандидата", "откажи кандидату", "reject candidate", "отказать кандидату", "снять кандидата"]
+  },
+  {
+    playbook_key: "remind_me",
+    keywords: ["напомни кандидату", "follow up кандидату", "пингани кандидата", "напомнить позже", "remind me"]
+  },
+  {
+    playbook_key: "edit_vacancy_field",
+    keywords: ["измени вакансию", "обнови поле вакансии", "исправь вакансию", "редактировать вакансию", "edit vacancy"]
+  },
+  {
+    playbook_key: "pause_vacancy",
+    keywords: ["поставь вакансию на паузу", "pause vacancy", "приостанови вакансию", "останови вакансию"]
+  },
+  {
     playbook_key: "account_access",
     keywords: [
       "отозвать доступ",
@@ -119,6 +135,34 @@ export const FALLBACK_PLAYBOOKS = Object.freeze([
     playbook_key: "mass_broadcast",
     title: "Выборочная рассылка кандидатам",
     name: "Выборочная рассылка кандидатам",
+    enabled: true,
+    status: "available"
+  },
+  {
+    playbook_key: "reject_candidate",
+    title: "Отклонить кандидата",
+    name: "Отклонить кандидата",
+    enabled: true,
+    status: "available"
+  },
+  {
+    playbook_key: "remind_me",
+    title: "Напомнить кандидату позже",
+    name: "Напомнить кандидату позже",
+    enabled: true,
+    status: "available"
+  },
+  {
+    playbook_key: "edit_vacancy_field",
+    title: "Изменить поле вакансии",
+    name: "Изменить поле вакансии",
+    enabled: true,
+    status: "available"
+  },
+  {
+    playbook_key: "pause_vacancy",
+    title: "Поставить вакансию на паузу",
+    name: "Поставить вакансию на паузу",
     enabled: true,
     status: "available"
   },

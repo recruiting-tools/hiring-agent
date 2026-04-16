@@ -71,6 +71,22 @@ test("router: maps access revocation request to account_access", async () => {
   assert.equal(await routePlaybook("хочу отключить hh"), "account_access");
 });
 
+test("router: maps reject request to reject_candidate", async () => {
+  assert.equal(await routePlaybook("откажи кандидату"), "reject_candidate");
+});
+
+test("router: maps follow-up request to remind_me", async () => {
+  assert.equal(await routePlaybook("напомни кандидату позже"), "remind_me");
+});
+
+test("router: maps vacancy edit request to edit_vacancy_field", async () => {
+  assert.equal(await routePlaybook("исправь вакансию"), "edit_vacancy_field");
+});
+
+test("router: maps pause request to pause_vacancy", async () => {
+  assert.equal(await routePlaybook("поставь вакансию на паузу"), "pause_vacancy");
+});
+
 test("router: maps data wipe request to data_retention", async () => {
   assert.equal(await routePlaybook("очистить данные аккаунта"), "data_retention");
 });
