@@ -36,8 +36,14 @@ extract_from_body() {
   explicit_session=$(
     BODY="$body" node <<'EOF'
 const body = process.env.BODY ?? "";
-const match = body.match(/Session ID:\s*`?([A-Za-z0-9-]+)`?/i);
-process.stdout.write(match?.[1] ?? "");
+const match = body.match(/^Session ID:\s*(.+)$/im);
+const rawValue = match?.[1] ?? "";
+const normalized = rawValue
+  .trim()
+  .replace(/^`+/, "")
+  .replace(/`+$/, "")
+  .trim();
+process.stdout.write(normalized);
 EOF
   )
 
