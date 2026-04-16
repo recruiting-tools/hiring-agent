@@ -8,7 +8,7 @@ import { handleDisplayStep } from "./step-handlers/display.js";
 import { handleLlmExtractStep, PlaybookLlmError } from "./step-handlers/llm-extract.js";
 import { handleLlmGenerateStep } from "./step-handlers/llm-generate.js";
 import { getFallbackPlaybookSteps } from "./local-seed-fallback.js";
-import { syncJobSetupContext } from "./job-setup-context.js";
+import { getJobSetup, syncJobSetupContext } from "./job-setup-context.js";
 import { handleSubroutineStep } from "./step-handlers/subroutine.js";
 import { handleUserInputStep } from "./step-handlers/user-input.js";
 
@@ -317,7 +317,7 @@ function mergeIdentityIntoContext(context, { vacancyId = null, jobId = null, job
 }
 
 function deriveIdentity(context, { vacancyId = null, jobId = null, session = null } = {}) {
-  const canonicalJobSetup = context?.job_setup ?? context?.vacancy ?? null;
+  const canonicalJobSetup = getJobSetup(context);
   const contextVacancyId = canonicalJobSetup?.vacancy_id ?? context?.vacancy_id ?? null;
   const contextJobId = canonicalJobSetup?.job_id ?? context?.job_id ?? null;
   const contextJobSetupId = context?.job_setup_id ?? contextVacancyId ?? null;

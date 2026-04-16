@@ -36,34 +36,28 @@ export function syncJobSetupContext(context, { vacancyId = null, jobId = null, j
     nextContext.job_setup_id = jobSetupId ?? vacancyId;
   }
 
-  const jobSetup = isPlainObject(nextContext.job_setup) ? nextContext.job_setup : null;
-  const vacancy = isPlainObject(nextContext.vacancy) ? nextContext.vacancy : null;
-  const canonicalJobSetup = jobSetup ?? vacancy;
+  const jobSetup = isPlainObject(nextContext.job_setup)
+    ? nextContext.job_setup
+    : (isPlainObject(nextContext.vacancy) ? nextContext.vacancy : null);
 
-  if (canonicalJobSetup) {
-    if (!jobSetup) {
-      nextContext.job_setup = canonicalJobSetup;
+  if (jobSetup) {
+    if (!isPlainObject(nextContext.job_setup)) {
+      nextContext.job_setup = jobSetup;
     }
-    if (!vacancy) {
-      nextContext.vacancy = canonicalJobSetup;
+    if (jobSetup.vacancy_id && !nextContext.vacancy_id) {
+      nextContext.vacancy_id = jobSetup.vacancy_id;
     }
-    if (canonicalJobSetup.vacancy_id && !nextContext.vacancy_id) {
-      nextContext.vacancy_id = canonicalJobSetup.vacancy_id;
+    if (jobSetup.job_id && !nextContext.job_id) {
+      nextContext.job_id = jobSetup.job_id;
     }
-    if (canonicalJobSetup.job_id && !nextContext.job_id) {
-      nextContext.job_id = canonicalJobSetup.job_id;
-    }
-    if (canonicalJobSetup.vacancy_id && !nextContext.job_setup_id) {
-      nextContext.job_setup_id = canonicalJobSetup.vacancy_id;
+    if (jobSetup.vacancy_id && !nextContext.job_setup_id) {
+      nextContext.job_setup_id = jobSetup.vacancy_id;
     }
   }
 
   const rawJobSetupText = getRawJobSetupText(nextContext);
   if (rawJobSetupText != null && nextContext.raw_job_setup_text == null) {
     nextContext.raw_job_setup_text = rawJobSetupText;
-  }
-  if (rawJobSetupText != null && nextContext.raw_vacancy_text == null) {
-    nextContext.raw_vacancy_text = rawJobSetupText;
   }
 
   return nextContext;
