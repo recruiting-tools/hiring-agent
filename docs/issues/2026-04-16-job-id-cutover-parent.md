@@ -17,9 +17,9 @@ The work is split into three child issues so each phase has a clean Definition o
 
 ## Child Issues
 
-- [ ] #142 Phase 1A: DB groundwork for `job_id` / `job_setup_id`
-- [ ] #144 Phase 1B: API and UI contract cutover to `job_id`
-- [ ] #145 Phase 1C: cleanup, rollout hardening, and legacy removal plan
+- [x] #142 Phase 1A: DB groundwork for `job_id` / `job_setup_id`
+- [x] #144 Phase 1B: API and UI contract cutover to `job_id`
+- [x] #145 Phase 1C: cleanup, rollout hardening, and legacy removal plan
 
 ## Delivery Rules
 
@@ -37,6 +37,7 @@ The work is split into three child issues so each phase has a clean Definition o
 - `job_setup_id` is preserved as internal runtime key
 - CI blocks merge when migration validation fails
 - production rollout is documented and executable through existing sandbox/Neon flow
+- remaining `vacancy_id` usage is explicitly limited to compatibility and provider-specific adapters
 
 ## References
 

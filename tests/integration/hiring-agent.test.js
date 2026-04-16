@@ -3319,6 +3319,18 @@ test("hiring-agent: WebSocket renders communication_plan as markdown table and r
               }
             ],
             examples: [],
+            conversation_examples: [
+              {
+                title: "Тёплый старт",
+                summary: "Кандидат заинтересован и готов продолжить диалог",
+                turns: [
+                  { speaker: "recruiter", message: "Здравствуйте! Удобно коротко обсудить роль?" },
+                  { speaker: "candidate", message: "Да, конечно." }
+                ]
+              }
+            ],
+            job_id: "job-comm-1",
+            vacancy_id: "vac-comm-1",
             note: "Сценарий сформирован.",
             actions: [
               { label: "Сохранить", message: "настроить общение: сохранить настройку коммуникаций" },
@@ -3410,6 +3422,8 @@ test("hiring-agent: WebSocket renders communication_plan as markdown table and r
     assert.ok(done, "should receive done message");
     assert.match(chunk.text, /## План коммуникации/);
     assert.match(chunk.text, /\| Шаг \| Кол-во напоминалок \| Комментарий \|/);
+    assert.match(chunk.text, /chat\/communication-examples\?job_id=job-comm-1/);
+    assert.doesNotMatch(chunk.text, /chat\/communication-examples\?vacancy_id=/);
     assert.ok(!chunk.text.includes("```json"), "should not dump raw JSON");
     assert.deepEqual(
       done.actions.map((item) => item.label),
