@@ -41,6 +41,38 @@
       "sort_order": 5
     },
     {
+      "playbook_key": "reject_candidate",
+      "name": "Отклонить кандидата",
+      "trigger_description": "Рекрутер хочет вручную остановить кандидата и закрыть дальнейшие касания",
+      "keywords": ["отклони кандидата", "откажи кандидату", "отказать кандидату", "reject candidate"],
+      "status": "available",
+      "sort_order": 6
+    },
+    {
+      "playbook_key": "remind_me",
+      "name": "Напомнить кандидату позже",
+      "trigger_description": "Рекрутер хочет поставить follow-up сообщением в очередь без открытия большого сценария",
+      "keywords": ["напомни кандидату", "follow up кандидату", "пингани кандидата", "remind me"],
+      "status": "available",
+      "sort_order": 7
+    },
+    {
+      "playbook_key": "edit_vacancy_field",
+      "name": "Изменить поле вакансии",
+      "trigger_description": "Рекрутер хочет быстро исправить одно поле текущей вакансии",
+      "keywords": ["измени вакансию", "исправь вакансию", "обнови поле вакансии", "edit vacancy"],
+      "status": "available",
+      "sort_order": 8
+    },
+    {
+      "playbook_key": "pause_vacancy",
+      "name": "Поставить вакансию на паузу",
+      "trigger_description": "Рекрутер хочет временно остановить вакансию и погасить очередь сообщений",
+      "keywords": ["поставь вакансию на паузу", "приостанови вакансию", "pause vacancy"],
+      "status": "available",
+      "sort_order": 9
+    },
+    {
       "playbook_key": "account_access",
       "name": "Управление доступом к hh.ru",
       "trigger_description": "Рекрутер хочет отозвать или изменить доступ к hh.ru",
@@ -53,7 +85,7 @@
         "хочу отключить hh"
       ],
       "status": "available",
-      "sort_order": 6
+      "sort_order": 10
     },
     {
       "playbook_key": "data_retention",
@@ -67,7 +99,7 @@
         "удаление данных"
       ],
       "status": "available",
-      "sort_order": 7
+      "sort_order": 11
     }
   ],
 
@@ -537,6 +569,272 @@
       "next_step_order": null,
       "options": null,
       "notes": "Table columns: step name | arrived | stuck >1h | stuck >24h | stuck >48h."
+    },
+
+    // ── reject_candidate ────────────────────────────────────────────────────
+
+    {
+      "step_key": "reject_candidate.1",
+      "playbook_key": "reject_candidate",
+      "step_order": 1,
+      "name": "Проверить notebook context кандидата",
+      "step_type": "decision",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": null,
+      "db_save_column": null,
+      "next_step_order": 2,
+      "options": null,
+      "notes": "{\"rules\":[{\"condition\":\"Boolean(context.pipeline_run_id || context.conversation_id || context.candidate_id || context.client_context?.pipeline_run_id || context.client_context?.conversation_id || context.client_context?.candidate_id)\",\"next\":3},{\"default\":true,\"next\":2}]}"
+    },
+    {
+      "step_key": "reject_candidate.2",
+      "playbook_key": "reject_candidate",
+      "step_order": 2,
+      "name": "Запросить candidate_id",
+      "step_type": "user_input",
+      "user_message": "Укажите candidate_id кандидата, которого нужно отклонить.",
+      "prompt_template": null,
+      "context_key": "candidate_id",
+      "db_save_column": null,
+      "next_step_order": 3,
+      "options": null,
+      "notes": null
+    },
+    {
+      "step_key": "reject_candidate.3",
+      "playbook_key": "reject_candidate",
+      "step_order": 3,
+      "name": "Запросить причину отказа",
+      "step_type": "user_input",
+      "user_message": "Коротко напишите причину отказа. Она попадёт в системную историю и заблокирует дальнейшие pending касания.",
+      "prompt_template": null,
+      "context_key": "rejection_reason",
+      "db_save_column": null,
+      "next_step_order": 4,
+      "options": null,
+      "notes": null
+    },
+    {
+      "step_key": "reject_candidate.4",
+      "playbook_key": "reject_candidate",
+      "step_order": 4,
+      "name": "Подтвердить отказ",
+      "step_type": "display",
+      "user_message": "Подтвердите отказ кандидата.\n\ncandidate_id: {{context.candidate_id}}\npipeline_run_id: {{context.pipeline_run_id}}\nПричина: {{context.rejection_reason}}",
+      "prompt_template": null,
+      "context_key": "confirmation_choice",
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": "Подтвердить отказ;Отмена",
+      "routing": {
+        "Подтвердить отказ": 5,
+        "Отмена": null
+      },
+      "notes": null
+    },
+    {
+      "step_key": "reject_candidate.5",
+      "playbook_key": "reject_candidate",
+      "step_order": 5,
+      "name": "Отклонить кандидата и погасить очередь",
+      "step_type": "action",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": null,
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": null,
+      "notes": "{\"action\":\"reject_candidate\"}"
+    },
+
+    // ── remind_me ───────────────────────────────────────────────────────────
+
+    {
+      "step_key": "remind_me.1",
+      "playbook_key": "remind_me",
+      "step_order": 1,
+      "name": "Проверить notebook context кандидата",
+      "step_type": "decision",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": null,
+      "db_save_column": null,
+      "next_step_order": 2,
+      "options": null,
+      "notes": "{\"rules\":[{\"condition\":\"Boolean(context.pipeline_run_id || context.conversation_id || context.candidate_id || context.client_context?.pipeline_run_id || context.client_context?.conversation_id || context.client_context?.candidate_id)\",\"next\":3},{\"default\":true,\"next\":2}]}"
+    },
+    {
+      "step_key": "remind_me.2",
+      "playbook_key": "remind_me",
+      "step_order": 2,
+      "name": "Запросить candidate_id",
+      "step_type": "user_input",
+      "user_message": "Укажите candidate_id кандидата, которому нужно поставить follow-up.",
+      "prompt_template": null,
+      "context_key": "candidate_id",
+      "db_save_column": null,
+      "next_step_order": 3,
+      "options": null,
+      "notes": null
+    },
+    {
+      "step_key": "remind_me.3",
+      "playbook_key": "remind_me",
+      "step_order": 3,
+      "name": "Запросить текст follow-up",
+      "step_type": "user_input",
+      "user_message": "Напишите текст follow-up, который нужно поставить в очередь кандидату.",
+      "prompt_template": null,
+      "context_key": "reminder_text",
+      "db_save_column": null,
+      "next_step_order": 4,
+      "options": null,
+      "notes": null
+    },
+    {
+      "step_key": "remind_me.4",
+      "playbook_key": "remind_me",
+      "step_order": 4,
+      "name": "Выбрать задержку",
+      "step_type": "buttons",
+      "user_message": "Когда поставить follow-up в очередь?",
+      "prompt_template": null,
+      "context_key": "reminder_delay",
+      "db_save_column": null,
+      "next_step_order": 5,
+      "options": "Через 1 час;Через 3 часа;Завтра утром",
+      "notes": null
+    },
+    {
+      "step_key": "remind_me.5",
+      "playbook_key": "remind_me",
+      "step_order": 5,
+      "name": "Подтвердить follow-up",
+      "step_type": "display",
+      "user_message": "Подтвердите follow-up.\n\ncandidate_id: {{context.candidate_id}}\nКогда: {{context.reminder_delay}}\nТекст: {{context.reminder_text}}",
+      "prompt_template": null,
+      "context_key": "confirmation_choice",
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": "Поставить в очередь;Отмена",
+      "routing": {
+        "Поставить в очередь": 6,
+        "Отмена": null
+      },
+      "notes": null
+    },
+    {
+      "step_key": "remind_me.6",
+      "playbook_key": "remind_me",
+      "step_order": 6,
+      "name": "Создать planned_message follow-up",
+      "step_type": "action",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": null,
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": null,
+      "notes": "{\"action\":\"schedule_reminder\"}"
+    },
+
+    // ── edit_vacancy_field ──────────────────────────────────────────────────
+
+    {
+      "step_key": "edit_vacancy_field.1",
+      "playbook_key": "edit_vacancy_field",
+      "step_order": 1,
+      "name": "Выбрать поле вакансии",
+      "step_type": "buttons",
+      "user_message": "Что именно нужно быстро исправить в текущей вакансии?",
+      "prompt_template": null,
+      "context_key": "edit_field",
+      "db_save_column": null,
+      "next_step_order": 2,
+      "options": "Название вакансии;Описание вакансии;Обязательные требования;Желательные требования",
+      "notes": null
+    },
+    {
+      "step_key": "edit_vacancy_field.2",
+      "playbook_key": "edit_vacancy_field",
+      "step_order": 2,
+      "name": "Запросить новое значение",
+      "step_type": "user_input",
+      "user_message": "Введите новое значение для поля «{{context.edit_field}}». Для списков можно отправить несколько строк или значения через `;`.",
+      "prompt_template": null,
+      "context_key": "edit_value",
+      "db_save_column": null,
+      "next_step_order": 3,
+      "options": null,
+      "notes": null
+    },
+    {
+      "step_key": "edit_vacancy_field.3",
+      "playbook_key": "edit_vacancy_field",
+      "step_order": 3,
+      "name": "Подтвердить обновление поля вакансии",
+      "step_type": "display",
+      "user_message": "Подтвердите изменение.\n\nПоле: {{context.edit_field}}\nНовое значение: {{context.edit_value}}",
+      "prompt_template": null,
+      "context_key": "confirmation_choice",
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": "Сохранить изменение;Отмена",
+      "routing": {
+        "Сохранить изменение": 4,
+        "Отмена": null
+      },
+      "notes": null
+    },
+    {
+      "step_key": "edit_vacancy_field.4",
+      "playbook_key": "edit_vacancy_field",
+      "step_order": 4,
+      "name": "Обновить поле вакансии",
+      "step_type": "action",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": null,
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": null,
+      "notes": "{\"action\":\"edit_vacancy_field\"}"
+    },
+
+    // ── pause_vacancy ───────────────────────────────────────────────────────
+
+    {
+      "step_key": "pause_vacancy.1",
+      "playbook_key": "pause_vacancy",
+      "step_order": 1,
+      "name": "Подтвердить паузу вакансии",
+      "step_type": "display",
+      "user_message": "Поставить текущую вакансию на паузу?\n\nЭто сменит статус на `paused` и заблокирует pending/approved очередь по этой вакансии.",
+      "prompt_template": null,
+      "context_key": "confirmation_choice",
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": "Поставить на паузу;Отмена",
+      "routing": {
+        "Поставить на паузу": 2,
+        "Отмена": null
+      },
+      "notes": null
+    },
+    {
+      "step_key": "pause_vacancy.2",
+      "playbook_key": "pause_vacancy",
+      "step_order": 2,
+      "name": "Поставить вакансию на паузу",
+      "step_type": "action",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": null,
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": null,
+      "notes": "{\"action\":\"pause_vacancy\"}"
     }
   ]
 }

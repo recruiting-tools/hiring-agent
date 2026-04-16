@@ -641,6 +641,7 @@ export function createHiringAgentApp(options = {}) {
         playbookKey,
         recruiterInput: useMessageAsRecruiterInput ? (message ?? null) : null,
         llmAdapter,
+        clientContext,
         llmConfig: {
           createVacancy: createVacancyLlmConfig
         },

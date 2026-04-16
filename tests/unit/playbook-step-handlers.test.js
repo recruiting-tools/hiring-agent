@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { handleAutoFetchStep } from "../../services/hiring-agent/src/playbooks/step-handlers/auto-fetch.js";
+import { handleActionStep } from "../../services/hiring-agent/src/playbooks/step-handlers/action.js";
 import { handleButtonsStep } from "../../services/hiring-agent/src/playbooks/step-handlers/buttons.js";
 import { handleDataFetchStep } from "../../services/hiring-agent/src/playbooks/step-handlers/data-fetch.js";
 import { handleDecisionStep } from "../../services/hiring-agent/src/playbooks/step-handlers/decision.js";
@@ -679,6 +680,156 @@ test("playbook handler: data_fetch loads mass broadcast candidates into context"
   }]);
 });
 
+test("playbook handler: action rejects candidate and blocks queued messages", async () => {
+  const calls = [];
+  const tenantSql = createMockSql(({ text, values }) => {
+    calls.push({ text, values });
+
+    if (text.includes("FROM chatbot.pipeline_runs")) {
+      assert.deepEqual(values, ["run-1"]);
+      return [{
+        pipeline_run_id: "run-1",
+        job_id: "job-1",
+        candidate_id: "cand-1",
+        active_step_id: "screen",
+        status: "active",
+        display_name: "Иван",
+        conversation_id: "conv-1"
+      }];
+    }
+
+    if (text.includes("UPDATE chatbot.planned_messages")) {
+      return [{ planned_message_id: "pm-1" }, { planned_message_id: "pm-2" }];
+    }
+
+    return [];
+  });
+
+  const result = await handleActionStep({
+    step: {
+      notes: JSON.stringify({ action: "reject_candidate" }),
+      next_step_order: null
+    },
+    context: {
+      pipeline_run_id: "run-1",
+      rejection_reason: "Не подходит по графику"
+    },
+    tenantSql
+  });
+
+  assert.equal(result.reply.kind, "display");
+  assert.match(result.reply.content, /Кандидат отклонён/);
+  assert.match(result.reply.content, /Иван/);
+  assert.match(result.reply.content, /Заблокировано сообщений в очереди: 2/);
+  assert.ok(calls.some((call) => call.text.includes("INSERT INTO chatbot.pipeline_events")));
+});
+
+test("playbook handler: action schedules reminder in moderation queue", async () => {
+  const tenantSql = createMockSql(({ text, values }) => {
+    if (text.includes("FROM chatbot.conversations")) {
+      assert.deepEqual(values, ["conv-1"]);
+      return [{
+        pipeline_run_id: "run-1",
+        job_id: "job-1",
+        candidate_id: "cand-1",
+        active_step_id: "screen",
+        status: "active",
+        display_name: "Иван",
+        conversation_id: "conv-1"
+      }];
+    }
+
+    if (text.includes("INSERT INTO chatbot.planned_messages")) {
+      assert.equal(values[1], "conv-1");
+      assert.equal(values[5], "Напомню завтра утром про интервью.");
+      assert.match(text, /'approved'/);
+      return [{ planned_message_id: "pm-manual-1" }];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  });
+
+  const result = await handleActionStep({
+    step: {
+      notes: JSON.stringify({ action: "schedule_reminder" }),
+      next_step_order: null
+    },
+    context: {
+      conversation_id: "conv-1",
+      reminder_text: "Напомню завтра утром про интервью.",
+      reminder_delay: "Завтра утром"
+    },
+    tenantSql
+  });
+
+  assert.match(result.reply.content, /Напоминание поставлено в очередь/);
+  assert.match(result.reply.content, /pm-manual-1/);
+});
+
+test("playbook handler: action edits vacancy field deterministically", async () => {
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /SET must_haves/);
+    assert.deepEqual(values, ['["Опыт B2B","CRM"]', "vac-1"]);
+    return [];
+  });
+
+  const result = await handleActionStep({
+    step: {
+      notes: JSON.stringify({ action: "edit_vacancy_field" }),
+      next_step_order: null
+    },
+    context: {
+      vacancy_id: "vac-1",
+      edit_field: "Обязательные требования",
+      edit_value: "Опыт B2B; CRM"
+    },
+    tenantSql
+  });
+
+  assert.match(result.reply.content, /Поле вакансии обновлено/);
+  assert.match(result.reply.content, /Обязательные требования/);
+  assert.match(result.reply.content, /Опыт B2B; CRM/);
+});
+
+test("playbook handler: action pauses vacancy and blocks pending queue", async () => {
+  const calls = [];
+  const tenantSql = createMockSql(({ text, values }) => {
+    calls.push({ text, values });
+
+    if (text.includes("SELECT vacancy_id, job_id, title, status")) {
+      assert.deepEqual(values, ["vac-1"]);
+      return [{
+        vacancy_id: "vac-1",
+        job_id: "job-1",
+        title: "Sales manager",
+        status: "active"
+      }];
+    }
+
+    if (text.includes("UPDATE chatbot.planned_messages pm")) {
+      assert.deepEqual(values, ["job-1"]);
+      return [{ planned_message_id: "pm-1" }];
+    }
+
+    return [];
+  });
+
+  const result = await handleActionStep({
+    step: {
+      notes: JSON.stringify({ action: "pause_vacancy" }),
+      next_step_order: null
+    },
+    context: {
+      vacancy_id: "vac-1"
+    },
+    tenantSql
+  });
+
+  assert.match(result.reply.content, /Вакансия поставлена на паузу/);
+  assert.match(result.reply.content, /Заблокировано сообщений в очереди: 1/);
+  assert.ok(calls.some((call) => call.text.includes("SET status = 'paused'")));
+});
+
 test("playbook runtime: creates a session, skips silent auto_fetch, and returns first interactive reply", async () => {
   const calls = [];
   const managementStore = {
@@ -771,6 +922,71 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
       jobSetupId: "vac-7"
     }
   ]);
+});
+
+test("playbook runtime: seeds initial client context into new playbook session", async () => {
+  const calls = [];
+  const managementStore = {
+    async getPlaybookSteps() {
+      return [{
+        step_key: "reject_candidate.1",
+        step_order: 1,
+        step_type: "display",
+        user_message: "Подтвердите действие",
+        options: "Да;Нет",
+        next_step_order: null
+      }];
+    },
+    async getActiveSession() {
+      return null;
+    },
+    async abortActiveSessions() {},
+    async createPlaybookSession(input) {
+      calls.push(input);
+      return {
+        session_id: "sess-ctx-1",
+        playbook_key: input.playbookKey,
+        current_step_order: input.currentStepOrder,
+        vacancy_id: input.vacancyId,
+        job_id: input.jobId,
+        job_setup_id: input.jobSetupId ?? input.vacancyId,
+        context: input.context,
+        call_stack: [],
+        status: "active"
+      };
+    },
+    async updateSession() {},
+    async completeSession() {}
+  };
+
+  await dispatch({
+    managementStore,
+    tenantSql: null,
+    tenantId: "tenant-1",
+    recruiterId: "rec-1",
+    vacancyId: "vac-1",
+    jobId: "job-1",
+    playbookKey: "reject_candidate",
+    clientContext: {
+      candidate_id: "cand-1",
+      conversation_id: "conv-1",
+      pipeline_run_id: "run-1"
+    }
+  });
+
+  assert.deepEqual(calls[0].context, {
+    vacancy_id: "vac-1",
+    job_id: "job-1",
+    job_setup_id: "vac-1",
+    client_context: {
+      candidate_id: "cand-1",
+      conversation_id: "conv-1",
+      pipeline_run_id: "run-1"
+    },
+    candidate_id: "cand-1",
+    conversation_id: "conv-1",
+    pipeline_run_id: "run-1"
+  });
 });
 
 test("playbook runtime: parses stringified session context before injecting vacancy_id", async () => {

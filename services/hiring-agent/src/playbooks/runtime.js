@@ -1,4 +1,5 @@
 import { createManagementStore } from "../../../../packages/access-context/src/management-store.js";
+import { handleActionStep } from "./step-handlers/action.js";
 import { handleAutoFetchStep } from "./step-handlers/auto-fetch.js";
 import { handleButtonsStep } from "./step-handlers/buttons.js";
 import { handleDataFetchStep } from "./step-handlers/data-fetch.js";
@@ -11,6 +12,7 @@ import { handleSubroutineStep } from "./step-handlers/subroutine.js";
 import { handleUserInputStep } from "./step-handlers/user-input.js";
 
 const HANDLERS = {
+  action: handleActionStep,
   auto_fetch: handleAutoFetchStep,
   buttons: handleButtonsStep,
   data_fetch: handleDataFetchStep,
@@ -36,6 +38,7 @@ export async function dispatch({
   llmAdapter,
   llmConfig = {},
   conversationId = null,
+  clientContext = null,
   fetchImpl,
   hhVacancyFetchTimeoutMs = null
 }) {
@@ -86,7 +89,7 @@ export async function dispatch({
       vacancyId,
       jobId,
       jobSetupId,
-      context: buildInitialContext({ vacancyId, jobId, jobSetupId }),
+      context: buildInitialContext({ vacancyId, jobId, jobSetupId, clientContext }),
       callStack: []
     });
     session = normalizeSession(session);
@@ -290,11 +293,19 @@ function normalizeSessionContext(value) {
   return {};
 }
 
-function buildInitialContext({ vacancyId, jobId, jobSetupId }) {
+function buildInitialContext({ vacancyId, jobId, jobSetupId, clientContext = null }) {
   const context = {};
   if (vacancyId) context.vacancy_id = vacancyId;
   if (jobId) context.job_id = jobId;
   if (jobSetupId ?? vacancyId) context.job_setup_id = jobSetupId ?? vacancyId;
+  if (clientContext && typeof clientContext === "object" && !Array.isArray(clientContext)) {
+    context.client_context = structuredClone(clientContext);
+    for (const key of ["candidate_id", "conversation_id", "pipeline_run_id", "candidate_name"]) {
+      if (context[key] == null && clientContext[key] != null) {
+        context[key] = clientContext[key];
+      }
+    }
+  }
   return context;
 }
 

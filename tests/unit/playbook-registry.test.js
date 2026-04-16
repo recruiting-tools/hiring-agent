@@ -66,11 +66,19 @@ test("registry: returns static fallback playbooks without management db", async 
   const quickStart = fallback.find((item) => item.playbook_key === "quick_start");
   const accountAccess = fallback.find((item) => item.playbook_key === "account_access");
   const dataRetention = fallback.find((item) => item.playbook_key === "data_retention");
+  const rejectCandidate = fallback.find((item) => item.playbook_key === "reject_candidate");
+  const remindMe = fallback.find((item) => item.playbook_key === "remind_me");
+  const editVacancyField = fallback.find((item) => item.playbook_key === "edit_vacancy_field");
+  const pauseVacancy = fallback.find((item) => item.playbook_key === "pause_vacancy");
 
   assert.equal(capabilities?.enabled, true);
   assert.equal(quickStart?.enabled, true);
   assert.equal(accountAccess?.enabled, true);
   assert.equal(dataRetention?.enabled, true);
+  assert.equal(rejectCandidate?.enabled, true);
+  assert.equal(remindMe?.enabled, true);
+  assert.equal(editVacancyField?.enabled, true);
+  assert.equal(pauseVacancy?.enabled, true);
 });
 
 test("registry: create_vacancy ignores tenant override lock and remains enabled", async () => {
