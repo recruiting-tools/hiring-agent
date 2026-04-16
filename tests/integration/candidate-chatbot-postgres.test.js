@@ -154,3 +154,66 @@ test("postgres store: rebuildStepStateFromEvents matches live step_state", async
 
   await store.close();
 });
+
+test("postgres store: reset removes chatbot.vacancies rows", async () => {
+  const { store } = await createPostgresRuntime();
+
+  try {
+    await store.sql`
+      INSERT INTO chatbot.vacancies (
+        vacancy_id,
+        created_by,
+        title,
+        raw_text,
+        must_haves,
+        nice_haves,
+        work_conditions,
+        application_steps,
+        company_info,
+        faq,
+        extraction_status,
+        status,
+        job_id
+      )
+      VALUES (
+        ${"vac-postgres-reset-1"},
+        ${"rec-alpha-001"},
+        ${"Senior buyer"},
+        ${"Ищем senior buyer с опытом закупок"},
+        ${JSON.stringify(["Опыт закупок от 3 лет"])}::jsonb,
+        ${JSON.stringify(["Опыт ВЭД"])}::jsonb,
+        ${JSON.stringify({ schedule: "5/2" })}::jsonb,
+        ${JSON.stringify([{ name: "Скрининг", type: "must_have_check" }])}::jsonb,
+        ${JSON.stringify({ name: "Acme" })}::jsonb,
+        ${JSON.stringify([{ q: "Формат?", a: "Офис" }])}::jsonb,
+        ${"complete"},
+        ${"active"},
+        ${"job-zakup-china"}
+      )
+    `;
+
+    const beforeReset = await store.sql`
+      SELECT vacancy_id, title, status, extraction_status, must_haves
+      FROM chatbot.vacancies
+      WHERE vacancy_id = ${"vac-postgres-reset-1"}
+    `;
+
+    assert.equal(beforeReset.length, 1);
+    assert.equal(beforeReset[0].title, "Senior buyer");
+    assert.equal(beforeReset[0].status, "active");
+    assert.equal(beforeReset[0].extraction_status, "complete");
+    assert.deepEqual(beforeReset[0].must_haves, ["Опыт закупок от 3 лет"]);
+
+    await store.reset();
+
+    const afterReset = await store.sql`
+      SELECT vacancy_id
+      FROM chatbot.vacancies
+      WHERE vacancy_id = ${"vac-postgres-reset-1"}
+    `;
+
+    assert.equal(afterReset.length, 0);
+  } finally {
+    await store.close();
+  }
+});

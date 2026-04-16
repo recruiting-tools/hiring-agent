@@ -40,6 +40,7 @@ export class PostgresHiringStore {
         chatbot.messages,
         chatbot.conversations,
         chatbot.pipeline_templates,
+        chatbot.vacancies,
         chatbot.candidates,
         chatbot.jobs,
         chatbot.recruiters
