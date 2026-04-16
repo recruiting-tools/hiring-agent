@@ -94,6 +94,107 @@ const FILTERS = {
     return [header, separator, ...rows].join("\n");
   },
 
+  candidate_search_results(value) {
+    if (!Array.isArray(value) || value.length === 0) {
+      return "Ничего не нашлось. Попробуйте уточнить имя, стек или этап.";
+    }
+
+    const header = "| Кандидат | Вакансия | Текущий этап | Статус | Match |";
+    const separator = "| --- | --- | --- | --- | --- |";
+    const rows = value.map((item) => (
+      `| ${stringifyScalar(item?.name)} | ${stringifyScalar(item?.vacancy_title)} | ${stringifyScalar(item?.current_step)} | ${stringifyScalar(item?.status)} | ${stringifyScalar(item?.match_score)} |`
+    ));
+    return [header, separator, ...rows].join("\n");
+  },
+
+  candidate_snapshot(value) {
+    if (!value || typeof value !== "object") {
+      return stringifyScalar(value);
+    }
+
+    if (value.kind === "not_found") {
+      const suffix = value.lookup_query ? `: ${value.lookup_query}` : "";
+      return `Кандидат не найден${suffix}.`;
+    }
+
+    if (value.kind === "ambiguous") {
+      const lines = ["Нашлось несколько кандидатов. Лучше уточнить запрос или открыть `candidate_search`:"];
+      for (const item of value.matches ?? []) {
+        lines.push(`• ${stringifyScalar(item?.name)} · ${stringifyScalar(item?.vacancy_title)} · ${stringifyScalar(item?.current_step)}`);
+      }
+      return lines.join("\n");
+    }
+
+    const lines = [
+      `# ${value.candidate_name ?? value.candidate_id ?? "Кандидат"}`,
+      `Статус run: ${stringifyScalar(value.run_status)}`,
+      `Текущий этап: ${stringifyScalar(value.current_step)}`,
+      `Вакансия: ${stringifyScalar(value.vacancy_title)}`
+    ];
+
+    if (value.hours_on_step != null) {
+      lines.push(`Часов на этапе: ${stringifyScalar(value.hours_on_step)}`);
+    }
+
+    if (value.awaiting_reply === true) {
+      lines.push("Ожидаем ответ кандидата: да");
+    }
+
+    if (value.last_message_at || value.last_message_body) {
+      lines.push(
+        "",
+        "## Последнее сообщение",
+        [
+          value.last_message_direction ? `Направление: ${value.last_message_direction}` : null,
+          value.last_message_at ? `Время: ${value.last_message_at}` : null,
+          value.last_message_body ? `Текст: ${value.last_message_body}` : null
+        ].filter(Boolean).join("\n")
+      );
+    }
+
+    if (value.next_message_body || value.next_message_send_after) {
+      lines.push(
+        "",
+        "## Очередь",
+        [
+          value.next_message_review_status ? `Статус: ${value.next_message_review_status}` : null,
+          value.next_message_send_after ? `Отправка после: ${value.next_message_send_after}` : null,
+          value.next_message_body ? `Сообщение: ${value.next_message_body}` : null
+        ].filter(Boolean).join("\n")
+      );
+    }
+
+    if (value.rejection_reason) {
+      lines.push("", `Причина отклонения: ${value.rejection_reason}`);
+    }
+
+    return lines.join("\n");
+  },
+
+  today_summary(value) {
+    if (!value || typeof value !== "object") {
+      return stringifyScalar(value);
+    }
+
+    const stalled = Array.isArray(value.stalled_candidates) ? value.stalled_candidates : [];
+    const lines = [
+      "Сводка за сегодня:",
+      `• Ответов от кандидатов: ${stringifyScalar(value.responses_today ?? 0)}`,
+      `• Отправленных сообщений: ${stringifyScalar(value.sent_today ?? 0)}`,
+      `• Сообщений в moderation queue: ${stringifyScalar(value.moderation_pending ?? 0)}`,
+      `• Застрявших кандидатов: ${stalled.length}`
+    ];
+
+    if (stalled.length) {
+      lines.push("", "Застрявшие кандидаты:");
+      for (const item of stalled) {
+        lines.push(`• ${stringifyScalar(item?.name)} · ${stringifyScalar(item?.vacancy_title)} · ${stringifyScalar(item?.current_step)} · ${stringifyScalar(item?.hours_waiting)} ч`);
+      }
+    }
+
+    return lines.join("\n");
+  },
+
   vacancy_card(value) {
     if (!value || typeof value !== "object") return stringifyScalar(value);
 

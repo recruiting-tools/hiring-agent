@@ -56,6 +56,18 @@ export const FALLBACK_ROUTES = Object.freeze([
     keywords: ["рассылк", "всем кандидатам", "бродкаст", "массовое сообщение", "broadcast", "календарь"]
   },
   {
+    playbook_key: "check_candidate",
+    keywords: ["проверь кандидата", "статус кандидата", "карточка кандидата", "check candidate"]
+  },
+  {
+    playbook_key: "today_summary",
+    keywords: ["сводка за сегодня", "итоги дня", "что сегодня", "today summary"]
+  },
+  {
+    playbook_key: "candidate_search",
+    keywords: ["найди кандидата", "поиск кандидата", "search candidate", "поиск по кандидатам"]
+  },
+  {
     playbook_key: "reject_candidate",
     keywords: ["отклони кандидата", "откажи кандидату", "reject candidate", "отказать кандидату", "снять кандидата"]
   },
@@ -139,6 +151,27 @@ export const FALLBACK_PLAYBOOKS = Object.freeze([
     status: "available"
   },
   {
+    playbook_key: "check_candidate",
+    title: "Проверить кандидата",
+    name: "Проверить кандидата",
+    enabled: true,
+    status: "available"
+  },
+  {
+    playbook_key: "today_summary",
+    title: "Сводка за сегодня",
+    name: "Сводка за сегодня",
+    enabled: true,
+    status: "available"
+  },
+  {
+    playbook_key: "candidate_search",
+    title: "Поиск кандидатов",
+    name: "Поиск кандидатов",
+    enabled: true,
+    status: "available"
+  },
+  {
     playbook_key: "reject_candidate",
     title: "Отклонить кандидата",
     name: "Отклонить кандидата",
@@ -199,6 +232,9 @@ export const PLAYBOOKS_WITHOUT_VACANCY = Object.freeze(
   new Set([
     "candidate_funnel",
     "setup_communication",
+    "check_candidate",
+    "today_summary",
+    "candidate_search",
     "agent_capabilities",
     "quick_start",
     "create_vacancy",

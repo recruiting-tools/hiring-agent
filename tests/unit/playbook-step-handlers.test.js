@@ -680,6 +680,180 @@ test("playbook handler: data_fetch loads mass broadcast candidates into context"
   }]);
 });
 
+test("playbook handler: data_fetch loads candidate snapshot from client context", async () => {
+  let callCount = 0;
+  const tenantSql = createMockSql(({ text, values }) => {
+    callCount += 1;
+
+    if (callCount === 1) {
+      assert.match(text, /WITH candidate_scope AS/i);
+      assert.deepEqual(values, ["tenant-1", null, null, null, null, "conv-1", "conv-1", null, null]);
+      return [{
+        pipeline_run_id: "run-1",
+        job_id: "job-1",
+        candidate_id: "cand-1",
+        conversation_id: "conv-1",
+        run_status: "active",
+        display_name: "Иван",
+        resume_text: "Опыт B2B продаж",
+        vacancy_id: "vac-1",
+        vacancy_title: "Sales manager",
+        current_step_id: "screen",
+        current_step: "Первичный скрининг",
+        awaiting_reply: true,
+        last_reason: null,
+        current_step_updated_at: new Date(Date.now() - 26 * 36e5).toISOString(),
+        last_message_direction: "inbound",
+        last_message_body: "Готов обсудить детали",
+        last_message_at: new Date(Date.now() - 2 * 36e5).toISOString(),
+        next_message_body: "Напомню завтра утром",
+        next_message_review_status: "approved",
+        next_message_send_after: new Date(Date.now() + 12 * 36e5).toISOString()
+      }];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  });
+
+  const result = await handleDataFetchStep({
+    step: {
+      playbook_key: "check_candidate",
+      step_key: "check_candidate.3",
+      context_key: "candidate_snapshot",
+      notes: JSON.stringify({ source: "candidate_snapshot" }),
+      next_step_order: 4
+    },
+    context: {
+      client_context: {
+        conversation_id: "conv-1"
+      }
+    },
+    tenantSql,
+    tenantId: "tenant-1"
+  });
+
+  assert.equal(result.nextStepOrder, 4);
+  assert.equal(result.context.candidate_snapshot.kind, "snapshot");
+  assert.equal(result.context.candidate_snapshot.candidate_name, "Иван");
+  assert.equal(result.context.candidate_snapshot.awaiting_reply, true);
+});
+
+test("playbook handler: data_fetch loads daily summary", async () => {
+  let callCount = 0;
+  const tenantSql = createMockSql(({ text, values }) => {
+    callCount += 1;
+
+    if (callCount === 1) {
+      assert.match(text, /FROM chatbot\.messages m/);
+      assert.match(text, /m\.direction = 'inbound'/);
+      assert.deepEqual(values, ["tenant-1", null, null]);
+      return [{ count: 7 }];
+    }
+
+    if (callCount === 2) {
+      assert.match(text, /m\.direction = 'outbound'/);
+      assert.deepEqual(values, ["tenant-1", null, null]);
+      return [{ count: 12 }];
+    }
+
+    if (callCount === 3) {
+      assert.match(text, /FROM chatbot\.planned_messages pm/);
+      assert.deepEqual(values, ["tenant-1", null, null]);
+      return [{ count: 3 }];
+    }
+
+    if (callCount === 4) {
+      assert.match(text, /WITH active_steps AS/i);
+      assert.deepEqual(values, ["tenant-1", null, null, 24]);
+      return [{
+        candidate_id: "cand-1",
+        display_name: "Иван",
+        vacancy_title: "Sales manager",
+        current_step: "Скрининг",
+        hours_waiting: 29.5
+      }];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  });
+
+  const result = await handleDataFetchStep({
+    step: {
+      playbook_key: "today_summary",
+      step_key: "today_summary.1",
+      context_key: "today_summary",
+      notes: JSON.stringify({ source: "today_summary", stalledHours: 24 }),
+      next_step_order: 2
+    },
+    context: {},
+    tenantSql,
+    tenantId: "tenant-1"
+  });
+
+  assert.equal(result.nextStepOrder, 2);
+  assert.deepEqual(result.context.today_summary, {
+    kind: "summary",
+    scope: "tenant",
+    responses_today: 7,
+    sent_today: 12,
+    moderation_pending: 3,
+    stalled_candidates: [{
+      candidate_id: "cand-1",
+      name: "Иван",
+      vacancy_title: "Sales manager",
+      current_step: "Скрининг",
+      hours_waiting: 29.5
+    }]
+  });
+});
+
+test("playbook handler: data_fetch searches candidates by free text", async () => {
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /WITH scoped_runs AS/i);
+    assert.deepEqual(values, ["tenant-1", null, null]);
+    return [
+      {
+        candidate_id: "cand-1",
+        display_name: "Иван Петров",
+        resume_text: "Java backend and Kafka integrations",
+        status: "active",
+        vacancy_title: "Backend engineer",
+        current_step: "Техническое интервью",
+        last_message_at: new Date().toISOString()
+      },
+      {
+        candidate_id: "cand-2",
+        display_name: "Мария Смирнова",
+        resume_text: "Product marketing",
+        status: "active",
+        vacancy_title: "Marketing manager",
+        current_step: "Скрининг",
+        last_message_at: new Date().toISOString()
+      }
+    ];
+  });
+
+  const result = await handleDataFetchStep({
+    step: {
+      playbook_key: "candidate_search",
+      step_key: "candidate_search.2",
+      context_key: "candidate_search_results",
+      notes: JSON.stringify({ source: "candidate_search", limit: 10 }),
+      next_step_order: 3
+    },
+    context: {
+      search_query: "java kafka"
+    },
+    tenantSql,
+    tenantId: "tenant-1"
+  });
+
+  assert.equal(result.nextStepOrder, 3);
+  assert.equal(result.context.candidate_search_results.length, 1);
+  assert.equal(result.context.candidate_search_results[0].candidate_id, "cand-1");
+  assert.equal(result.context.candidate_search_results[0].match_score, 100);
+});
+
 test("playbook handler: action rejects candidate and blocks queued messages", async () => {
   const calls = [];
   const tenantSql = createMockSql(({ text, values }) => {
@@ -987,6 +1161,110 @@ test("playbook runtime: seeds initial client context into new playbook session",
     conversation_id: "conv-1",
     pipeline_run_id: "run-1"
   });
+});
+
+test("playbook runtime: check_candidate can resolve snapshot directly from client context", async () => {
+  const managementStore = {
+    async getPlaybookSteps() {
+      return [
+        {
+          step_key: "check_candidate.1",
+          step_order: 1,
+          step_type: "decision",
+          notes: JSON.stringify({
+            rules: [
+              {
+                condition: "Boolean(context.conversation_id || context.client_context?.conversation_id)",
+                next: 3
+              },
+              { default: true, next: 2 }
+            ]
+          })
+        },
+        {
+          step_key: "check_candidate.2",
+          step_order: 2,
+          step_type: "user_input",
+          user_message: "Укажите кандидата",
+          context_key: "candidate_lookup_query",
+          next_step_order: 3
+        },
+        {
+          step_key: "check_candidate.3",
+          step_order: 3,
+          step_type: "data_fetch",
+          context_key: "candidate_snapshot",
+          notes: JSON.stringify({ source: "candidate_snapshot" }),
+          next_step_order: 4
+        },
+        {
+          step_key: "check_candidate.4",
+          step_order: 4,
+          step_type: "display",
+          user_message: "{{context.candidate_snapshot | candidate_snapshot}}",
+          next_step_order: null
+        }
+      ];
+    },
+    async getActiveSession() {
+      return null;
+    },
+    async abortActiveSessions() {},
+    async createPlaybookSession(input) {
+      return {
+        session_id: "sess-read-1",
+        playbook_key: input.playbookKey,
+        current_step_order: input.currentStepOrder,
+        vacancy_id: input.vacancyId,
+        job_id: input.jobId,
+        job_setup_id: input.jobSetupId,
+        context: input.context,
+        call_stack: [],
+        status: "active"
+      };
+    },
+    async updateSession() {},
+    async completeSession() {}
+  };
+
+  const tenantSql = createMockSql(({ text, values }) => {
+    assert.match(text, /WITH candidate_scope AS/i);
+    assert.deepEqual(values, ["tenant-1", null, null, null, null, "conv-1", "conv-1", null, null]);
+    return [{
+      pipeline_run_id: "run-1",
+      job_id: "job-1",
+      candidate_id: "cand-1",
+      conversation_id: "conv-1",
+      run_status: "active",
+      display_name: "Иван",
+      vacancy_id: "vac-1",
+      vacancy_title: "Sales manager",
+      current_step: "Скрининг",
+      awaiting_reply: true,
+      current_step_updated_at: new Date(Date.now() - 10 * 36e5).toISOString(),
+      last_message_direction: "inbound",
+      last_message_body: "Добрый день",
+      last_message_at: new Date(Date.now() - 1 * 36e5).toISOString(),
+      next_message_body: "Напомню позже",
+      next_message_review_status: "approved",
+      next_message_send_after: new Date(Date.now() + 2 * 36e5).toISOString()
+    }];
+  });
+
+  const result = await dispatch({
+    managementStore,
+    tenantSql,
+    tenantId: "tenant-1",
+    recruiterId: "rec-1",
+    playbookKey: "check_candidate",
+    clientContext: {
+      conversation_id: "conv-1"
+    }
+  });
+
+  assert.equal(result.reply.kind, "display");
+  assert.match(result.reply.content, /# Иван/);
+  assert.match(result.reply.content, /Скрининг/);
 });
 
 test("playbook runtime: parses stringified session context before injecting vacancy_id", async () => {

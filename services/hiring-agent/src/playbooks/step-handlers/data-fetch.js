@@ -1,5 +1,10 @@
 import { getFunnelData } from "../../data/funnel-adapter.js";
 import { getMassBroadcastCandidates } from "../../data/mass-broadcast-adapter.js";
+import {
+  getCandidateSearchResults,
+  getCandidateSnapshot,
+  getTodaySummary
+} from "../../data/recruiter-read-adapter.js";
 
 export async function handleDataFetchStep({ step, context, tenantSql, tenantId }) {
   if (!tenantSql) {
@@ -50,6 +55,34 @@ async function fetchData({ fetchConfig, context, tenantSql, tenantId }) {
       tenantId,
       jobId: context.vacancy?.job_id ?? context.job_id ?? null,
       selectionQuery: context.selection_query ?? {},
+      limit: fetchConfig.limit
+    });
+  }
+
+  if (fetchConfig.source === "candidate_snapshot") {
+    return getCandidateSnapshot(tenantSql, {
+      tenantId,
+      jobId: context.vacancy?.job_id ?? context.job_id ?? context.client_context?.job_id ?? null,
+      pipelineRunId: context.pipeline_run_id ?? context.client_context?.pipeline_run_id ?? null,
+      conversationId: context.conversation_id ?? context.client_context?.conversation_id ?? null,
+      candidateId: context.candidate_id ?? context.client_context?.candidate_id ?? null,
+      lookupQuery: context.candidate_lookup_query ?? context.client_context?.candidate_name ?? null
+    });
+  }
+
+  if (fetchConfig.source === "today_summary") {
+    return getTodaySummary(tenantSql, {
+      tenantId,
+      jobId: context.vacancy?.job_id ?? context.job_id ?? context.client_context?.job_id ?? null,
+      stalledHours: fetchConfig.stalledHours
+    });
+  }
+
+  if (fetchConfig.source === "candidate_search") {
+    return getCandidateSearchResults(tenantSql, {
+      tenantId,
+      jobId: context.vacancy?.job_id ?? context.job_id ?? context.client_context?.job_id ?? null,
+      query: context.search_query ?? context.client_context?.candidate_name ?? null,
       limit: fetchConfig.limit
     });
   }
