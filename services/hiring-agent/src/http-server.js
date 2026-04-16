@@ -3029,7 +3029,10 @@ export function createHiringAgentServer(app, options = {}) {
       }
 
       if (request.method === "GET" && normalizedPath === "/login") {
-        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store, max-age=0"
+        });
         response.end(
           LOGIN_HTML
             .replaceAll("__APP_BASE_PATH__", escapeJsString(appBasePath))
@@ -3101,7 +3104,10 @@ export function createHiringAgentServer(app, options = {}) {
         const recruiterToken = await getChatbotRecruiterToken(accessContext.tenantSql, accessContext.recruiterId);
         const chatbotModerationBase = recruiterToken ? `${chatbotBaseUrl}/recruiter/${recruiterToken}` : "";
 
-        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store, max-age=0"
+        });
         response.end(
           CHAT_HTML
             .replace("__RECRUITER_EMAIL__", escapeHtml(accessContext.recruiterEmail))
@@ -3138,7 +3144,10 @@ export function createHiringAgentServer(app, options = {}) {
           return;
         }
 
-        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store, max-age=0"
+        });
         response.end(renderCommunicationExamplesReportHtml(reportData));
         return;
       }
