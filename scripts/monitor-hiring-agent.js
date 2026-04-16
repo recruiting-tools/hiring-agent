@@ -12,7 +12,13 @@ if (args.help) {
   process.exit(0);
 }
 
-const baseUrl = stripTrailingSlash(args.baseUrl ?? "https://hiring-chat.recruiter-assistant.com");
+const baseUrlInput = args.baseUrl ?? process.env.MONITOR_BASE_URL ?? process.env.BASE_URL ?? "";
+if (!baseUrlInput) {
+  console.error("ERROR: base URL is required (use --base-url or MONITOR_BASE_URL)");
+  process.exit(1);
+}
+
+const baseUrl = stripTrailingSlash(baseUrlInput);
 const expectedMode = args.expectedMode ?? "management-auth";
 const expectedEnv = args.expectedEnv ?? "prod";
 const expectedPort = Number(args.expectedPort ?? 3101);
@@ -209,7 +215,7 @@ function toCamelCase(value) {
 function printHelp() {
   process.stdout.write(`Usage: node scripts/monitor-hiring-agent.js [options]\n\n`);
   process.stdout.write(`Options:\n`);
-  process.stdout.write(`  --base-url <url>          Public URL (default: https://hiring-chat.recruiter-assistant.com)\n`);
+  process.stdout.write("  --base-url <url>          Public URL to probe\n");
   process.stdout.write(`  --expected-mode <mode>    Expected /health mode (default: management-auth)\n`);
   process.stdout.write(`  --expected-env <env>      Expected /health app_env (default: prod)\n`);
   process.stdout.write(`  --expected-port <port>    Expected service port from /health (default: 3101)\n`);
@@ -219,7 +225,8 @@ function printHelp() {
   process.stdout.write(`  --json                    JSON output\n`);
   process.stdout.write(`  --help                    Show help\n\n`);
   process.stdout.write(`Optional env vars:\n`);
-  process.stdout.write(`  MONITOR_EMAIL / MONITOR_PASSWORD  Use real login before ws probe (authenticated websocket check)\n`);
+  process.stdout.write("  MONITOR_BASE_URL                    Fallback public URL when --base-url is omitted\n");
+  process.stdout.write("  MONITOR_EMAIL / MONITOR_PASSWORD    Use real login before ws probe (authenticated websocket check)\n");
 }
 
 function stripTrailingSlash(url) {

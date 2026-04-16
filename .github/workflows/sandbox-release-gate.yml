@@ -116,20 +116,25 @@ jobs:
         if: steps.check.outputs.changed == 'true'
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID || secrets.NEON_PROJECT_ID }}
+          NEON_ORG_ID: ${{ vars.NEON_ORG_ID || secrets.NEON_ORG_ID }}
+          NEON_PARENT_BRANCH: ${{ vars.NEON_PARENT_BRANCH || 'sandbox' }}
         run: |
           neonctl branches create \
-            --project-id round-leaf-16031956 \
-            --org-id org-bold-wave-46400152 \
+            --project-id "$NEON_PROJECT_ID" \
+            --org-id "$NEON_ORG_ID" \
             --name ${{ steps.branch.outputs.name }} \
-            --parent br-dry-river-anv7f0z0
+            --parent "$NEON_PARENT_BRANCH"
       - name: Get connection string and run migrations
         if: steps.check.outputs.changed == 'true'
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID || secrets.NEON_PROJECT_ID }}
+          NEON_ORG_ID: ${{ vars.NEON_ORG_ID || secrets.NEON_ORG_ID }}
         run: |
           EPHEMERAL_DB_URL=$(neonctl connection-string \
-            --project-id round-leaf-16031956 \
-            --org-id org-bold-wave-46400152 \
+            --project-id "$NEON_PROJECT_ID" \
+            --org-id "$NEON_ORG_ID" \
             --branch ${{ steps.branch.outputs.name }} \
             --pooled)
           echo "Ephemeral branch ready."
@@ -139,10 +144,12 @@ jobs:
         if: always() && steps.create_branch.outcome == 'success'
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID || secrets.NEON_PROJECT_ID }}
+          NEON_ORG_ID: ${{ vars.NEON_ORG_ID || secrets.NEON_ORG_ID }}
         run: |
           neonctl branches delete \
-            --project-id round-leaf-16031956 \
-            --org-id org-bold-wave-46400152 \
+            --project-id "$NEON_PROJECT_ID" \
+            --org-id "$NEON_ORG_ID" \
             ${{ steps.branch.outputs.name }}
 
   notify-session:
