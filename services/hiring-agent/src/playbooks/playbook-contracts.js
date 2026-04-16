@@ -2,7 +2,6 @@ export const ALWAYS_RUNNABLE_PLAYBOOK_KEYS = Object.freeze(
   new Set([
     "candidate_funnel",
     "setup_communication",
-    "view_vacancy",
     "account_access",
     "data_retention",
     "assistant_capabilities",

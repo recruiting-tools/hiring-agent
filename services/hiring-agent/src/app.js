@@ -257,6 +257,20 @@ export function createHiringAgentApp(options = {}) {
         };
       }
 
+      if (playbook.runnable === false) {
+        return {
+          status: 200,
+          body: {
+            reply: {
+              kind: "playbook_locked",
+              playbook_key: playbook.playbook_key,
+              title: playbook.title,
+              message: "Этот playbook пока недоступен: для него не настроены шаги выполнения."
+            }
+          }
+        };
+      }
+
       const canBypassLockedState = canBypassTenantPlaybookLock(playbook.playbook_key);
       if (!playbook.enabled && !canBypassLockedState) {
         return {

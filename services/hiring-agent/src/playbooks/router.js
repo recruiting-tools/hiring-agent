@@ -1,4 +1,3 @@
-import { hasFallbackSteps } from "./local-seed-fallback.js";
 import { canonicalizePlaybookKey } from "./playbook-key-map.js";
 import { ALWAYS_RUNNABLE_PLAYBOOK_KEYS, FALLBACK_ROUTES } from "./playbook-contracts.js";
 
@@ -134,7 +133,6 @@ async function getDbRoutes(managementSql, options = {}) {
       const filtered = rows.filter((row) => (
         ALWAYS_RUNNABLE_PLAYBOOK_KEYS.has(canonicalizePlaybookKey(row.playbook_key))
         || Number(row.step_count ?? 0) > 0
-        || hasFallbackSteps(row.playbook_key)
       ));
       cachedDefinitions = filtered.map((row) => ({
         ...row,

@@ -562,7 +562,7 @@ test("hiring-agent: postChatMessage returns playbook_locked when tenant access d
   assert.equal(result.body.reply.playbook_key, "quick_start");
 });
 
-test("hiring-agent: legacy vacancy-text routes to view_vacancy and bypasses stale lock", async () => {
+test("hiring-agent: legacy vacancy-text stays locked when DB-backed view_vacancy has zero steps", async () => {
   const managementSql = async (strings) => {
     const text = strings.join("");
 
@@ -626,10 +626,9 @@ test("hiring-agent: legacy vacancy-text routes to view_vacancy and bypasses stal
   });
 
   assert.equal(result.status, 200);
-  assert.equal(result.body.reply.kind, "display");
-  assert.equal(result.body.reply.content_type, "text");
-  assert.match(result.body.reply.content, /Менеджер по закупкам/);
-  assert.match(result.body.reply.content, /Полный текст вакансии/);
+  assert.equal(result.body.reply.kind, "playbook_locked");
+  assert.equal(result.body.reply.playbook_key, "view_vacancy");
+  assert.match(result.body.reply.message, /не настроены шаги выполнения/i);
 });
 
 test("hiring-agent: postChatMessage returns playbook_not_found for unknown start_playbook key", async () => {
@@ -725,9 +724,8 @@ test("hiring-agent: management-backed routing ignores available playbooks with z
   assert.match(result.body.reply.text, /поддерживаю/i);
 });
 
-test("hiring-agent: create_vacancy starts from fallback steps when DB step_count is zero", async () => {
+test("hiring-agent: create_vacancy stays locked when DB step_count is zero", async () => {
   clearPlaybookRegistryCache();
-  let sessionSequence = 0;
   const managementSql = async (strings, ...values) => {
     const text = strings.reduce((result, chunk, index) => (
       result + chunk + (index < values.length ? `$${index + 1}` : "")
@@ -744,41 +742,6 @@ test("hiring-agent: create_vacancy starts from fallback steps when DB step_count
           step_count: 0
         }
       ];
-    }
-
-    if (text.includes("FROM management.playbook_steps")) {
-      return [];
-    }
-
-    if (text.includes("FROM management.playbook_sessions") && text.includes("status = 'active'")) {
-      return [];
-    }
-
-    if (text.includes("UPDATE management.playbook_sessions") && text.includes("status = 'aborted'")) {
-      return [];
-    }
-
-    if (text.includes("INSERT INTO management.playbook_sessions")) {
-      sessionSequence += 1;
-      return [{
-        session_id: `sess-fallback-${sessionSequence}`,
-        tenant_id: "tenant-alpha-001",
-        recruiter_id: "rec-alpha-001",
-        conversation_id: null,
-        playbook_key: "create_vacancy",
-        current_step_order: 1,
-        vacancy_id: null,
-        context: {},
-        call_stack: [],
-        status: "active",
-        started_at: new Date(),
-        updated_at: new Date(),
-        completed_at: null
-      }];
-    }
-
-    if (text.includes("UPDATE management.playbook_sessions") && text.includes("SET")) {
-      return [];
     }
 
     throw new Error(`Unexpected query: ${text}`);
@@ -799,9 +762,9 @@ test("hiring-agent: create_vacancy starts from fallback steps when DB step_count
     });
 
     assert.equal(result.status, 200);
-    assert.equal(result.body.reply.kind, "user_input");
-    assert.match(result.body.reply.message, /Загрузите материалы по вакансии/i);
-    assert.equal(typeof result.body.session_id, "string");
+    assert.equal(result.body.reply.kind, "playbook_locked");
+    assert.equal(result.body.reply.playbook_key, "create_vacancy");
+    assert.match(result.body.reply.message, /не настроены шаги выполнения/i);
   } finally {
     clearPlaybookRegistryCache();
   }
@@ -981,9 +944,8 @@ test("hiring-agent: routed create_vacancy prompts first and explicit playbook_ke
   }
 });
 
-test("hiring-agent: create_vacancy remains available when tenant override is disabled", async () => {
+test("hiring-agent: create_vacancy does not bypass tenant override when DB playbook is unrunnable", async () => {
   clearPlaybookRegistryCache();
-  let sessionSequence = 0;
   const managementSql = async (strings, ...values) => {
     const text = strings.reduce((result, chunk, index) => (
       result + chunk + (index < values.length ? `$${index + 1}` : "")
@@ -1011,41 +973,6 @@ test("hiring-agent: create_vacancy remains available when tenant override is dis
       ];
     }
 
-    if (text.includes("FROM management.playbook_steps")) {
-      return [];
-    }
-
-    if (text.includes("FROM management.playbook_sessions") && text.includes("status = 'active'")) {
-      return [];
-    }
-
-    if (text.includes("UPDATE management.playbook_sessions") && text.includes("status = 'aborted'")) {
-      return [];
-    }
-
-    if (text.includes("INSERT INTO management.playbook_sessions")) {
-      sessionSequence += 1;
-      return [{
-        session_id: `sess-override-${sessionSequence}`,
-        tenant_id: "tenant-alpha-001",
-        recruiter_id: "rec-alpha-001",
-        conversation_id: null,
-        playbook_key: "create_vacancy",
-        current_step_order: 1,
-        vacancy_id: null,
-        context: {},
-        call_stack: [],
-        status: "active",
-        started_at: new Date(),
-        updated_at: new Date(),
-        completed_at: null
-      }];
-    }
-
-    if (text.includes("UPDATE management.playbook_sessions") && text.includes("SET")) {
-      return [];
-    }
-
     throw new Error(`Unexpected query: ${text}`);
   };
 
@@ -1064,8 +991,77 @@ test("hiring-agent: create_vacancy remains available when tenant override is dis
     });
 
     assert.equal(result.status, 200);
-    assert.equal(result.body.reply.kind, "user_input");
-    assert.match(result.body.reply.message, /Загрузите материалы по вакансии/i);
+    assert.equal(result.body.reply.kind, "playbook_locked");
+    assert.equal(result.body.reply.playbook_key, "create_vacancy");
+    assert.match(result.body.reply.message, /не настроены шаги выполнения/i);
+  } finally {
+    clearPlaybookRegistryCache();
+  }
+});
+
+test("hiring-agent: management-backed health only keeps working zero-step playbooks enabled", async () => {
+  clearPlaybookRegistryCache();
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.playbook_definitions d")) {
+      return [
+        {
+          playbook_key: "candidate_funnel",
+          name: "Воронка кандидатов",
+          trigger_description: "funnel",
+          status: "available",
+          sort_order: 1,
+          step_count: 0
+        },
+        {
+          playbook_key: "setup_communication",
+          name: "Настроить общение с кандидатами",
+          trigger_description: "communication",
+          status: "available",
+          sort_order: 2,
+          step_count: 0
+        },
+        {
+          playbook_key: "mass_broadcast",
+          name: "Выборочная рассылка кандидатам",
+          trigger_description: "broadcast",
+          status: "available",
+          sort_order: 3,
+          step_count: 0
+        },
+        {
+          playbook_key: "view_vacancy",
+          name: "Карточка вакансии",
+          trigger_description: "vacancy",
+          status: "available",
+          sort_order: 4,
+          step_count: 0
+        }
+      ];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    managementSql
+  });
+
+  try {
+    const result = await app.getHealth({ includePlaybooks: true });
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(
+      result.body.playbooks,
+      [
+        { playbook_key: "candidate_funnel", enabled: true, status: "available" },
+        { playbook_key: "setup_communication", enabled: true, status: "available" },
+        { playbook_key: "mass_broadcast", enabled: false, status: "available" },
+        { playbook_key: "view_vacancy", enabled: false, status: "available" }
+      ]
+    );
   } finally {
     clearPlaybookRegistryCache();
   }
