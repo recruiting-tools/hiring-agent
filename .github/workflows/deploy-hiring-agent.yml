@@ -105,31 +105,8 @@ jobs:
             set -euo pipefail
             WS_HEALTH=$(curl -sf http://127.0.0.1:3101/health-web-socket)
             echo "Local websocket health: $WS_HEALTH"
-            node --input-type=module -e "
-            const url = 'ws://127.0.0.1:3101/ws';
-            const result = await new Promise((resolve, reject) => {
-              const ws = new WebSocket(url);
-              let settled = false;
-              const finish = (ok, detail) => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(timeout);
-                try { ws.close(); } catch {}
-                if (ok) resolve(detail);
-                else reject(new Error(detail));
-              };
-              const timeout = setTimeout(() => finish(false, 'timeout waiting for websocket response'), 5000);
-              ws.addEventListener('open', () => finish(true, 'upgrade accepted'));
-              ws.addEventListener('close', (event) => {
-                if (event.code === 4001) finish(true, 'unauthorized close ' + event.code);
-                else if (!settled) finish(false, 'unexpected close ' + event.code);
-              });
-              ws.addEventListener('error', () => {
-                if (!settled) finish(false, 'websocket connection failed');
-              });
-            });
-            console.log('VM websocket smoke ok: ' + result);
-            "
+            cd /opt/hiring-agent
+            node ./scripts/ws-upgrade-smoke.cjs ws://127.0.0.1:3101/ws 5000
           EOF
 
       - name: Post-deploy smoke
@@ -146,36 +123,4 @@ jobs:
 
       - name: Post-deploy websocket smoke
         run: |
-          WS_HEALTH=$(curl -sf https://hiring-chat.recruiter-assistant.com/health-web-socket 2>/dev/null || echo '{}')
-          echo "Websocket health: $WS_HEALTH"
-          npx --yes --package ws node -e "
-          const { WebSocket } = require('ws');
-          const url = 'wss://hiring-chat.recruiter-assistant.com/ws';
-          const result = new Promise((resolve, reject) => {
-            const ws = new WebSocket(url);
-            let settled = false;
-            const finish = (ok, detail) => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timeout);
-              try { ws.close(); } catch {}
-              if (ok) resolve(detail);
-              else reject(new Error(detail));
-            };
-            const timeout = setTimeout(() => finish(false, 'timeout waiting for websocket response'), 5000);
-            ws.on('open', () => finish(true, 'upgrade accepted'));
-            ws.on('close', (code) => {
-              if (code === 4001) finish(true, 'unauthorized close ' + code);
-              else if (!settled) finish(false, 'unexpected close ' + code);
-            });
-            ws.on('error', () => {
-              if (!settled) finish(false, 'websocket connection failed');
-            });
-          });
-          result.then((detail) => {
-            console.log('Public websocket smoke ok: ' + detail);
-          }).catch((error) => {
-            console.error(error.message);
-            process.exit(1);
-          });
-          "
+          node ./scripts/ws-upgrade-smoke.cjs wss://hiring-chat.recruiter-assistant.com/ws 5000
