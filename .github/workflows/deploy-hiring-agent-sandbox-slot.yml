@@ -218,9 +218,6 @@ jobs:
           corepack enable >/dev/null 2>&1 || true
           corepack pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Install Playwright browser for smoke
-        run: pnpm dlx playwright@latest install chromium
-
       - name: Bootstrap sandbox demo recruiter
         env:
           MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
@@ -273,14 +270,14 @@ jobs:
 
       - name: Post-deploy smoke
         env:
-          PLAYWRIGHT_SMOKE_BASE_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
-          PLAYWRIGHT_SMOKE_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
-          PLAYWRIGHT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
+          HIRING_AGENT_BASE_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
+          HIRING_AGENT_SMOKE_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
+          HIRING_AGENT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
           MONITOR_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
           MONITOR_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
         run: |
           set -euo pipefail
-          HEALTH=$(curl -sf "${PLAYWRIGHT_SMOKE_BASE_URL%/}/health" 2>/dev/null || echo '{}')
+          HEALTH=$(curl -sf "${HIRING_AGENT_BASE_URL%/}/health" 2>/dev/null || echo '{}')
           STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
           MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
           DEPLOY_SHA=$(echo "$HEALTH" | jq -r '.deploy_sha // "unknown"')
@@ -291,5 +288,18 @@ jobs:
           [ "$APP_ENV" = "sandbox" ] || exit 1
           [ "$DEPLOY_SHA" = "${{ steps.resolve_sha.outputs.sha }}" ] || exit 1
 
-          pnpm monitor:hiring-agent -- --base-url "${PLAYWRIGHT_SMOKE_BASE_URL%/}" --require-auth-ws
-          node scripts/playwright-smoke.mjs
+          pnpm monitor:hiring-agent -- --base-url "${HIRING_AGENT_BASE_URL%/}" --expected-env sandbox --expected-port "${{ steps.slot.outputs.target_port }}" --require-auth-ws
+
+          COOKIE_JAR="$(mktemp)"
+          trap 'rm -f "$COOKIE_JAR"' EXIT
+
+          curl -sf -c "$COOKIE_JAR" \
+            -H 'content-type: application/json' \
+            -d "{\"email\":\"${HIRING_AGENT_SMOKE_EMAIL}\",\"password\":\"${HIRING_AGENT_SMOKE_PASSWORD}\"}" \
+            "${HIRING_AGENT_BASE_URL%/}/auth/login" >/tmp/hiring-agent-login.json
+
+          grep -q 'session_sandbox_003' "$COOKIE_JAR" || { echo "Expected sandbox session cookie"; cat "$COOKIE_JAR"; exit 1; }
+
+          JOBS_JSON="$(curl -sf -b "$COOKIE_JAR" "${HIRING_AGENT_BASE_URL%/}/api/jobs")"
+          echo "$JOBS_JSON" | jq .
+          echo "$JOBS_JSON" | jq -e '(.jobs // .vacancies // []) | type == "array"' >/dev/null

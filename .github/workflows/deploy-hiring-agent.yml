@@ -156,9 +156,6 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
             "mkdir -p '$DEPLOY_DIR' && echo '$ENV_B64' | base64 -d > '$DEPLOY_DIR/.env' && echo '.env written: $DEPLOY_DIR/.env'"
 
-      - name: Install Playwright browser for smoke
-        run: pnpm dlx playwright@latest install chromium
-
       - name: Bootstrap sandbox demo recruiter
         env:
           MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
@@ -210,17 +207,30 @@ jobs:
             [ "\$DEPLOY_SHA" = "${{ github.sha }}" ] || exit 1
           EOF
 
-      - name: Sandbox auth websocket + UI smoke
+      - name: Sandbox auth websocket + jobs smoke
         env:
-          PLAYWRIGHT_SMOKE_BASE_URL: ${{ env.SANDBOX_PUBLIC_URL }}
-          PLAYWRIGHT_SMOKE_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
-          PLAYWRIGHT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
+          HIRING_AGENT_BASE_URL: ${{ env.SANDBOX_PUBLIC_URL }}
+          HIRING_AGENT_SMOKE_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
+          HIRING_AGENT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
           MONITOR_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
           MONITOR_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
         run: |
           set -euo pipefail
-          pnpm monitor:hiring-agent -- --base-url "${PLAYWRIGHT_SMOKE_BASE_URL%/}" --require-auth-ws
-          node scripts/playwright-smoke.mjs
+          pnpm monitor:hiring-agent -- --base-url "${HIRING_AGENT_BASE_URL%/}" --expected-env sandbox --expected-port "${TARGET_PORT}" --require-auth-ws
+
+          COOKIE_JAR="$(mktemp)"
+          trap 'rm -f "$COOKIE_JAR"' EXIT
+
+          curl -sf -c "$COOKIE_JAR" \
+            -H 'content-type: application/json' \
+            -d "{\"email\":\"${HIRING_AGENT_SMOKE_EMAIL}\",\"password\":\"${HIRING_AGENT_SMOKE_PASSWORD}\"}" \
+            "${HIRING_AGENT_BASE_URL%/}/auth/login" >/tmp/hiring-agent-login.json
+
+          grep -q 'session_sandbox_003' "$COOKIE_JAR" || { echo "Expected sandbox session cookie"; cat "$COOKIE_JAR"; exit 1; }
+
+          JOBS_JSON="$(curl -sf -b "$COOKIE_JAR" "${HIRING_AGENT_BASE_URL%/}/api/jobs")"
+          echo "$JOBS_JSON" | jq .
+          echo "$JOBS_JSON" | jq -e '(.jobs // .vacancies // []) | type == "array"' >/dev/null
 
   deploy:
     runs-on: ubuntu-latest
