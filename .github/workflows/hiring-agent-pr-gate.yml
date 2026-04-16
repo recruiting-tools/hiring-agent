@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: hiring-agent-pr-gate-${{ github.ref }}
@@ -20,6 +21,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - name: Session trace
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash ./scripts/ci/session-trace.sh
 
       - name: Detect hiring-agent impact
         id: impact
@@ -32,8 +37,8 @@ jobs:
           else
             BASE_SHA="${{ github.event.before }}"
             if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
-              git fetch origin main --depth=1
-              BASE_SHA="$(git merge-base HEAD origin/main)"
+              git fetch origin main:refs/remotes/origin/main --depth=1
+              BASE_SHA="$(git merge-base HEAD refs/remotes/origin/main)"
             fi
           fi
 
@@ -43,7 +48,7 @@ jobs:
 
           git diff --name-only "$BASE_SHA" "$HEAD_SHA" | tee /tmp/hiring-agent-changed-files.txt
 
-          if grep -E '^(services/hiring-agent/|tests/(integration|unit)/hiring-agent|packages/access-context/|scripts/(deploy-hiring-agent\.sh|monitor-hiring-agent\.js)|\.github/workflows/(deploy-hiring-agent|deploy-hiring-agent-sandbox-slot|hiring-agent-pr-gate)\.yml)' /tmp/hiring-agent-changed-files.txt >/dev/null; then
+          if grep -E '^(services/hiring-agent/|tests/(integration|unit)/hiring-agent|packages/access-context/|scripts/(deploy-hiring-agent\.sh|monitor-hiring-agent\.js|ci/session-trace\.sh)|\.github/workflows/(deploy-hiring-agent|deploy-hiring-agent-sandbox-slot|hiring-agent-pr-gate)\.yml)' /tmp/hiring-agent-changed-files.txt >/dev/null; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
