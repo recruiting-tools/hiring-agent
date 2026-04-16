@@ -60,6 +60,7 @@ jobs:
           SERVICE: candidate-chatbot-v2
           REGION: europe-west1
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || secrets.GCP_PROJECT_ID }}
+          HH_REDIRECT_URI: ${{ secrets.HH_REDIRECT_URI }}
           DEPLOY_PUBLIC_URL: ${{ secrets.DEPLOY_PUBLIC_URL }}
           DEPLOY_SHA: ${{ github.sha }}
         run: bash ./scripts/deploy.sh
