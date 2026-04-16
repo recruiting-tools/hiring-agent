@@ -849,7 +849,7 @@ test("hiring-agent: routed create_vacancy prompts first and explicit playbook_ke
         step_type: "user_input",
         user_message: "Загрузите материалы по вакансии",
         prompt_template: null,
-        context_key: "raw_vacancy_text",
+        context_key: "raw_job_setup_text",
         db_save_column: null,
         next_step_order: null,
         options: null,

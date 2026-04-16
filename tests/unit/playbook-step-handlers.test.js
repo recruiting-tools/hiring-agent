@@ -74,7 +74,7 @@ test("playbook handler: auto_fetch falls back to job_id when vacancy_id is synth
 test("playbook handler: user_input prompts first and stores recruiter input on resume", async () => {
   const step = {
     user_message: "Опишите вакансию",
-    context_key: "raw_vacancy_text",
+    context_key: "raw_job_setup_text",
     next_step_order: 2
   };
 
@@ -114,7 +114,7 @@ test("playbook handler: create_vacancy user_input inserts draft vacancy with exp
   const result = await handleUserInputStep({
     step: {
       user_message: "Опишите вакансию",
-      context_key: "raw_vacancy_text",
+      context_key: "raw_job_setup_text",
       next_step_order: 2
     },
     session: {
@@ -153,7 +153,7 @@ test("playbook handler: create_vacancy user_input expands HH vacancy link into r
   const result = await handleUserInputStep({
     step: {
       user_message: "Опишите вакансию",
-      context_key: "raw_vacancy_text",
+      context_key: "raw_job_setup_text",
       next_step_order: 2
     },
     session: {
@@ -260,14 +260,14 @@ test("playbook handler: llm_extract retries once, appends JSON instruction, and 
   const result = await handleLlmExtractStep({
     step: {
       playbook_key: "create_vacancy",
-      prompt_template: "Извлеки требования из {{context.raw_vacancy_text}}",
+      prompt_template: "Извлеки требования из {{context.raw_job_setup_text}}",
       context_key: "must_haves",
       db_save_column: "must_haves",
       next_step_order: 3
     },
     context: {
       vacancy_id: "vac-42",
-      raw_vacancy_text: "Нужен опыт от 1 года"
+      raw_job_setup_text: "Нужен опыт от 1 года"
     },
     tenantSql,
     llmAdapter: {
@@ -294,10 +294,10 @@ test("playbook handler: llm_extract retries once, appends JSON instruction, and 
 test("playbook handler: buildJsonPrompt reinforces logical count for create_vacancy must_haves", () => {
   const prompt = buildJsonPrompt({
     playbook_key: "create_vacancy",
-    prompt_template: "Извлеки требования из {{context.raw_vacancy_text}}",
+    prompt_template: "Извлеки требования из {{context.raw_job_setup_text}}",
     db_save_column: "must_haves"
   }, {
-    raw_vacancy_text: "Высшее образование. Одна из специальностей: A, B или C."
+    raw_job_setup_text: "Высшее образование. Одна из специальностей: A, B или C."
   });
 
   assert.match(prompt, /Каждый элемент массива должен соответствовать одному логическому must-have/i);
@@ -307,12 +307,12 @@ test("playbook handler: buildJsonPrompt reinforces logical count for create_vaca
 test("playbook handler: llm_extract parses fenced JSON responses", async () => {
   const result = await handleLlmExtractStep({
     step: {
-      prompt_template: "Извлеки требования из {{context.raw_vacancy_text}}",
+      prompt_template: "Извлеки требования из {{context.raw_job_setup_text}}",
       context_key: "must_haves",
       next_step_order: 4
     },
     context: {
-      raw_vacancy_text: "Нужен плиточник"
+      raw_job_setup_text: "Нужен плиточник"
     },
     llmAdapter: {
       async generate() {
@@ -330,14 +330,14 @@ test("playbook handler: llm_extract uses model override for create_vacancy appli
   const result = await handleLlmExtractStep({
     step: {
       playbook_key: "create_vacancy",
-      prompt_template: "Извлеки шаги из {{context.raw_vacancy_text}}",
+      prompt_template: "Извлеки шаги из {{context.raw_job_setup_text}}",
       context_key: "application_steps",
       db_save_column: "application_steps",
       next_step_order: 9
     },
     context: {
       vacancy_id: "vac-99",
-      raw_vacancy_text: "Нужен продажник с B2B опытом"
+      raw_job_setup_text: "Нужен продажник с B2B опытом"
     },
     tenantSql: createMockSql(({ text }) => {
       assert.match(text, /UPDATE chatbot\.vacancies/);
@@ -388,12 +388,12 @@ test("playbook handler: llm_extract uses model override for create_vacancy appli
 test("playbook handler: llm_generate stores parsed JSON and returns UI payload", async () => {
   const result = await handleLlmGenerateStep({
     step: {
-      prompt_template: "Сгенерируй FAQ по {{context.raw_vacancy_text}}",
+      prompt_template: "Сгенерируй FAQ по {{context.raw_job_setup_text}}",
       context_key: "faq",
       next_step_order: 13
     },
     context: {
-      raw_vacancy_text: "Текст вакансии"
+      raw_job_setup_text: "Текст вакансии"
     },
     llmAdapter: {
       async generate() {
@@ -414,12 +414,12 @@ test("playbook handler: llm_generate stores parsed JSON and returns UI payload",
 test("playbook handler: llm_generate parses fenced JSON responses", async () => {
   const result = await handleLlmGenerateStep({
     step: {
-      prompt_template: "Сгенерируй FAQ по {{context.raw_vacancy_text}}",
+      prompt_template: "Сгенерируй FAQ по {{context.raw_job_setup_text}}",
       context_key: "faq",
       next_step_order: 13
     },
     context: {
-      raw_vacancy_text: "Текст вакансии"
+      raw_job_setup_text: "Текст вакансии"
     },
     llmAdapter: {
       async generate() {
