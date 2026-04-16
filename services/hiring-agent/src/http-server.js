@@ -309,6 +309,35 @@ const CHAT_HTML = `<!DOCTYPE html>
       backdrop-filter: blur(18px);
       box-shadow: var(--shadow-md);
     }
+    .status-content {
+      display: grid;
+      gap: 2px;
+    }
+    .status-dev-link {
+      width: 26px;
+      height: 26px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      color: var(--t3);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(157, 181, 224, 0.12);
+      transition: color 0.2s, background 0.2s, border-color 0.2s, transform 0.2s;
+      flex: 0 0 auto;
+    }
+    .status-dev-link:hover {
+      color: var(--t1);
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(157, 181, 224, 0.24);
+      transform: rotate(18deg);
+    }
+    .status-dev-link[hidden] {
+      display: none;
+    }
+    .status-dev-link svg {
+      width: 13px;
+      height: 13px;
+    }
     .status-pill strong {
       color: var(--t1);
       font-size: 13px;
@@ -1112,10 +1141,25 @@ const CHAT_HTML = `<!DOCTYPE html>
       </div>
       <div class="status-pill">
         <span id="status-dot" title="WebSocket"></span>
-        <div>
+        <div class="status-content">
           <strong id="connection-label">Подключение</strong>
           <div id="connection-copy">Соединяемся с агентом…</div>
         </div>
+        <a
+          id="status-dev-link"
+          class="status-dev-link"
+          href="#"
+          hidden
+          target="_blank"
+          rel="noopener"
+          aria-label="Открыть детали деплоя"
+          title="Открыть детали деплоя"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.21 7.2a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .67.39 1.28 1 1.51.16.07.33.1.51.1H21a2 2 0 0 1 0 4h-.09c-.67 0-1.28.39-1.51 1z"></path>
+          </svg>
+        </a>
       </div>
     </header>
 
@@ -1273,6 +1317,10 @@ const CHAT_HTML = `<!DOCTYPE html>
     let pendingInitialChatStatePromise = loadInitialChatState();
     let sessionHistoryIndex = loadSessionHistoryIndex();
     let historyOpen = window.matchMedia('(min-width: 981px)').matches;
+    let preferHttpFallback = false;
+    let wsConnectTimer = null;
+    let wsRetryTimer = null;
+    let wsGeneration = 0;
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
     const workspace = document.getElementById('workspace');
@@ -1286,6 +1334,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     const emptyCreateVacBtn = document.getElementById('empty-create-vacancy-btn');
     const connectionLabel = document.getElementById('connection-label');
     const connectionCopy = document.getElementById('connection-copy');
+    const statusDevLink = document.getElementById('status-dev-link');
     const contextVacancyTitle = document.getElementById('context-vacancy-title');
     const contextVacancyCopy = document.getElementById('context-vacancy-copy');
     const chatStageTitle = document.getElementById('chat-stage-title');
@@ -1301,33 +1350,253 @@ const CHAT_HTML = `<!DOCTYPE html>
     const chatHistoryBtn = document.getElementById('chat-history-btn');
     const newSessionBtn = document.getElementById('new-session-btn');
     const copyLinkBtn = document.getElementById('copy-link-btn');
+    let healthStatusTimer = null;
+    let lastHealthStatus = null;
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
+    function setStatusPresentation({ title, message, connected = false, tooltip = '' }) {
+      connectionLabel.textContent = title;
+      connectionCopy.textContent = message;
+      statusDot.classList.toggle('connected', Boolean(connected));
+      const resolvedTooltip = tooltip || [title, message].filter(Boolean).join(' — ');
+      statusDot.title = resolvedTooltip;
+      connectionLabel.title = resolvedTooltip;
+      connectionCopy.title = resolvedTooltip;
+    }
+
+    function updateStatusDevLink(statusPayload) {
+      const runUrl = statusPayload?.deploy?.run_url;
+      const isDeployStatus = statusPayload?.status_key === 'deploy_failed'
+        || statusPayload?.status_key === 'deploy_in_progress'
+        || statusPayload?.status_key === 'deploy_pending_switch';
+
+      if (!runUrl || !isDeployStatus) {
+        statusDevLink.hidden = true;
+        statusDevLink.removeAttribute('href');
+        statusDevLink.title = 'Детали деплоя недоступны';
+        return;
+      }
+
+      statusDevLink.hidden = false;
+      statusDevLink.href = runUrl;
+      statusDevLink.title = 'Открыть детали деплоя';
+    }
+
+    function buildHealthTooltip(statusPayload) {
+      if (!statusPayload || typeof statusPayload !== 'object') return '';
+      const runtime = statusPayload.runtime || {};
+      const deploy = statusPayload.deploy || {};
+      const parts = [];
+      if (deploy.state) parts.push('deploy: ' + deploy.state);
+      if (deploy.expected_sha) parts.push('next sha: ' + deploy.expected_sha);
+      if (runtime.mode) parts.push('mode: ' + runtime.mode);
+      if (runtime.app_env) parts.push('env: ' + runtime.app_env);
+      if (runtime.deploy_sha) parts.push('sha: ' + runtime.deploy_sha);
+      if (runtime.started_at) parts.push('started: ' + runtime.started_at);
+      return parts.join(' | ');
+    }
+
+    function applyHealthStatus(statusPayload, options = {}) {
+      if (!statusPayload || typeof statusPayload !== 'object') return;
+      lastHealthStatus = statusPayload;
+      updateStatusDevLink(statusPayload);
+      const runtime = statusPayload.runtime || {};
+      const tooltip = buildHealthTooltip(statusPayload);
+      const wsOpen = ws && ws.readyState === WebSocket.OPEN;
+      const reconnecting = options.reconnecting === true;
+
+      if (statusPayload.status_key === 'auth_required') {
+        setStatusPresentation({
+          title: statusPayload.title || 'Нужен повторный вход',
+          message: statusPayload.message || 'Сессия истекла. Войдите снова.',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      if (statusPayload.status_key === 'deploy_failed'
+        || statusPayload.status_key === 'deploy_in_progress'
+        || statusPayload.status_key === 'deploy_pending_switch') {
+        setStatusPresentation({
+          title: statusPayload.title || 'Проверяем обновление сервера',
+          message: statusPayload.message || 'Проверяем ход обновления сервера…',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      if (wsOpen) {
+        setStatusPresentation({
+          title: 'Агент на связи',
+          message: 'Подключение установлено. Можно продолжать работу.',
+          connected: true,
+          tooltip
+        });
+        return;
+      }
+
+      if (reconnecting) {
+        setStatusPresentation({
+          title: 'Связь временно пропала',
+          message: 'Пробуем восстановить подключение автоматически…',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      if (preferHttpFallback && runtime.health_ok) {
+        setStatusPresentation({
+          title: 'Работаем без live-канала',
+          message: 'Сервер отвечает. Если нужно, можно продолжать через обычные запросы.',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      setStatusPresentation({
+        title: statusPayload.title || 'Проверяем состояние сервера',
+        message: statusPayload.message || 'Проверяем доступность сервера…',
+        connected: false,
+        tooltip
+      });
+    }
+
+    async function refreshHealthStatus(options = {}) {
+      try {
+        const response = await fetch(withBasePath('/health_status'), {
+          headers: { accept: 'application/json' }
+        });
+
+        if (response.status === 401) {
+          applyHealthStatus({
+            status_key: 'auth_required',
+            title: 'Нужен повторный вход',
+            message: 'Сессия истекла. Войдите снова.'
+          }, options);
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error('health_status_http_' + response.status);
+        }
+
+        const payload = await response.json();
+        applyHealthStatus(payload, options);
+      } catch (_error) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          setStatusPresentation({
+            title: 'Агент на связи',
+            message: 'Чат работает, но служебный статус сервера сейчас недоступен.',
+            connected: true
+          });
+          return;
+        }
+
+        setStatusPresentation({
+          title: 'Не удаётся проверить сервер',
+          message: 'Статус сервера сейчас недоступен. Пробуем подключиться снова.',
+          connected: false
+        });
+      }
+    }
+
+    function scheduleHealthStatusPolling() {
+      if (healthStatusTimer) clearInterval(healthStatusTimer);
+      healthStatusTimer = setInterval(() => {
+        void refreshHealthStatus();
+      }, 10000);
+    }
+
+    function clearWsTimers() {
+      if (wsConnectTimer) {
+        clearTimeout(wsConnectTimer);
+        wsConnectTimer = null;
+      }
+      if (wsRetryTimer) {
+        clearTimeout(wsRetryTimer);
+        wsRetryTimer = null;
+      }
+    }
+
+    function scheduleReconnect() {
+      if (wsRetryTimer) return;
+      wsRetryTimer = setTimeout(() => {
+        wsRetryTimer = null;
+        connect();
+      }, 3000);
+    }
+
+    function setHttpFallbackStatus(copy) {
+      applyHealthStatus(lastHealthStatus || {
+        status_key: 'runtime_available',
+        runtime: { health_ok: true },
+        title: 'Сервер отвечает',
+        message: 'Можно продолжать работу.'
+      });
+      if (copy) {
+        connectionCopy.textContent = copy;
+      }
+    }
+
     function connect() {
+      clearWsTimers();
+      const currentGeneration = ++wsGeneration;
       ws = new WebSocket(WS_URL);
+      setStatusPresentation({
+        title: 'Подключаем чат',
+        message: 'Налаживаем связь с агентом…',
+        connected: false
+      });
+      void refreshHealthStatus();
+
+      wsConnectTimer = setTimeout(() => {
+        if (wsGeneration !== currentGeneration) return;
+        if (ws && ws.readyState === WebSocket.CONNECTING) {
+          preferHttpFallback = true;
+          setHttpFallbackStatus('Прямое соединение отвечает слишком долго. Пока работаем через обычные запросы.');
+          updateSendEnabled();
+          try { ws.close(); } catch {}
+        }
+      }, 8000);
 
       ws.onopen = () => {
-        statusDot.classList.add('connected');
-        connectionLabel.textContent = 'Агент на связи';
-        connectionCopy.textContent = 'Соединение установлено.';
+        clearWsTimers();
+        preferHttpFallback = false;
+        applyHealthStatus(lastHealthStatus || {
+          status_key: 'runtime_available',
+          runtime: { health_ok: true }
+        });
         updateSendEnabled();
       };
 
       ws.onclose = (ev) => {
+        clearWsTimers();
         streaming = false;
         currentAssistant = null;
-        statusDot.classList.remove('connected');
-        connectionLabel.textContent = 'Подключение потеряно';
-        connectionCopy.textContent = 'Переподключение...';
+        if (preferHttpFallback) {
+          setHttpFallbackStatus('Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.');
+        } else {
+          applyHealthStatus(lastHealthStatus || {
+            status_key: 'connecting',
+            title: 'Связь временно пропала',
+            message: 'Пробуем восстановить подключение автоматически…'
+          }, { reconnecting: true });
+        }
         updateSendEnabled();
         if (ev.code === 4001) { window.location = LOGIN_PATH; return; }
-        setTimeout(connect, 3000); // auto-reconnect
+        void refreshHealthStatus({ reconnecting: true });
+        scheduleReconnect();
       };
 
       ws.onerror = () => {
-        statusDot.classList.remove('connected');
-        connectionLabel.textContent = 'Ошибка соединения';
-        connectionCopy.textContent = 'WebSocket недоступен.';
+        preferHttpFallback = true;
+        setHttpFallbackStatus('Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.');
+        updateSendEnabled();
+        void refreshHealthStatus();
       };
 
       ws.onmessage = (ev) => {
@@ -1817,7 +2086,6 @@ const CHAT_HTML = `<!DOCTYPE html>
     function sendMessage(text) {
       if (!text || !text.trim()) return;
       if (streaming) return;
-      if (!ws || ws.readyState !== 1) return;
 
       streaming = true;
       updateSendEnabled();
@@ -1828,7 +2096,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       msgInput.value = '';
       msgInput.style.height = 'auto';
 
-      ws.send(JSON.stringify({
+      const payload = {
         type: 'message',
         text: text.trim(),
         vacancyId: selectedVacancyId,
@@ -2140,7 +2408,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     sendBtn.addEventListener('click', () => sendMessage(msgInput.value));
 
     function updateSendEnabled() {
-      const ready = ws?.readyState === 1 && !streaming && msgInput.value.trim().length > 0;
+      const transportReady = preferHttpFallback || ws?.readyState === 1;
+      const ready = transportReady && !streaming && msgInput.value.trim().length > 0;
       sendBtn.disabled = !ready;
     }
 
@@ -2372,6 +2641,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     // Start WS
+    void refreshHealthStatus();
+    scheduleHealthStatusPolling();
     connect();
 
     historyToggleBtn.addEventListener('click', () => setHistoryOpen(!historyOpen));
