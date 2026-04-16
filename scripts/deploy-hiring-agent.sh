@@ -103,7 +103,12 @@ ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
 
   git fetch origin "$DEPLOY_REF"
   git checkout "$DEPLOY_REF"
-  git reset --hard "origin/$DEPLOY_REF"
+  if git rev-parse --verify --quiet "origin/$DEPLOY_REF" >/dev/null; then
+    git reset --hard "origin/$DEPLOY_REF"
+  else
+    # workflow_dispatch / gated deploys often pass an exact commit SHA, not a branch name
+    git reset --hard "$DEPLOY_REF"
+  fi
 
   run_pnpm() {
     if command -v pnpm >/dev/null 2>&1; then
