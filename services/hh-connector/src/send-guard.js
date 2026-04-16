@@ -27,6 +27,70 @@ function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+export async function reconcileSentHhMessage({
+  store,
+  plannedMessage,
+  hhNegotiationId,
+  hhMessageId,
+  sentAt,
+  attemptId = null
+}) {
+  const sentAtIso = sentAt instanceof Date ? sentAt.toISOString() : sentAt;
+  const plannedMessageId = plannedMessage.planned_message_id;
+
+  if (attemptId) {
+    await store.markDeliveryAttemptDelivered({ attempt_id: attemptId, hh_message_id: hhMessageId });
+  } else {
+    const existing = await store.getSuccessfulDeliveryAttempt(plannedMessageId);
+    if (!existing) {
+      const deliveredAttempt = await store.recordDeliveryAttempt({
+        attempt_id: randomUUID(),
+        planned_message_id: plannedMessageId,
+        hh_negotiation_id: hhNegotiationId,
+        status: "delivered"
+      });
+      await store.markDeliveryAttemptDelivered({
+        attempt_id: deliveredAttempt.attempt_id,
+        hh_message_id: hhMessageId
+      });
+    } else if (existing.hh_message_id !== hhMessageId) {
+      await store.markDeliveryAttemptDelivered({
+        attempt_id: existing.attempt_id,
+        hh_message_id: hhMessageId
+      });
+    }
+  }
+
+  await store.markPlannedMessageSent({
+    planned_message_id: plannedMessageId,
+    sent_at: sentAtIso,
+    hh_message_id: hhMessageId
+  });
+
+  if (plannedMessage.conversation_id && plannedMessage.candidate_id && hhMessageId) {
+    await store.upsertImportedMessage({
+      conversation_id: plannedMessage.conversation_id,
+      candidate_id: plannedMessage.candidate_id,
+      direction: "outbound",
+      body: plannedMessage.body,
+      channel: plannedMessage.channel ?? "hh",
+      channel_message_id: hhMessageId,
+      occurred_at: sentAtIso
+    });
+  }
+
+  if (hhNegotiationId) {
+    const currentPollState = await store.getHhPollState(hhNegotiationId);
+    await store.upsertHhPollState(hhNegotiationId, {
+      last_polled_at: currentPollState?.last_polled_at ?? sentAtIso,
+      hh_updated_at: sentAtIso,
+      last_sender: "employer",
+      awaiting_reply: true,
+      next_poll_at: sentAtIso
+    });
+  }
+}
+
 export async function sendHHWithGuard({ store, hhClient, plannedMessage, hhNegotiationId }) {
   const traceId = randomUUID();
   const now = new Date();
@@ -110,11 +174,13 @@ export async function sendHHWithGuard({ store, hhClient, plannedMessage, hhNegot
 
   try {
     const { hh_message_id } = await hhClient.sendMessage(hhNegotiationId, plannedMessage.body);
-    await store.markDeliveryAttemptDelivered({ attempt_id: attemptId, hh_message_id });
-    await store.markPlannedMessageSent({
-      planned_message_id: plannedMessageId,
-      sent_at: now.toISOString(),
-      hh_message_id
+    await reconcileSentHhMessage({
+      store,
+      plannedMessage,
+      hhNegotiationId,
+      hhMessageId: hh_message_id,
+      sentAt: now.toISOString(),
+      attemptId
     });
 
     console.info("[hh-send] queue_transition", {

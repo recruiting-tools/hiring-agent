@@ -674,7 +674,9 @@ export class PostgresHiringStore {
       INSERT INTO chatbot.messages
         (message_id, conversation_id, candidate_id, direction, message_type, body, channel, channel_message_id, occurred_at)
       VALUES (${randomUUID()}, ${conversation_id}, ${candidate_id}, ${direction}, 'text', ${body}, ${channel}, ${channel_message_id}, ${occurred_at})
-      ON CONFLICT (conversation_id, channel_message_id) DO NOTHING
+      ON CONFLICT (conversation_id, channel_message_id) DO UPDATE SET
+        body = EXCLUDED.body,
+        occurred_at = EXCLUDED.occurred_at
       RETURNING *
     `;
     return rows[0];
@@ -792,7 +794,9 @@ export class PostgresHiringStore {
   async markPlannedMessageSent({ planned_message_id, sent_at, hh_message_id }) {
     await this.sql`
       UPDATE chatbot.planned_messages
-      SET review_status = 'sent', sent_at = ${sent_at}
+      SET review_status = 'sent',
+          sent_at = ${sent_at},
+          hh_message_id = COALESCE(${hh_message_id ?? null}, hh_message_id)
       WHERE planned_message_id = ${planned_message_id}
     `;
     if (hh_message_id) {
