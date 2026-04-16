@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { interpolate } from "../../services/hiring-agent/src/playbooks/context-interpolation.js";
 
-test("interpolate: replaces dotted context paths", () => {
-  const result = interpolate("Vacancy: {{context.vacancy.title}}", {
-    vacancy: { title: "Senior Recruiter" }
+test("interpolate: replaces dotted context paths for canonical job_setup surface", () => {
+  const result = interpolate("Job setup: {{context.job_setup.title}}", {
+    job_setup: { title: "Senior Recruiter" }
   });
 
-  assert.equal(result, "Vacancy: Senior Recruiter");
+  assert.equal(result, "Job setup: Senior Recruiter");
 });
 
 test("interpolate: supports list and object filters used by seeded playbooks", () => {
@@ -93,13 +93,13 @@ test("interpolate: missing values resolve to empty strings", () => {
   assert.equal(result, "");
 });
 
-test("interpolate: supports seeded html, funnel_table, and vacancy_card filters", () => {
+test("interpolate: supports seeded html, funnel_table, and vacancy_card filters on job_setup", () => {
   const context = {
     generated_messages: "<div class=\"message-variant\"><p>Привет</p></div>",
     funnel_data: [
       { step_name: "Первый контакт", total: 5, in_progress: 2, completed: 2, stuck: 1, rejected: 0 }
     ],
-    vacancy: {
+    job_setup: {
       title: "Оператор склада",
       must_haves: ["Опыт от 1 года"],
       application_steps: [{ name: "Созвон", type: "screening", in_our_scope: true, is_target: false }]
@@ -115,7 +115,7 @@ test("interpolate: supports seeded html, funnel_table, and vacancy_card filters"
     /\| Этап \| Всего \| В работе \| Завершено \| Зависли \| Отказ \|/
   );
   assert.match(
-    interpolate("{{context.vacancy | vacancy_card}}", context),
+    interpolate("{{context.job_setup | vacancy_card}}", context),
     /# Оператор склада/
   );
 });
