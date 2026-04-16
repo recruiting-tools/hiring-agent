@@ -1443,6 +1443,10 @@ test("hiring-agent: GET / serves HTML shell after auth", async () => {
     assert.ok(body.includes("Hiring Agent"));
     assert.ok(body.includes("vacancy-select"));
     assert.match(body, /replace\(\/\\\+\/g, '-'\)\.replace\(\/\\\/\/g, '_'\)\.replace\(\/=\+\$\/g, ''\);/);
+    assert.ok(body.includes(".replace(/\\[([^\\]]+)\\]\\([^)]+\\)/g, '$1')"));
+    assert.ok(body.includes(".replace(/\\s+/g, ' ')"));
+    assert.ok(!body.includes(".replace(/[([^]]+)]([^)]+)/g, '$1')"));
+    assert.ok(!body.includes(".replace(/s+/g, ' ')"));
   } finally {
     server.close();
   }
