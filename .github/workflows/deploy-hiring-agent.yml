@@ -157,7 +157,7 @@ jobs:
             "mkdir -p '$DEPLOY_DIR' && echo '$ENV_B64' | base64 -d > '$DEPLOY_DIR/.env' && echo '.env written: $DEPLOY_DIR/.env'"
 
       - name: Install Playwright browser for smoke
-        run: pnpm dlx playwright@latest install --with-deps chromium
+        run: pnpm dlx playwright@latest install chromium
 
       - name: Bootstrap sandbox demo recruiter
         env:

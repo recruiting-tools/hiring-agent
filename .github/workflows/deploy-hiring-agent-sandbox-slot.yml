@@ -219,7 +219,7 @@ jobs:
           corepack pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install Playwright browser for smoke
-        run: pnpm dlx playwright@latest install --with-deps chromium
+        run: pnpm dlx playwright@latest install chromium
 
       - name: Bootstrap sandbox demo recruiter
         env:
