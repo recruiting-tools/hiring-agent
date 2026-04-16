@@ -5,12 +5,11 @@ const SESSION_RENEWAL_WINDOW_DAYS = 7;
 
 export function createManagementStore(managementSql) {
   const value = (input) => (input === undefined ? null : input);
-  const resolveJobSetupKey = ({ jobSetupId, vacancyId }) => value(jobSetupId ?? vacancyId ?? null);
+  const resolveJobSetupKey = ({ jobSetupId }) => value(jobSetupId ?? null);
   const normalizeSessionRow = (row) => {
     if (!row) return null;
     return {
-      ...row,
-      job_setup_id: row.job_setup_id ?? row.vacancy_id ?? null
+      ...row
     };
   };
 
@@ -114,7 +113,7 @@ export function createManagementStore(managementSql) {
     },
 
     async getActiveSession({ tenantId, recruiterId, vacancyId, jobId = null, jobSetupId = null, playbookKey }) {
-      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId, vacancyId });
+      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId });
       const rows = await managementSql`
         SELECT
           session_id,
@@ -139,12 +138,12 @@ export function createManagementStore(managementSql) {
           AND status = 'active'
           AND (
             (${value(jobId)}::text IS NOT NULL AND job_id IS NOT DISTINCT FROM ${value(jobId)})
-            OR (${resolvedJobSetupId}::text IS NOT NULL AND COALESCE(job_setup_id, vacancy_id) IS NOT DISTINCT FROM ${resolvedJobSetupId})
+            OR (${resolvedJobSetupId}::text IS NOT NULL AND job_setup_id IS NOT DISTINCT FROM ${resolvedJobSetupId})
             OR (
               ${value(jobId)}::text IS NULL
               AND ${resolvedJobSetupId}::text IS NULL
               AND job_id IS NULL
-              AND COALESCE(job_setup_id, vacancy_id) IS NULL
+              AND job_setup_id IS NULL
             )
           )
         LIMIT 1
@@ -161,6 +160,8 @@ export function createManagementStore(managementSql) {
           conversation_id,
           playbook_key,
           current_step_order,
+          job_id,
+          job_setup_id,
           vacancy_id,
           context,
           call_stack,
@@ -189,6 +190,7 @@ export function createManagementStore(managementSql) {
       callStack = []
     }) {
       const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId, vacancyId });
+      const legacyVacancyId = value(vacancyId);
       const rows = await managementSql`
         INSERT INTO management.playbook_sessions (
           tenant_id,
@@ -210,7 +212,7 @@ export function createManagementStore(managementSql) {
           ${value(currentStepOrder)},
           ${value(jobId)},
           ${resolvedJobSetupId},
-          ${value(vacancyId)},
+          ${legacyVacancyId},
           ${JSON.stringify(context ?? {})}::jsonb,
           ${JSON.stringify(callStack ?? [])}::jsonb
         )
@@ -243,7 +245,7 @@ export function createManagementStore(managementSql) {
       jobSetupId,
       status
     } = {}) {
-      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId, vacancyId });
+      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId });
       const rows = await managementSql`
         UPDATE management.playbook_sessions
         SET
@@ -277,7 +279,7 @@ export function createManagementStore(managementSql) {
     },
 
     async completeSession(sessionId, { context, callStack, vacancyId, jobId, jobSetupId } = {}) {
-      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId, vacancyId });
+      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId });
       const rows = await managementSql`
         UPDATE management.playbook_sessions
         SET
@@ -312,7 +314,7 @@ export function createManagementStore(managementSql) {
     },
 
     async abortActiveSessions({ tenantId, recruiterId, vacancyId, jobId = null, jobSetupId = null, excludePlaybookKey = null }) {
-      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId, vacancyId });
+      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId });
       await managementSql`
         UPDATE management.playbook_sessions
         SET status = 'aborted',
@@ -323,12 +325,12 @@ export function createManagementStore(managementSql) {
           AND (${value(excludePlaybookKey)}::text IS NULL OR playbook_key <> ${value(excludePlaybookKey)})
           AND (
             (${value(jobId)}::text IS NOT NULL AND job_id IS NOT DISTINCT FROM ${value(jobId)})
-            OR (${resolvedJobSetupId}::text IS NOT NULL AND COALESCE(job_setup_id, vacancy_id) IS NOT DISTINCT FROM ${resolvedJobSetupId})
+            OR (${resolvedJobSetupId}::text IS NOT NULL AND job_setup_id IS NOT DISTINCT FROM ${resolvedJobSetupId})
             OR (
               ${value(jobId)}::text IS NULL
               AND ${resolvedJobSetupId}::text IS NULL
               AND job_id IS NULL
-              AND COALESCE(job_setup_id, vacancy_id) IS NULL
+              AND job_setup_id IS NULL
             )
           )
       `;
