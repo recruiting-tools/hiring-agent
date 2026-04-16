@@ -1238,7 +1238,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + withBasePath('/ws');
     const LOGIN_PATH = withBasePath('/login');
     const CHATBOT_MODERATION_BASE = '__CHATBOT_MODERATION_BASE__';
-    const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
+    const LAST_JOB_KEY = 'hiring-agent:last-job-id:' + (APP_BASE_PATH || 'root');
+    const LEGACY_LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_QUERY_PARAM = 'state';
     const CHAT_STATE_HASH_PREFIX = 'state=';
     const CHAT_SESSION_HASH_PREFIX = 's=';
@@ -1261,6 +1262,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     let streaming = false;
     let selectedVacancyId = null;
     let selectedVacancyJobId = null;
+    let selectedVacancyJobSetupId = null;
     let availableVacancies = [];
     let selectedVacancyTitle = '';
     let activePlaybookKey = null;
@@ -1511,10 +1513,10 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     function renderSessionHistory() {
       const items = Array.isArray(sessionHistoryIndex) ? sessionHistoryIndex : [];
-      const prioritizedItems = selectedVacancyId
+      const prioritizedItems = selectedVacancyJobId
         ? [
-            ...items.filter((item) => String(item?.vacancyId ?? '') === String(selectedVacancyId)),
-            ...items.filter((item) => String(item?.vacancyId ?? '') !== String(selectedVacancyId))
+            ...items.filter((item) => String(item?.jobId ?? item?.vacancyId ?? '') === String(selectedVacancyJobId)),
+            ...items.filter((item) => String(item?.jobId ?? item?.vacancyId ?? '') !== String(selectedVacancyJobId))
           ]
         : items;
 
@@ -1551,10 +1553,10 @@ const CHAT_HTML = `<!DOCTYPE html>
           meta.appendChild(currentBadge);
         }
 
-        if (item.vacancyId) {
+        if (item.jobId || item.vacancyId) {
           const vacancyBadge = document.createElement('span');
           vacancyBadge.className = 'history-badge';
-          vacancyBadge.textContent = String(item.vacancyId) === String(selectedVacancyId) && selectedVacancyId
+          vacancyBadge.textContent = String(item.jobId ?? item.vacancyId) === String(selectedVacancyJobId) && selectedVacancyJobId
             ? 'Текущая вакансия'
             : 'Вакансия';
           meta.appendChild(vacancyBadge);
@@ -1586,6 +1588,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       const entry = {
         sessionId: normalized.sessionId,
         vacancyId: normalized.vacancyId,
+        jobId: normalized.jobId,
         vacancyTitle: normalized.vacancyTitle || 'Новая сессия',
         updatedAt: new Date().toISOString(),
         preview: getHistoryPreview(normalized.history)
@@ -1757,33 +1760,38 @@ const CHAT_HTML = `<!DOCTYPE html>
       activePlaybookContext = null;
     }
 
-    function upsertVacancyOption(vacancyId, title, jobId) {
-      if (!vacancyId) return;
+    function upsertVacancyOption(vacancyId, title, jobId, jobSetupId) {
+      const canonicalJobId = jobId || vacancyId;
+      if (!canonicalJobId) return;
 
-      const normalizedVacancyId = String(vacancyId);
+      const normalizedJobId = String(canonicalJobId);
+      const normalizedJobSetupId = jobSetupId || vacancyId || canonicalJobId;
       const label = title || 'Новая вакансия';
-      let option = Array.from(vacancySelect.options).find((item) => String(item.value) === normalizedVacancyId);
+      let option = Array.from(vacancySelect.options).find((item) => String(item.value) === normalizedJobId);
 
       if (!option) {
         option = document.createElement('option');
-        option.value = normalizedVacancyId;
+        option.value = normalizedJobId;
         const createOption = Array.from(vacancySelect.options).find((item) => item.value === '__create__');
         vacancySelect.insertBefore(option, createOption || null);
       }
 
       option.textContent = label;
-      vacancySelect.value = normalizedVacancyId;
+      vacancySelect.value = normalizedJobId;
 
-      const existing = availableVacancies.find((item) => String(item.vacancy_id) === normalizedVacancyId);
+      const existing = availableVacancies.find((item) => String(item.job_id ?? item.vacancy_id) === normalizedJobId);
       if (existing) {
         existing.title = label;
-        existing.job_id = jobId || existing.job_id || null;
+        existing.job_id = canonicalJobId || existing.job_id || null;
+        existing.job_setup_id = normalizedJobSetupId || existing.job_setup_id || null;
+        existing.vacancy_id = vacancyId || existing.vacancy_id || normalizedJobSetupId || null;
         return;
       }
 
       availableVacancies.unshift({
-        vacancy_id: normalizedVacancyId,
-        job_id: jobId || null,
+        vacancy_id: vacancyId || normalizedJobSetupId,
+        job_id: canonicalJobId,
+        job_setup_id: normalizedJobSetupId,
         title: label
       });
     }
@@ -1800,13 +1808,16 @@ const CHAT_HTML = `<!DOCTYPE html>
         clearActivePlaybookState();
       }
 
-      if (!data.vacancyId) return;
+      const resolvedJobId = data.jobId || data.vacancyId || null;
+      if (!resolvedJobId) return;
 
-      selectedVacancyId = data.vacancyId;
-      selectedVacancyJobId = data.jobId || selectedVacancyJobId || null;
+      selectedVacancyId = data.jobSetupId || data.vacancyId || resolvedJobId;
+      selectedVacancyJobId = resolvedJobId;
+      selectedVacancyJobSetupId = data.jobSetupId || data.vacancyId || selectedVacancyJobSetupId || resolvedJobId;
       selectedVacancyTitle = data.vacancyTitle || selectedVacancyTitle || 'Новая вакансия';
-      localStorage.setItem(LAST_VACANCY_KEY, String(selectedVacancyId));
-      upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
+      localStorage.setItem(LAST_JOB_KEY, String(selectedVacancyJobId));
+      localStorage.removeItem(LEGACY_LAST_VACANCY_KEY);
+      upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId, selectedVacancyJobSetupId);
       syncContext();
       persistChatState();
       renderSessionHistory();
@@ -1829,7 +1840,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       ws.send(JSON.stringify({
         type: 'message',
         text: text.trim(),
-        vacancyId: selectedVacancyId,
+        vacancyId: selectedVacancyJobSetupId || selectedVacancyId || selectedVacancyJobId || null,
         jobId: selectedVacancyJobId || null,
         playbookKey: activePlaybookKey || null,
         clientContext: activePlaybookContext || null
@@ -1842,9 +1853,9 @@ const CHAT_HTML = `<!DOCTYPE html>
         const res = await fetch(withBasePath('/api/jobs'));
         if (res.status === 401) { window.location = LOGIN_PATH; return; }
         const data = await res.json();
-        const jobs = Array.isArray(data.vacancies) ? data.vacancies : (Array.isArray(data.jobs) ? data.jobs : []);
+        const jobs = Array.isArray(data.jobs) ? data.jobs : (Array.isArray(data.vacancies) ? data.vacancies : []);
         availableVacancies = jobs;
-        const savedVacancyId = localStorage.getItem(LAST_VACANCY_KEY);
+        const savedJobId = localStorage.getItem(LAST_JOB_KEY) || localStorage.getItem(LEGACY_LAST_VACANCY_KEY);
 
         if (jobs.length === 0) {
           vacancySelect.innerHTML = '<option value="">Нет вакансий</option>';
@@ -1866,7 +1877,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
         jobs.forEach(job => {
           const opt = document.createElement('option');
-          opt.value = job.vacancy_id;
+          opt.value = job.job_id;
           opt.textContent = job.title;
           vacancySelect.appendChild(opt);
         });
@@ -1886,17 +1897,17 @@ const CHAT_HTML = `<!DOCTYPE html>
           }
         }
 
-        const savedMatch = jobs.find((job) => String(job.vacancy_id) === savedVacancyId);
+        const savedMatch = jobs.find((job) => String(job.job_id ?? job.vacancy_id) === savedJobId);
         if (savedMatch) {
-          vacancySelect.value = savedMatch.vacancy_id;
-          onVacancySelected(savedMatch.vacancy_id, savedMatch.title, savedMatch.job_id);
+          vacancySelect.value = savedMatch.job_id;
+          onVacancySelected(savedMatch.vacancy_id ?? savedMatch.job_setup_id ?? savedMatch.job_id, savedMatch.title, savedMatch.job_id, savedMatch.job_setup_id ?? savedMatch.vacancy_id ?? savedMatch.job_id);
           return;
         }
 
         // Auto-select if only one
         if (jobs.length === 1) {
-          vacancySelect.value = jobs[0].vacancy_id;
-          onVacancySelected(jobs[0].vacancy_id, jobs[0].title, jobs[0].job_id);
+          vacancySelect.value = jobs[0].job_id;
+          onVacancySelected(jobs[0].vacancy_id ?? jobs[0].job_setup_id ?? jobs[0].job_id, jobs[0].title, jobs[0].job_id, jobs[0].job_setup_id ?? jobs[0].vacancy_id ?? jobs[0].job_id);
         }
       } catch {
         vacancySelect.innerHTML = '<option value="">Ошибка загрузки</option>';
@@ -1910,19 +1921,25 @@ const CHAT_HTML = `<!DOCTYPE html>
         return;
       }
       const title = vacancySelect.options[vacancySelect.selectedIndex]?.text ?? '';
-      const selected = availableVacancies.find((job) => String(job.vacancy_id) === String(val));
-      onVacancySelected(val || null, title, selected?.job_id ?? null);
+      const selected = availableVacancies.find((job) => String(job.job_id ?? job.vacancy_id) === String(val));
+      onVacancySelected(selected?.vacancy_id ?? selected?.job_setup_id ?? val || null, title, selected?.job_id ?? val ?? null, selected?.job_setup_id ?? selected?.vacancy_id ?? val ?? null);
     });
 
-    function onVacancySelected(vacancyId, title, jobId) {
+    function onVacancySelected(vacancyId, title, jobId, jobSetupId) {
       clearActivePlaybookState();
       activeSessionId = null;
       updateCopyLinkButton();
-      selectedVacancyId = vacancyId;
-      selectedVacancyJobId = jobId || null;
+      selectedVacancyId = vacancyId || jobSetupId || jobId || null;
+      selectedVacancyJobId = jobId || vacancyId || null;
+      selectedVacancyJobSetupId = jobSetupId || vacancyId || jobId || null;
       selectedVacancyTitle = title || '';
-      if (vacancyId) localStorage.setItem(LAST_VACANCY_KEY, String(vacancyId));
-      else localStorage.removeItem(LAST_VACANCY_KEY);
+      if (selectedVacancyJobId) {
+        localStorage.setItem(LAST_JOB_KEY, String(selectedVacancyJobId));
+        localStorage.removeItem(LEGACY_LAST_VACANCY_KEY);
+      } else {
+        localStorage.removeItem(LAST_JOB_KEY);
+        localStorage.removeItem(LEGACY_LAST_VACANCY_KEY);
+      }
 
       syncContext();
 
@@ -1930,13 +1947,13 @@ const CHAT_HTML = `<!DOCTYPE html>
       chatLog.innerHTML = '';
       clearChatHistory();
 
-      if (!vacancyId) {
+      if (!selectedVacancyJobId) {
         chatLog.appendChild(emptyState);
         updateSendEnabled();
         return;
       }
 
-      showWelcome(vacancyId, title);
+      showWelcome(selectedVacancyJobId, title);
       updateSendEnabled();
     }
 
@@ -1951,6 +1968,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       updateCopyLinkButton();
       selectedVacancyId = null;
       selectedVacancyJobId = null;
+      selectedVacancyJobSetupId = null;
       selectedVacancyTitle = '';
       vacancySelect.value = '';
       syncContext();
@@ -1969,7 +1987,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     });
 
     function syncContext() {
-      const hasVacancy = Boolean(selectedVacancyId);
+      const hasVacancy = Boolean(selectedVacancyJobId);
 
       contextVacancyTitle.textContent = hasVacancy ? selectedVacancyTitle : 'Вакансия не выбрана';
       contextVacancyCopy.textContent = hasVacancy
@@ -2010,7 +2028,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     function syncShortcuts() {
       shortcutButtons.forEach((button) => {
         const requiresVacancy = button.dataset.requiresVacancy === 'true';
-        button.disabled = requiresVacancy && !selectedVacancyId;
+        button.disabled = requiresVacancy && !selectedVacancyJobId;
       });
     }
 
@@ -2054,8 +2072,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       return {
         version: CHAT_STATE_VERSION,
         sessionId: activeSessionId ? String(activeSessionId) : null,
-        vacancyId: selectedVacancyId ? String(selectedVacancyId) : null,
+        vacancyId: selectedVacancyJobSetupId ? String(selectedVacancyJobSetupId) : (selectedVacancyId ? String(selectedVacancyId) : null),
         jobId: selectedVacancyJobId ? String(selectedVacancyJobId) : null,
+        jobSetupId: selectedVacancyJobSetupId ? String(selectedVacancyJobSetupId) : null,
         vacancyTitle: selectedVacancyTitle || '',
         playbookKey: activePlaybookKey || null,
         playbookContext: activePlaybookContext || null,
@@ -2116,8 +2135,9 @@ const CHAT_HTML = `<!DOCTYPE html>
       return {
         version: Number(state.version) || CHAT_STATE_VERSION,
         sessionId: state.sessionId ? String(state.sessionId) : null,
-        vacancyId: state.vacancyId ? String(state.vacancyId) : null,
-        jobId: state.jobId ? String(state.jobId) : null,
+        vacancyId: state.jobSetupId ? String(state.jobSetupId) : (state.vacancyId ? String(state.vacancyId) : null),
+        jobId: state.jobId ? String(state.jobId) : (state.vacancyId ? String(state.vacancyId) : null),
+        jobSetupId: state.jobSetupId ? String(state.jobSetupId) : (state.vacancyId ? String(state.vacancyId) : null),
         vacancyTitle: typeof state.vacancyTitle === 'string' ? state.vacancyTitle : '',
         playbookKey: typeof state.playbookKey === 'string' ? state.playbookKey : null,
         playbookContext: state.playbookContext && typeof state.playbookContext === 'object' ? state.playbookContext : null,
@@ -2128,7 +2148,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     function persistChatState() {
       const state = serializeChatState();
       const hasMeaningfulState = Boolean(
-        state.vacancyId
+        state.jobId
         || state.playbookKey
         || state.history.length > 0
       );
@@ -2187,17 +2207,20 @@ const CHAT_HTML = `<!DOCTYPE html>
       activePlaybookContext = normalized.playbookContext;
       selectedVacancyId = normalized.vacancyId;
       selectedVacancyJobId = normalized.jobId;
+      selectedVacancyJobSetupId = normalized.jobSetupId;
       selectedVacancyTitle = normalized.vacancyTitle || '';
 
-      if (selectedVacancyId) {
-        localStorage.setItem(LAST_VACANCY_KEY, String(selectedVacancyId));
+      if (selectedVacancyJobId) {
+        localStorage.setItem(LAST_JOB_KEY, String(selectedVacancyJobId));
+        localStorage.removeItem(LEGACY_LAST_VACANCY_KEY);
         if (selectedVacancyTitle) {
-          upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
+          upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId, selectedVacancyJobSetupId);
         } else {
-          vacancySelect.value = String(selectedVacancyId);
+          vacancySelect.value = String(selectedVacancyJobId);
         }
       } else {
-        localStorage.removeItem(LAST_VACANCY_KEY);
+        localStorage.removeItem(LAST_JOB_KEY);
+        localStorage.removeItem(LEGACY_LAST_VACANCY_KEY);
         vacancySelect.value = '';
       }
 
@@ -2205,12 +2228,12 @@ const CHAT_HTML = `<!DOCTYPE html>
       chatLog.innerHTML = '';
       chatHistory = normalized.history;
 
-      if (!selectedVacancyId) {
+      if (!selectedVacancyJobId) {
         chatLog.appendChild(emptyState);
       } else if (chatHistory.length > 0) {
         chatHistory.forEach((entry) => renderChatHistoryEntry(entry));
       } else {
-        showWelcome(selectedVacancyId, selectedVacancyTitle || 'Новая вакансия');
+        showWelcome(selectedVacancyJobId, selectedVacancyTitle || 'Новая вакансия');
       }
 
       updateSendEnabled();
@@ -2268,8 +2291,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     historyLauncherBtn.addEventListener('click', () => setHistoryOpen(true));
     chatHistoryBtn.addEventListener('click', () => setHistoryOpen(!historyOpen));
     newSessionBtn.addEventListener('click', () => {
-      if (selectedVacancyId) {
-        onVacancySelected(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
+      if (selectedVacancyJobId) {
+        onVacancySelected(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId, selectedVacancyJobSetupId);
       } else {
         chatLog.innerHTML = '';
         clearChatHistory();
@@ -2317,6 +2340,7 @@ function formatCommunicationPlanMarkdown(reply) {
   const examples = Array.isArray(reply.examples) ? reply.examples : [];
   const conversationExamples = Array.isArray(reply.conversation_examples) ? reply.conversation_examples : [];
   const note = String(reply.note ?? "").trim();
+  const jobId = String(reply.job_id ?? "").trim();
   const vacancyId = String(reply.vacancy_id ?? "").trim();
 
   const tableRows = rows.length > 0
@@ -2339,7 +2363,9 @@ function formatCommunicationPlanMarkdown(reply) {
     ].join("\n")
     : "";
 
-  const reportPath = vacancyId ? `chat/communication-examples?vacancy_id=${encodeURIComponent(vacancyId)}` : null;
+  const reportPath = jobId
+    ? `chat/communication-examples?job_id=${encodeURIComponent(jobId)}`
+    : (vacancyId ? `chat/communication-examples?vacancy_id=${encodeURIComponent(vacancyId)}` : null);
   const conversationsBlock = conversationExamples.length > 0
     ? [
       "",
@@ -2551,6 +2577,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       sessionId: result.body?.session_id ?? null,
       vacancyId: result.body?.vacancy_id ?? null,
       jobId: result.body?.job_id ?? null,
+      jobSetupId: result.body?.job_setup_id ?? result.body?.vacancy_id ?? null,
       vacancyTitle: result.body?.vacancy_title ?? null,
       replyKind: reply?.kind ?? null,
       reply
@@ -3040,13 +3067,13 @@ function escapeHtml(value) {
 async function getCommunicationExamplesReportData(tenantSql, { vacancyId, jobId }) {
   const rows = vacancyId
     ? await tenantSql`
-      SELECT vacancy_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
+      SELECT vacancy_id, job_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
       FROM chatbot.vacancies
       WHERE vacancy_id = ${vacancyId}
       LIMIT 1
     `
     : await tenantSql`
-      SELECT vacancy_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
+      SELECT vacancy_id, job_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
       FROM chatbot.vacancies
       WHERE job_id = ${jobId}
       ORDER BY
@@ -3065,6 +3092,7 @@ async function getCommunicationExamplesReportData(tenantSql, { vacancyId, jobId 
 
   return {
     vacancyId: vacancy.vacancy_id,
+    jobId: vacancy.job_id ?? vacancy.vacancy_id,
     title: vacancy.title ?? "Вакансия",
     updatedAt: vacancy.updated_at ?? null,
     plan: normalizeReportPlan(vacancy.communication_plan_draft) ?? normalizeReportPlan(vacancy.communication_plan),
@@ -3164,7 +3192,7 @@ function renderCommunicationExamplesReportHtml(report) {
   <main class="shell">
     <section class="panel">
       <h1>Примеры общения</h1>
-      <p class="meta"><strong>Вакансия:</strong> ${escapeHtml(report.title)}<br><strong>vacancy_id:</strong> ${escapeHtml(report.vacancyId)}<br><strong>Обновлено:</strong> ${escapeHtml(updatedAtLabel)}</p>
+      <p class="meta"><strong>Вакансия:</strong> ${escapeHtml(report.title)}<br><strong>job_id:</strong> ${escapeHtml(report.jobId)}<br><strong>vacancy_id:</strong> ${escapeHtml(report.vacancyId)}<br><strong>Обновлено:</strong> ${escapeHtml(updatedAtLabel)}</p>
     </section>
     <section class="panel">
       <h2>План коммуникации</h2>

@@ -821,20 +821,22 @@ export function createHiringAgentApp(options = {}) {
         { operation: "getVacancies", timeoutMs: tenantDbTimeoutMs }
       );
 
-      const synthesizedRows = jobsRows.map((job) => ({
+      const normalizedRows = rows.map((row) => normalizeJobContractRow(row));
+      const synthesizedRows = jobsRows.map((job) => normalizeJobContractRow({
         vacancy_id: job.job_id,
         job_id: job.job_id,
+        job_setup_id: job.job_id,
         title: job.title,
         status: "active",
         extraction_status: "pending"
       }));
 
       const seenKeys = new Set(
-        rows.map((row) => String(row.job_id ?? row.vacancy_id ?? ""))
+        normalizedRows.map((row) => String(row.job_id ?? ""))
       );
       const mergedRows = [
-        ...rows,
-        ...synthesizedRows.filter((row) => !seenKeys.has(String(row.job_id ?? row.vacancy_id ?? "")))
+        ...normalizedRows,
+        ...synthesizedRows.filter((row) => !seenKeys.has(String(row.job_id ?? "")))
       ];
 
       return {
@@ -1452,15 +1454,32 @@ function normalizePersistedChatState(snapshot) {
 
 function buildFallbackChatStateSnapshot(session, context) {
   const vacancy = context?.vacancy && typeof context.vacancy === "object" ? context.vacancy : null;
+  const jobId = vacancy?.job_id ?? session?.job_id ?? session?.vacancy_id ?? null;
+  const jobSetupId = session?.job_setup_id ?? session?.vacancy_id ?? vacancy?.vacancy_id ?? jobId ?? null;
 
   return {
     version: 1,
     sessionId: session?.session_id ? String(session.session_id) : null,
-    vacancyId: session?.vacancy_id ? String(session.vacancy_id) : null,
-    jobId: vacancy?.job_id ? String(vacancy.job_id) : null,
+    vacancyId: jobSetupId ? String(jobSetupId) : null,
+    jobId: jobId ? String(jobId) : null,
+    jobSetupId: jobSetupId ? String(jobSetupId) : null,
     vacancyTitle: typeof vacancy?.title === "string" ? vacancy.title : "",
     playbookKey: session?.playbook_key ? String(session.playbook_key) : null,
     playbookContext: null,
     history: []
+  };
+}
+
+function normalizeJobContractRow(row) {
+  const canonicalJobId = row?.job_id ?? row?.vacancy_id ?? null;
+  const jobSetupId = row?.job_setup_id ?? row?.vacancy_id ?? canonicalJobId;
+
+  return {
+    vacancy_id: row?.vacancy_id ?? jobSetupId,
+    job_id: canonicalJobId,
+    job_setup_id: jobSetupId,
+    title: row?.title ?? "",
+    status: row?.status ?? "active",
+    extraction_status: row?.extraction_status ?? "pending"
   };
 }
