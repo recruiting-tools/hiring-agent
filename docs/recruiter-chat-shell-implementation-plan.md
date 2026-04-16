@@ -135,7 +135,7 @@ Update `services/hiring-agent/src/server.js` to add:
    - For `render_funnel`: renders a table with columns: Шаг | Всего | В процессе | Завершён | Ждёт | Отклонён
    - For `playbook_locked`: shows "🔒 <title> — не подключено"
    - For `text`: renders as plain message bubble
-   - Auth: recruiter_token taken from URL query param `?token=rec-tok-demo-001` and sent with each request
+   - Auth: recruiter_token taken from URL query param `?token=<demo-recruiter-token>` and sent with each request
 
 `services/hiring-agent/tests/chat-endpoint.test.js` — HTTP integration test (requires DATABASE_URL):
 - POST /api/chat with funnel message → `type === 'render_funnel'` and `data` is array
@@ -149,7 +149,7 @@ Update `services/hiring-agent/src/server.js` to add:
 ## After All Iterations
 
 1. Run full test suite: `pnpm test`
-2. Verify smoke: start server locally with `V2_DEV_NEON_URL` and open `/?token=rec-tok-demo-001` in browser
+2. Verify smoke: start server locally with `V2_DEV_NEON_URL` and open `/?token=<demo-recruiter-token>` in browser
 3. Create PR against `main`
 
 ---

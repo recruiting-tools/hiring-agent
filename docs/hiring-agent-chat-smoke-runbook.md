@@ -19,14 +19,44 @@
 node --test tests/integration/hiring-agent.test.js
 ```
 
-2. E2E smoke через браузер (прод):
+2. E2E smoke через браузер:
 ```bash
+PLAYWRIGHT_SMOKE_BASE_URL="https://<hiring-agent-host>" \
+PLAYWRIGHT_SMOKE_EMAIL="<email>" \
+PLAYWRIGHT_SMOKE_PASSWORD="<password>" \
 node scripts/playwright-smoke.mjs
 ```
 
 Важно:
-- `scripts/playwright-smoke.mjs` использует значения `BASE_URL`, `EMAIL`, `PASSWORD` из самого файла.
-- перед запуском на другом окружении обновите эти константы в файле.
+- `scripts/playwright-smoke.mjs` читает учётные данные только из env.
+- обязательные переменные: `PLAYWRIGHT_SMOKE_EMAIL`, `PLAYWRIGHT_SMOKE_PASSWORD`.
+- для URL используется `PLAYWRIGHT_SMOKE_BASE_URL` (fallback: `BASE_URL`, `SANDBOX_URL`).
+
+## Sandbox Quick Start
+
+Для живого sandbox-e2e:
+
+- slot URLs:
+  - `sandbox-1` → `https://<hiring-agent-host>/sandbox-001`
+  - `sandbox-2` → `https://<hiring-agent-host>/sandbox-002`
+  - `sandbox-3` → `https://<hiring-agent-host>/sandbox-003`
+- login creds для sandbox лежат в GitHub Environments `sandbox-1/2/3`:
+  - `HIRING_AGENT_SANDBOX_DEMO_EMAIL`
+  - `HIRING_AGENT_SANDBOX_DEMO_PASSWORD`
+- локальный шаблон и дефолты для ручного теста лежат в `.env.sandbox.example`
+
+Быстро проверить, что секреты настроены:
+```bash
+gh secret list --env sandbox-1 | rg '^HIRING_AGENT_SANDBOX_DEMO_'
+```
+
+Быстрый end-to-end сценарий вручную:
+1. Открыть `https://<hiring-agent-host>/sandbox-001/login`
+2. Войти с demo creds
+3. В чате выбрать вакансию
+4. Отправить `создать вакансию`
+5. Дойти до шага с кнопкой `Настроить общение с кандидатами`
+6. Нажать её и проверить, что возвращается `setup_communication` / `communication_plan`
 
 ## What Is Covered
 
@@ -62,4 +92,6 @@ Smoke успешен, если:
 
 - `tests/integration/hiring-agent.test.js`
 - `scripts/playwright-smoke.mjs`
+- `scripts/rotate-management-recruiter-password.js`
+- `README.md#demo-login-password-rotation`
 - `.github/workflows/sandbox-release-gate.yml`
