@@ -43,6 +43,7 @@ OPENROUTER_CREATE_VACANCY_APPLICATION_STEPS_MODEL=openai/gpt-5.4-mini
 ## Release Process
 
 Каждая фича проходит через sandbox перед merge в main. Подробно: [`docs/release-process.md`](docs/release-process.md).
+Для живых UI smoke и ручных browser-checks через сессию: [`docs/mcp-playwright-testing.md`](docs/mcp-playwright-testing.md).
 Для параллельной работы агентов, делегирования между сессиями и чистых веток: [`ai-agent.md`](ai-agent.md).
 
 **Локально перед PR:** `pnpm gate:sandbox`
@@ -168,6 +169,7 @@ watch -n 30 'pnpm monitor:hiring-agent -- --ssh-target vova@34.31.217.176'
 
 Быстрый smoke для `hiring-agent` чата:
 Подробный runbook для новых сессий: [`docs/hiring-agent-chat-smoke-runbook.md`](docs/hiring-agent-chat-smoke-runbook.md)
+MCP Playwright workflow для ручной UI-проверки: [`docs/mcp-playwright-testing.md`](docs/mcp-playwright-testing.md)
 
 1) Demo level (локальный `APP_MODE=demo`, проверка API-контракта и ошибок):
 ```bash
