@@ -23,16 +23,224 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  preprod-sandbox:
     runs-on: ubuntu-latest
+    environment: sandbox-3
     env:
-      VM_HOST: 34.31.217.176
-      VM_USER: vova
-      TARGET_PORT: ${{ inputs.target_port || '3101' }}
-      DEPLOY_REF: ${{ github.ref_name }}
+      VM_HOST: ${{ secrets.VM_HOST }}
+      VM_USER: ${{ secrets.VM_USER }}
+      TARGET_PORT: 3203
+      DEPLOY_REF: ${{ github.sha }}
+      DEPLOY_DIR: /home/vova/hiring-agent-sandbox-003
+      PM2_APP_NAME: hiring-agent-sandbox-003
+      APP_BASE_PATH: /sandbox-003
+      SESSION_COOKIE_NAME: session_sandbox_003
+      SANDBOX_PUBLIC_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
+      HIRING_AGENT_PUBLIC_HOST: ${{ vars.HIRING_AGENT_PUBLIC_HOST || secrets.HIRING_AGENT_PUBLIC_HOST }}
+      SANDBOX_DEMO_EMAIL: ${{ secrets.HIRING_AGENT_SANDBOX_DEMO_EMAIL }}
+      SANDBOX_DEMO_PASSWORD: ${{ secrets.HIRING_AGENT_SANDBOX_DEMO_PASSWORD }}
+      SANDBOX_DEMO_RECRUITER_ID: recruiter-demo-001
+      SANDBOX_DEMO_CLIENT_ID: client-demo-001
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate required secrets
+        run: |
+          [ -n "${VM_HOST:-}" ] || { echo "Missing secret: VM_HOST"; exit 1; }
+          [ -n "${VM_USER:-}" ] || { echo "Missing secret: VM_USER"; exit 1; }
+          [ -n "${SANDBOX_PUBLIC_URL:-}" ] || { echo "Missing secret: SANDBOX_PUBLIC_URL"; exit 1; }
+          [ -n "${HIRING_AGENT_PUBLIC_HOST:-}" ] || { echo "Missing secret/var: HIRING_AGENT_PUBLIC_HOST"; exit 1; }
+          [ -n "${{ secrets.VM_SSH_KEY }}" ] || { echo "Missing secret: VM_SSH_KEY"; exit 1; }
+          [ -n "${{ secrets.MANAGEMENT_DATABASE_URL }}" ] || { echo "Missing secret: MANAGEMENT_DATABASE_URL"; exit 1; }
+          [ -n "${{ secrets.OPENROUTER_API_KEY }}" ] || { echo "Missing secret: OPENROUTER_API_KEY"; exit 1; }
+          [ -n "${SANDBOX_DEMO_EMAIL:-}" ] || { echo "Missing secret: HIRING_AGENT_SANDBOX_DEMO_EMAIL"; exit 1; }
+          [ -n "${SANDBOX_DEMO_PASSWORD:-}" ] || { echo "Missing secret: HIRING_AGENT_SANDBOX_DEMO_PASSWORD"; exit 1; }
+          expected_url="https://${HIRING_AGENT_PUBLIC_HOST}${APP_BASE_PATH}"
+          [ "${SANDBOX_PUBLIC_URL%/}" = "$expected_url" ] || {
+            echo "Invalid SANDBOX_PUBLIC_URL: expected '$expected_url' but got '${SANDBOX_PUBLIC_URL%/}'";
+            exit 1;
+          }
+
+      - name: Load SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/vm_key
+          chmod 600 ~/.ssh/vm_key
+          printf 'Host %s\n  IdentityFile ~/.ssh/vm_key\n  StrictHostKeyChecking accept-new\n' \
+            "$VM_HOST" >> ~/.ssh/config
+
+      - name: Add VM to known_hosts
+        run: ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
+
+      - name: Ensure nginx routes for sandbox paths
+        run: |
+          SNIPPET_B64=$(cat <<'NGINX' | base64 -w0
+          location = /sandbox-001 { return 301 /sandbox-001/; }
+          location = /sandbox-002 { return 301 /sandbox-002/; }
+          location = /sandbox-003 { return 301 /sandbox-003/; }
+
+          location ^~ /sandbox-001/ {
+            proxy_pass http://127.0.0.1:3201;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+          }
+
+          location ^~ /sandbox-002/ {
+            proxy_pass http://127.0.0.1:3202;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+          }
+
+          location ^~ /sandbox-003/ {
+            proxy_pass http://127.0.0.1:3203;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+          }
+          NGINX
+          )
+
+          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" HIRING_AGENT_PUBLIC_HOST="$HIRING_AGENT_PUBLIC_HOST" SNIPPET_B64="$SNIPPET_B64" bash -s << 'EOF'
+            set -euo pipefail
+            if ! sudo -n true 2>/dev/null; then
+              echo "ERROR: sudo without password is required to configure nginx sandbox routes"
+              exit 1
+            fi
+
+            echo "$SNIPPET_B64" | base64 -d | sudo tee /etc/nginx/snippets/hiring-agent-sandbox-locations.conf >/dev/null
+
+            SITE_FILE=$(sudo grep -Rls "server_name .*${HIRING_AGENT_PUBLIC_HOST//./\\.}" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -n1 || true)
+            if [ -z "$SITE_FILE" ]; then
+              echo "ERROR: could not locate nginx server block for ${HIRING_AGENT_PUBLIC_HOST}"
+              exit 1
+            fi
+
+            if ! sudo grep -q "hiring-agent-sandbox-locations.conf" "$SITE_FILE"; then
+              sudo sed -i "/server_name .*${HIRING_AGENT_PUBLIC_HOST//./\\.}.*;/a\\    include \\/etc\\/nginx\\/snippets\\/hiring-agent-sandbox-locations.conf;" "$SITE_FILE"
+            fi
+
+            sudo nginx -t
+            sudo systemctl reload nginx
+          EOF
+
+      - name: Write sandbox .env on VM
+        env:
+          MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          ENV_B64=$(printf 'NODE_ENV=production\nAPP_ENV=sandbox\nAPP_BASE_PATH=%s\nSESSION_COOKIE_NAME=%s\nDEPLOY_SHA=%s\nMANAGEMENT_DATABASE_URL=%s\nOPENROUTER_API_KEY=%s\n' "$APP_BASE_PATH" "$SESSION_COOKIE_NAME" "${{ github.sha }}" "$MANAGEMENT_DATABASE_URL" "$OPENROUTER_API_KEY" | base64 -w0)
+          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
+            "mkdir -p '$DEPLOY_DIR' && echo '$ENV_B64' | base64 -d > '$DEPLOY_DIR/.env' && echo '.env written: $DEPLOY_DIR/.env'"
+
+      - name: Install Playwright browser for smoke
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Bootstrap sandbox demo recruiter
+        env:
+          MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
+          DEMO_RECRUITER_ID: ${{ env.SANDBOX_DEMO_RECRUITER_ID }}
+          DEMO_CLIENT_ID: ${{ env.SANDBOX_DEMO_CLIENT_ID }}
+          DEMO_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
+          DEMO_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
+        run: node scripts/bootstrap-demo-user.js
+
+      - name: Deploy sandbox build
+        env:
+          REPO_URL: git@github.com:recruiting-tools/hiring-agent.git
+          DEPLOY_TARGET: sandbox-1
+          DEPLOY_AVG_DURATION_SEC: '180'
+          DEPLOY_WORKFLOW_NAME: Deploy hiring-agent to VM
+          DEPLOY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash ./scripts/deploy-hiring-agent.sh
+
+      - name: Ensure sandbox bindings exist
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << EOF
+            set -euo pipefail
+            cd "$DEPLOY_DIR"
+            MANAGEMENT_DATABASE_URL=\$(awk -F= '
+              /^MANAGEMENT_DATABASE_URL=/ {
+                sub(/^MANAGEMENT_DATABASE_URL=/, "")
+                print
+                exit
+              }
+            ' ./.env)
+            [ -n "\${MANAGEMENT_DATABASE_URL:-}" ] || { echo "ERROR: MANAGEMENT_DATABASE_URL missing in .env"; exit 1; }
+            export MANAGEMENT_DATABASE_URL
+            node ./scripts/bootstrap-sandbox-bindings.js --source-env prod --target-env sandbox
+          EOF
+
+      - name: Verify sandbox runtime on VM
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << EOF
+            set -euo pipefail
+            HEALTH=\$(curl -sf "http://127.0.0.1:${TARGET_PORT}/health")
+            STATUS=\$(echo "\$HEALTH" | jq -r '.status // "failed"')
+            MODE=\$(echo "\$HEALTH" | jq -r '.mode // "unknown"')
+            DEPLOY_SHA=\$(echo "\$HEALTH" | jq -r '.deploy_sha // "unknown"')
+            APP_ENV=\$(echo "\$HEALTH" | jq -r '.app_env // "unknown"')
+            echo "Sandbox health: \$STATUS / \$MODE / sha=\$DEPLOY_SHA / env=\$APP_ENV"
+            [ "\$STATUS" = "ok" ] || exit 1
+            [ "\$MODE" = "management-auth" ] || exit 1
+            [ "\$APP_ENV" = "sandbox" ] || exit 1
+            [ "\$DEPLOY_SHA" = "${{ github.sha }}" ] || exit 1
+          EOF
+
+      - name: Sandbox auth websocket + UI smoke
+        env:
+          PLAYWRIGHT_SMOKE_BASE_URL: ${{ env.SANDBOX_PUBLIC_URL }}
+          PLAYWRIGHT_SMOKE_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
+          PLAYWRIGHT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
+          MONITOR_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
+          MONITOR_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
+        run: |
+          set -euo pipefail
+          pnpm monitor:hiring-agent -- --base-url "${PLAYWRIGHT_SMOKE_BASE_URL%/}" --require-auth-ws
+          node scripts/playwright-smoke.mjs
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: preprod-sandbox
+    env:
+      VM_HOST: ${{ vars.VM_HOST || secrets.VM_HOST }}
+      VM_USER: ${{ vars.VM_USER || secrets.VM_USER }}
+      TARGET_PORT: ${{ inputs.target_port || '3101' }}
+      DEPLOY_REF: ${{ github.ref_name }}
+      HIRING_AGENT_PUBLIC_URL: ${{ vars.HIRING_AGENT_PUBLIC_URL || secrets.HIRING_AGENT_PUBLIC_URL }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v3
@@ -52,7 +260,7 @@ jobs:
             "$VM_HOST" >> ~/.ssh/config
 
       - name: Add VM to known_hosts
-        run: ssh-keyscan -H 34.31.217.176 >> ~/.ssh/known_hosts
+        run: ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
 
       - name: Check port availability on VM
         run: |
@@ -74,6 +282,11 @@ jobs:
             "echo '$ENV_B64' | base64 -d > /opt/hiring-agent/.env && echo '.env written'"
 
       - name: Deploy
+        env:
+          DEPLOY_TARGET: prod
+          DEPLOY_AVG_DURATION_SEC: '180'
+          DEPLOY_WORKFLOW_NAME: Deploy hiring-agent to VM
+          DEPLOY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash ./scripts/deploy-hiring-agent.sh
 
       - name: Verify runtime on VM
@@ -99,19 +312,10 @@ jobs:
             [ "$(echo "$PM2_JSON" | jq -r 'if (.pm2_env.MANAGEMENT_DATABASE_URL // .pm2_env.env.MANAGEMENT_DATABASE_URL // "") == "" then "missing" else "present" end')" = "present" ] || { echo "VM VERIFY FAILED: PM2 MANAGEMENT_DATABASE_URL missing"; exit 1; }
           EOF
 
-      - name: Verify websocket on VM
-        run: |
-          ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST bash -s << 'EOF'
-            set -euo pipefail
-            WS_HEALTH=$(curl -sf http://127.0.0.1:3101/health-web-socket)
-            echo "Local websocket health: $WS_HEALTH"
-            cd /opt/hiring-agent
-            node ./scripts/ws-upgrade-smoke.cjs ws://127.0.0.1:3101/ws 5000
-          EOF
-
       - name: Post-deploy smoke
         run: |
-          HEALTH=$(curl -sf https://hiring-chat.recruiter-assistant.com/health 2>/dev/null || echo '{}')
+          [ -n "${HIRING_AGENT_PUBLIC_URL:-}" ] || { echo "Missing HIRING_AGENT_PUBLIC_URL"; exit 1; }
+          HEALTH=$(curl -sf "${HIRING_AGENT_PUBLIC_URL%/}/health" 2>/dev/null || echo '{}')
           STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
           MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
           DEPLOY_SHA=$(echo "$HEALTH" | jq -r '.deploy_sha // "unknown"')
@@ -121,6 +325,29 @@ jobs:
           [ "$MODE" = "management-auth" ] || { echo "SMOKE FAILED: mode=$MODE (expected management-auth)"; exit 1; }
           [ "$DEPLOY_SHA" = "${{ github.sha }}" ] || { echo "SMOKE FAILED: deploy_sha=$DEPLOY_SHA expected=${{ github.sha }}"; exit 1; }
 
-      - name: Post-deploy websocket smoke
+      - name: Post-deploy websocket probe
         run: |
-          node ./scripts/ws-upgrade-smoke.cjs wss://hiring-chat.recruiter-assistant.com/ws 5000
+          [ -n "${HIRING_AGENT_PUBLIC_URL:-}" ] || { echo "Missing HIRING_AGENT_PUBLIC_URL"; exit 1; }
+          pnpm monitor:hiring-agent -- --base-url "${HIRING_AGENT_PUBLIC_URL%/}"
+
+      - name: Mark deploy status failed on VM
+        if: failure()
+        run: |
+          FAILED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          ssh -o StrictHostKeyChecking=accept-new $VM_USER@$VM_HOST bash -s <<EOF
+            set -euo pipefail
+            mkdir -p /opt/hiring-agent
+            cat > /opt/hiring-agent/deploy-status.json <<JSON
+          {
+            "state": "failed",
+            "target": "prod",
+            "expected_sha": "${{ github.sha }}",
+            "started_at": "${FAILED_AT}",
+            "updated_at": "${FAILED_AT}",
+            "completed_at": "${FAILED_AT}",
+            "avg_duration_sec": 180,
+            "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "workflow": "Deploy hiring-agent to VM"
+          }
+          JSON
+          EOF

@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import bcrypt from "bcryptjs";
 import { WebSocketServer } from "ws";
 import { createSession, getRecruiterByEmail, parseCookies, resolveSession } from "./auth.js";
@@ -145,7 +147,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
     <section class="panel login-card">
       <div class="eyebrow">Recruiter Chat</div>
       <h1>Вход в hiring agent</h1>
-      <div class="subhead">Войдите по email и паролю, чтобы открыть рабочее пространство для автоматизации рекрутинга.</div>
+      <div class="subhead">Войдите по email и паролю, чтобы открыть playbook-driven chat для своей клиентской зоны.</div>
       <div class="notice" id="loginError"></div>
       <form id="loginForm">
         <label>
@@ -193,7 +195,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
           return;
         }
 
-        showError(data.error || "Не удалось войти.");
+        showError(data.message || data.error || "Не удалось войти.");
       } catch (_error) {
         showError("Сеть недоступна. Повторите попытку.");
       } finally {
@@ -247,7 +249,6 @@ const CHAT_HTML = `<!DOCTYPE html>
         linear-gradient(180deg, #08101d 0%, #09111f 35%, #0c1525 100%);
       color: var(--t1);
       min-height: 100dvh;
-      overflow: hidden;
     }
     a { color: inherit; }
     button,
@@ -260,10 +261,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       width: min(calc(100% - 32px), var(--shell-width));
       margin: 0 auto;
       padding: 28px 0 32px;
-      min-height: 100dvh;
-      max-height: 100dvh;
-      display: flex;
-      flex-direction: column;
     }
     .topbar {
       display: flex;
@@ -326,17 +323,10 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
     .workspace {
       display: grid;
-      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(280px, 320px);
-      grid-template-areas: "history chat sidebar";
+      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
       gap: 20px;
       align-items: stretch;
-      flex: 1;
-      min-height: 0;
-      transition: grid-template-columns 0.22s ease;
-      position: relative;
-    }
-    .workspace.history-collapsed {
-      grid-template-columns: 0 minmax(0, 1fr) minmax(280px, 320px);
+      min-height: calc(100dvh - 170px);
     }
     .panel {
       border: 1px solid var(--edge);
@@ -345,175 +335,10 @@ const CHAT_HTML = `<!DOCTYPE html>
       backdrop-filter: blur(18px);
       box-shadow: var(--shadow-lg);
     }
-    .history-panel {
-      grid-area: history;
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-      min-height: 0;
-      overflow: hidden;
-      transition: opacity 0.18s ease, transform 0.18s ease;
-    }
-    .workspace.history-collapsed .history-panel {
-      opacity: 0;
-      transform: translateX(-18px);
-      pointer-events: none;
-    }
-    .history-panel-inner {
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      height: 100%;
-    }
-    .history-panel-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 18px 20px 14px;
-      border-bottom: 1px solid var(--edge);
-    }
-    .history-panel-header h2 {
-      font-size: 15px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-    }
-    .history-panel-header p {
-      margin-top: 6px;
-      font-size: 12px;
-      line-height: 1.55;
-      color: var(--t2);
-    }
-    .history-panel-toolbar {
-      display: grid;
-      gap: 10px;
-      padding: 14px 20px 16px;
-      border-bottom: 1px solid var(--edge);
-    }
-    .panel-toggle {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 36px;
-      padding: 0 12px;
-      border-radius: 12px;
-      border: 1px solid var(--edge);
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--t2);
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .panel-toggle:hover {
-      border-color: var(--edge-strong);
-      color: var(--t1);
-    }
-    .history-launcher {
-      position: absolute;
-      left: 0;
-      top: 12px;
-      z-index: 3;
-    }
-    .history-launcher[hidden] {
-      display: none;
-    }
-    .history-list {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      padding: 12px;
-      display: grid;
-      gap: 10px;
-    }
-    .history-list::-webkit-scrollbar { width: 4px; }
-    .history-list::-webkit-scrollbar-track { background: transparent; }
-    .history-list::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 2px; }
-    .history-empty {
-      margin: 10px 12px 14px;
-      padding: 14px;
-      border-radius: 16px;
-      border: 1px dashed var(--edge);
-      background: rgba(255, 255, 255, 0.02);
-      color: var(--t2);
-      font-size: 13px;
-      line-height: 1.6;
-    }
-    .history-empty[hidden] {
-      display: none;
-    }
-    .history-item {
-      width: 100%;
-      display: grid;
-      gap: 10px;
-      padding: 14px;
-      text-align: left;
-      border-radius: 18px;
-      border: 1px solid var(--edge);
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--t1);
-      cursor: pointer;
-    }
-    .history-item.active {
-      border-color: rgba(105, 162, 255, 0.45);
-      background: linear-gradient(180deg, rgba(105, 162, 255, 0.14), rgba(255, 255, 255, 0.03));
-      box-shadow: inset 0 0 0 1px rgba(105, 162, 255, 0.08);
-    }
-    .history-item:hover {
-      border-color: var(--edge-strong);
-      transform: translateY(-1px);
-    }
-    .history-item-top {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 10px;
-    }
-    .history-item-title {
-      font-size: 13px;
-      font-weight: 600;
-      line-height: 1.45;
-      color: var(--t1);
-    }
-    .history-item-time {
-      flex-shrink: 0;
-      font-size: 11px;
-      color: var(--t3);
-      white-space: nowrap;
-    }
-    .history-item-preview {
-      font-size: 12px;
-      line-height: 1.6;
-      color: var(--t2);
-    }
-    .history-item-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .history-badge {
-      display: inline-flex;
-      align-items: center;
-      min-height: 24px;
-      padding: 0 9px;
-      border-radius: 999px;
-      border: 1px solid var(--edge);
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--t2);
-      font-size: 11px;
-      white-space: nowrap;
-    }
-    .history-badge.current {
-      border-color: rgba(105, 162, 255, 0.45);
-      color: var(--acc-strong);
-      background: rgba(105, 162, 255, 0.1);
-    }
     .sidebar {
-      grid-area: sidebar;
       display: grid;
       gap: 16px;
       align-content: start;
-      min-height: 0;
-      overflow-y: auto;
-      padding-right: 4px;
     }
     .sidebar-card {
       padding: 20px;
@@ -653,11 +478,9 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     .chat-stage {
-      grid-area: chat;
       display: flex;
       flex-direction: column;
       min-height: 0;
-      height: 100%;
       overflow: hidden;
       background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 12%),
@@ -691,12 +514,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       color: var(--t2);
       line-height: 1.5;
     }
-    .chat-stage-actions {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      flex-shrink: 0;
-    }
     #logout-btn {
       flex-shrink: 0;
       padding: 11px 14px;
@@ -713,7 +530,6 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     #chat-log {
       flex: 1;
-      min-height: 0;
       overflow-y: auto;
       padding: 26px 22px 18px;
       display: flex;
@@ -1006,51 +822,17 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
       .workspace {
         grid-template-columns: 1fr;
-        grid-template-areas:
-          "chat"
-          "sidebar";
-        flex: 1;
-        min-height: 0;
-      }
-      .history-panel {
-        position: fixed;
-        inset: 0 auto 0 0;
-        width: min(88vw, 360px);
-        height: 100dvh;
-        z-index: 20;
-        border-radius: 0 26px 26px 0;
-        border-left: 0;
-        transform: translateX(-100%);
-        opacity: 1;
-        pointer-events: auto;
-      }
-      .workspace.history-open .history-panel {
-        transform: translateX(0);
-        box-shadow: 0 30px 80px rgba(2, 8, 23, 0.58);
-      }
-      .workspace.history-collapsed .history-panel {
-        opacity: 1;
-        transform: translateX(-100%);
-      }
-      .history-launcher {
-        position: fixed;
-        left: 16px;
-        top: 84px;
+        min-height: auto;
       }
       .sidebar {
         order: 2;
-        overflow: visible;
-        padding-right: 0;
       }
       .chat-stage {
-        min-height: 0;
+        min-height: 70dvh;
       }
       .chat-stage-header {
         flex-direction: column;
         align-items: flex-start;
-      }
-      .chat-stage-actions {
-        width: 100%;
       }
       .bubble {
         max-width: 100%;
@@ -1073,9 +855,6 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
       .workspace {
         gap: 0;
-      }
-      .history-panel {
-        width: min(92vw, 360px);
       }
       .sidebar {
         gap: 0;
@@ -1117,26 +896,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       </div>
     </header>
 
-    <main class="workspace" id="workspace">
-      <aside class="history-panel panel" id="history-panel">
-        <div class="history-panel-inner">
-          <div class="history-panel-header">
-            <div>
-              <h2>История сессий</h2>
-              <p>Недавние сценарии и быстрый возврат к прошлым чатам.</p>
-            </div>
-            <button class="panel-toggle" id="history-toggle-btn" type="button">Скрыть</button>
-          </div>
-          <div class="history-panel-toolbar">
-            <button class="primary-btn" id="new-session-btn" type="button">Новая сессия</button>
-          </div>
-          <div class="history-empty" id="history-empty">Список появится после первой сохранённой сессии.</div>
-          <div class="history-list" id="history-list"></div>
-        </div>
-      </aside>
-
-      <button class="panel-toggle history-launcher" id="history-launcher-btn" type="button" hidden>История</button>
-
+    <main class="workspace">
       <aside class="sidebar">
         <section class="sidebar-card panel">
           <h2>Контекст</h2>
@@ -1197,10 +957,6 @@ const CHAT_HTML = `<!DOCTYPE html>
             <h2 id="chat-stage-title">Рабочая зона агента</h2>
             <p id="chat-stage-subtitle">Выберите вакансию.</p>
           </div>
-          <div class="chat-stage-actions">
-            <button class="panel-toggle" id="chat-history-btn" type="button">История</button>
-            <button class="panel-toggle" id="copy-link-btn" type="button" disabled>Скопировать ссылку</button>
-          </div>
         </header>
 
         <div id="chat-log">
@@ -1238,15 +994,10 @@ const CHAT_HTML = `<!DOCTYPE html>
     const WS_URL = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + withBasePath('/ws');
     const LOGIN_PATH = withBasePath('/login');
     const CHATBOT_MODERATION_BASE = '__CHATBOT_MODERATION_BASE__';
-    const LAST_JOB_KEY = 'hiring-agent:last-job-id:' + (APP_BASE_PATH || 'root');
-    const LEGACY_LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
+    const LAST_VACANCY_KEY = 'hiring-agent:last-vacancy-id:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_QUERY_PARAM = 'state';
-    const CHAT_STATE_HASH_PREFIX = 'state=';
-    const CHAT_SESSION_HASH_PREFIX = 's=';
     const CHAT_STATE_STORAGE_KEY = 'hiring-agent:chat-state:' + (APP_BASE_PATH || 'root');
-    const CHAT_SESSION_HISTORY_KEY = 'hiring-agent:session-history:' + (APP_BASE_PATH || 'root');
     const CHAT_STATE_VERSION = 1;
-    const MAX_SESSION_HISTORY_ITEMS = 24;
     const STEP_LABELS = {
       auto_fetch:    'Загружаю данные вакансии',
       route_playbook:'Определяю плейбук',
@@ -1259,23 +1010,22 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     // ── State ─────────────────────────────────────────────────────────────────
     let ws = null;
+    let wsConnectTimer = null;
+    let wsRetryTimer = null;
+    let preferHttpFallback = false;
+    let wsGeneration = 0;
     let streaming = false;
     let selectedVacancyId = null;
     let selectedVacancyJobId = null;
-    let selectedVacancyJobSetupId = null;
     let availableVacancies = [];
     let selectedVacancyTitle = '';
     let activePlaybookKey = null;
     let activePlaybookContext = null;
-    let activeSessionId = null;
     let currentAssistant = null; // { stepsEl, contentEl, actionsEl, text }
     let chatHistory = [];
-    let pendingInitialChatStatePromise = loadInitialChatState();
-    let sessionHistoryIndex = loadSessionHistoryIndex();
-    let historyOpen = window.matchMedia('(min-width: 981px)').matches;
+    let pendingInitialChatState = loadInitialChatState();
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
-    const workspace = document.getElementById('workspace');
     const chatLog        = document.getElementById('chat-log');
     const emptyState     = document.getElementById('empty-state');
     const vacancySelect  = document.getElementById('vacancy-select');
@@ -1294,40 +1044,234 @@ const CHAT_HTML = `<!DOCTYPE html>
     const moderationLink = document.getElementById('moderation-link');
     const moderationCopy = document.getElementById('moderation-copy');
     const shortcutButtons = Array.from(document.querySelectorAll('.shortcut-btn'));
-    const historyList = document.getElementById('history-list');
-    const historyEmpty = document.getElementById('history-empty');
-    const historyToggleBtn = document.getElementById('history-toggle-btn');
-    const historyLauncherBtn = document.getElementById('history-launcher-btn');
-    const chatHistoryBtn = document.getElementById('chat-history-btn');
-    const newSessionBtn = document.getElementById('new-session-btn');
-    const copyLinkBtn = document.getElementById('copy-link-btn');
+    let healthStatusTimer = null;
+    let lastHealthStatus = null;
+
+    function setStatusPresentation({ title, message, connected = false, tooltip = '' }) {
+      connectionLabel.textContent = title;
+      connectionCopy.textContent = message;
+      statusDot.classList.toggle('connected', Boolean(connected));
+      const resolvedTooltip = tooltip || [title, message].filter(Boolean).join(' — ');
+      statusDot.title = resolvedTooltip;
+      connectionLabel.title = resolvedTooltip;
+      connectionCopy.title = resolvedTooltip;
+    }
+
+    function buildHealthTooltip(statusPayload) {
+      if (!statusPayload || typeof statusPayload !== 'object') return '';
+      const runtime = statusPayload.runtime || {};
+      const deploy = statusPayload.deploy || {};
+      const parts = [];
+      if (deploy.state) parts.push('deploy: ' + deploy.state);
+      if (deploy.expected_sha) parts.push('next sha: ' + deploy.expected_sha);
+      if (runtime.mode) parts.push('mode: ' + runtime.mode);
+      if (runtime.app_env) parts.push('env: ' + runtime.app_env);
+      if (runtime.deploy_sha) parts.push('sha: ' + runtime.deploy_sha);
+      if (runtime.started_at) parts.push('started: ' + runtime.started_at);
+      return parts.join(' | ');
+    }
+
+    function applyHealthStatus(statusPayload, options = {}) {
+      if (!statusPayload || typeof statusPayload !== 'object') return;
+      lastHealthStatus = statusPayload;
+      const runtime = statusPayload.runtime || {};
+      const tooltip = buildHealthTooltip(statusPayload);
+      const wsOpen = ws && ws.readyState === WebSocket.OPEN;
+      const reconnecting = options.reconnecting === true;
+
+      if (statusPayload.status_key === 'auth_required') {
+        setStatusPresentation({
+          title: statusPayload.title || 'Нужен повторный вход',
+          message: statusPayload.message || 'Сессия истекла. Войдите снова.',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      if (statusPayload.status_key === 'deploy_failed'
+        || statusPayload.status_key === 'deploy_in_progress'
+        || statusPayload.status_key === 'deploy_pending_switch') {
+        setStatusPresentation({
+          title: statusPayload.title || 'Проверяем обновление сервера',
+          message: statusPayload.message || 'Проверяем ход обновления сервера…',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      if (wsOpen) {
+        setStatusPresentation({
+          title: 'Агент на связи',
+          message: 'Подключение установлено. Можно продолжать работу.',
+          connected: true,
+          tooltip
+        });
+        return;
+      }
+
+      if (reconnecting) {
+        setStatusPresentation({
+          title: 'Связь временно пропала',
+          message: 'Пробуем восстановить подключение автоматически…',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      if (preferHttpFallback && runtime.health_ok) {
+        setStatusPresentation({
+          title: 'Работаем без live-канала',
+          message: 'Сервер отвечает. Если нужно, можно продолжать через обычные запросы.',
+          connected: false,
+          tooltip
+        });
+        return;
+      }
+
+      setStatusPresentation({
+        title: statusPayload.title || 'Проверяем состояние сервера',
+        message: statusPayload.message || 'Проверяем доступность сервера…',
+        connected: false,
+        tooltip
+      });
+    }
+
+    async function refreshHealthStatus(options = {}) {
+      try {
+        const response = await fetch(withBasePath('/health_status'), {
+          headers: { accept: 'application/json' }
+        });
+
+        if (response.status === 401) {
+          applyHealthStatus({
+            status_key: 'auth_required',
+            title: 'Нужен повторный вход',
+            message: 'Сессия истекла. Войдите снова.'
+          }, options);
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error('health_status_http_' + response.status);
+        }
+
+        const payload = await response.json();
+        applyHealthStatus(payload, options);
+      } catch (_error) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          setStatusPresentation({
+            title: 'Агент на связи',
+            message: 'Чат работает, но служебный статус сервера сейчас недоступен.',
+            connected: true
+          });
+          return;
+        }
+
+        setStatusPresentation({
+          title: 'Не удаётся проверить сервер',
+          message: 'Статус сервера сейчас недоступен. Пробуем подключиться снова.',
+          connected: false
+        });
+      }
+    }
+
+    function scheduleHealthStatusPolling() {
+      if (healthStatusTimer) clearInterval(healthStatusTimer);
+      healthStatusTimer = setInterval(() => {
+        void refreshHealthStatus();
+      }, 10000);
+    }
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
+    function clearWsTimers() {
+      if (wsConnectTimer) {
+        clearTimeout(wsConnectTimer);
+        wsConnectTimer = null;
+      }
+      if (wsRetryTimer) {
+        clearTimeout(wsRetryTimer);
+        wsRetryTimer = null;
+      }
+    }
+
+    function scheduleReconnect() {
+      if (wsRetryTimer) return;
+      wsRetryTimer = setTimeout(() => {
+        wsRetryTimer = null;
+        connect();
+      }, 3000);
+    }
+
+    function setHttpFallbackStatus(copy) {
+      applyHealthStatus(lastHealthStatus || {
+        status_key: 'runtime_available',
+        runtime: { health_ok: true },
+        title: 'Сервер отвечает',
+        message: 'Можно продолжать работу.'
+      });
+      if (copy) {
+        connectionCopy.textContent = copy;
+      }
+    }
+
     function connect() {
+      clearWsTimers();
+      const currentGeneration = ++wsGeneration;
       ws = new WebSocket(WS_URL);
+      setStatusPresentation({
+        title: 'Подключаем чат',
+        message: 'Налаживаем связь с агентом…',
+        connected: false
+      });
+      void refreshHealthStatus();
+
+      wsConnectTimer = setTimeout(() => {
+        if (wsGeneration !== currentGeneration) return;
+        if (ws && ws.readyState === WebSocket.CONNECTING) {
+          preferHttpFallback = true;
+          setHttpFallbackStatus('Прямое соединение отвечает слишком долго. Пока работаем через обычные запросы.');
+          updateSendEnabled();
+          try { ws.close(); } catch {}
+        }
+      }, 8000);
 
       ws.onopen = () => {
-        statusDot.classList.add('connected');
-        connectionLabel.textContent = 'Агент на связи';
-        connectionCopy.textContent = 'Соединение установлено.';
+        clearWsTimers();
+        preferHttpFallback = false;
+        applyHealthStatus(lastHealthStatus || {
+          status_key: 'runtime_available',
+          runtime: { health_ok: true }
+        });
         updateSendEnabled();
       };
 
       ws.onclose = (ev) => {
+        clearWsTimers();
         streaming = false;
         currentAssistant = null;
-        statusDot.classList.remove('connected');
-        connectionLabel.textContent = 'Подключение потеряно';
-        connectionCopy.textContent = 'Переподключение...';
+        if (preferHttpFallback) {
+          setHttpFallbackStatus('Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.');
+        } else {
+          applyHealthStatus(lastHealthStatus || {
+            status_key: 'connecting',
+            title: 'Связь временно пропала',
+            message: 'Пробуем восстановить подключение автоматически…'
+          }, { reconnecting: true });
+        }
         updateSendEnabled();
         if (ev.code === 4001) { window.location = LOGIN_PATH; return; }
-        setTimeout(connect, 3000); // auto-reconnect
+        void refreshHealthStatus({ reconnecting: true });
+        scheduleReconnect();
       };
 
       ws.onerror = () => {
-        statusDot.classList.remove('connected');
-        connectionLabel.textContent = 'Ошибка соединения';
-        connectionCopy.textContent = 'WebSocket недоступен.';
+        preferHttpFallback = true;
+        setHttpFallbackStatus('Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.');
+        updateSendEnabled();
+        void refreshHealthStatus();
       };
 
       ws.onmessage = (ev) => {
@@ -1386,7 +1330,6 @@ const CHAT_HTML = `<!DOCTYPE html>
           streaming = false;
           updateSendEnabled();
           scrollBottom();
-          void saveServerChatState();
         }
 
         if (data.type === 'error') {
@@ -1406,7 +1349,6 @@ const CHAT_HTML = `<!DOCTYPE html>
           }
           streaming = false;
           updateSendEnabled();
-          void saveServerChatState();
         }
       };
     }
@@ -1426,181 +1368,6 @@ const CHAT_HTML = `<!DOCTYPE html>
         .replace(/'/g, '&#39;')
         .replace(/\\n/g, '<br>');
       el.innerHTML = DOMPurify.sanitize(escaped);
-    }
-
-    function stripMarkdown(text) {
-      const tick = String.fromCharCode(96);
-      return String(text ?? '')
-        .replace(new RegExp(tick + tick + tick + '[\\s\\S]*?' + tick + tick + tick, 'g'), ' ')
-        .replace(new RegExp(tick + '([^' + tick + ']+)' + tick, 'g'), '$1')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/[*_>#-]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
-
-    function getHistoryPreview(history) {
-      const latest = [...(Array.isArray(history) ? history : [])]
-        .reverse()
-        .find((entry) => entry?.kind === 'assistant' || entry?.kind === 'user');
-
-      if (!latest) return 'Сохранённый сценарий без сообщений.';
-
-      const source = latest.kind === 'assistant' ? latest.markdown : latest.text;
-      const clean = stripMarkdown(source);
-      return clean ? clean.slice(0, 140) : 'Сохранённый сценарий.';
-    }
-
-    function formatHistoryTime(value) {
-      if (!value) return '';
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return '';
-
-      return new Intl.DateTimeFormat('ru-RU', {
-        day: '2-digit',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit'
-      }).format(date);
-    }
-
-    function isDesktopHistoryLayout() {
-      return window.matchMedia('(min-width: 981px)').matches;
-    }
-
-    function loadSessionHistoryIndex() {
-      try {
-        const raw = JSON.parse(localStorage.getItem(CHAT_SESSION_HISTORY_KEY) || '[]');
-        return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') : [];
-      } catch {
-        return [];
-      }
-    }
-
-    function saveSessionHistoryIndex() {
-      try {
-        localStorage.setItem(CHAT_SESSION_HISTORY_KEY, JSON.stringify(sessionHistoryIndex));
-      } catch {}
-    }
-
-    function setHistoryOpen(nextOpen) {
-      historyOpen = Boolean(nextOpen);
-      workspace.classList.toggle('history-open', historyOpen);
-      workspace.classList.toggle('history-collapsed', !historyOpen);
-      historyLauncherBtn.hidden = historyOpen;
-      historyToggleBtn.textContent = historyOpen ? 'Скрыть' : 'Показать';
-      chatHistoryBtn.textContent = historyOpen ? 'Скрыть историю' : 'История';
-    }
-
-    function updateCopyLinkButton() {
-      copyLinkBtn.disabled = !activeSessionId;
-    }
-
-    async function copyCurrentSessionLink() {
-      if (!activeSessionId) return;
-      const url = new URL(window.location.href);
-      url.searchParams.delete(CHAT_STATE_QUERY_PARAM);
-      url.hash = CHAT_SESSION_HASH_PREFIX + encodeURIComponent(activeSessionId);
-
-      try {
-        await navigator.clipboard.writeText(url.toString());
-        copyLinkBtn.textContent = 'Ссылка скопирована';
-        setTimeout(() => {
-          copyLinkBtn.textContent = 'Скопировать ссылку';
-        }, 1600);
-      } catch {}
-    }
-
-    function renderSessionHistory() {
-      const items = Array.isArray(sessionHistoryIndex) ? sessionHistoryIndex : [];
-      const prioritizedItems = selectedVacancyJobId
-        ? [
-            ...items.filter((item) => String(item?.jobId ?? item?.vacancyId ?? '') === String(selectedVacancyJobId)),
-            ...items.filter((item) => String(item?.jobId ?? item?.vacancyId ?? '') !== String(selectedVacancyJobId))
-          ]
-        : items;
-
-      historyEmpty.hidden = prioritizedItems.length > 0;
-      historyList.innerHTML = '';
-
-      prioritizedItems.forEach((item) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'history-item' + (item.sessionId === activeSessionId ? ' active' : '');
-
-        const top = document.createElement('div');
-        top.className = 'history-item-top';
-
-        const title = document.createElement('div');
-        title.className = 'history-item-title';
-        title.textContent = item.vacancyTitle || 'Новая сессия';
-
-        const time = document.createElement('div');
-        time.className = 'history-item-time';
-        time.textContent = formatHistoryTime(item.updatedAt);
-
-        const preview = document.createElement('div');
-        preview.className = 'history-item-preview';
-        preview.textContent = item.preview || 'Без превью';
-
-        const meta = document.createElement('div');
-        meta.className = 'history-item-meta';
-
-        if (item.sessionId === activeSessionId) {
-          const currentBadge = document.createElement('span');
-          currentBadge.className = 'history-badge current';
-          currentBadge.textContent = 'Текущая';
-          meta.appendChild(currentBadge);
-        }
-
-        if (item.jobId || item.vacancyId) {
-          const vacancyBadge = document.createElement('span');
-          vacancyBadge.className = 'history-badge';
-          vacancyBadge.textContent = String(item.jobId ?? item.vacancyId) === String(selectedVacancyJobId) && selectedVacancyJobId
-            ? 'Текущая вакансия'
-            : 'Вакансия';
-          meta.appendChild(vacancyBadge);
-        }
-
-        top.appendChild(title);
-        top.appendChild(time);
-        button.appendChild(top);
-        button.appendChild(preview);
-        button.appendChild(meta);
-
-        button.addEventListener('click', async () => {
-          const snapshot = await fetchChatStateBySessionId(item.sessionId);
-          if (!snapshot) return;
-          restoreChatState(snapshot);
-          if (!isDesktopHistoryLayout()) {
-            setHistoryOpen(false);
-          }
-        });
-
-        historyList.appendChild(button);
-      });
-    }
-
-    function upsertSessionHistoryEntry(state) {
-      const normalized = normalizeChatState(state);
-      if (!normalized?.sessionId) return;
-
-      const entry = {
-        sessionId: normalized.sessionId,
-        vacancyId: normalized.vacancyId,
-        jobId: normalized.jobId,
-        vacancyTitle: normalized.vacancyTitle || 'Новая сессия',
-        updatedAt: new Date().toISOString(),
-        preview: getHistoryPreview(normalized.history)
-      };
-
-      sessionHistoryIndex = [
-        entry,
-        ...sessionHistoryIndex.filter((item) => item?.sessionId !== entry.sessionId)
-      ].slice(0, MAX_SESSION_HISTORY_ITEMS);
-
-      saveSessionHistoryIndex();
-      renderSessionHistory();
     }
 
     // ── Messages ──────────────────────────────────────────────────────────────
@@ -1760,73 +1527,58 @@ const CHAT_HTML = `<!DOCTYPE html>
       activePlaybookContext = null;
     }
 
-    function upsertVacancyOption(vacancyId, title, jobId, jobSetupId) {
-      const canonicalJobId = jobId || vacancyId;
-      if (!canonicalJobId) return;
+    function upsertVacancyOption(vacancyId, title, jobId) {
+      if (!vacancyId) return;
 
-      const normalizedJobId = String(canonicalJobId);
-      const normalizedJobSetupId = jobSetupId || vacancyId || canonicalJobId;
+      const normalizedVacancyId = String(vacancyId);
       const label = title || 'Новая вакансия';
-      let option = Array.from(vacancySelect.options).find((item) => String(item.value) === normalizedJobId);
+      let option = Array.from(vacancySelect.options).find((item) => String(item.value) === normalizedVacancyId);
 
       if (!option) {
         option = document.createElement('option');
-        option.value = normalizedJobId;
+        option.value = normalizedVacancyId;
         const createOption = Array.from(vacancySelect.options).find((item) => item.value === '__create__');
         vacancySelect.insertBefore(option, createOption || null);
       }
 
       option.textContent = label;
-      vacancySelect.value = normalizedJobId;
+      vacancySelect.value = normalizedVacancyId;
 
-      const existing = availableVacancies.find((item) => String(item.job_id ?? item.vacancy_id) === normalizedJobId);
+      const existing = availableVacancies.find((item) => String(item.vacancy_id) === normalizedVacancyId);
       if (existing) {
         existing.title = label;
-        existing.job_id = canonicalJobId || existing.job_id || null;
-        existing.job_setup_id = normalizedJobSetupId || existing.job_setup_id || null;
-        existing.vacancy_id = vacancyId || existing.vacancy_id || normalizedJobSetupId || null;
+        existing.job_id = jobId || existing.job_id || null;
         return;
       }
 
       availableVacancies.unshift({
-        vacancy_id: vacancyId || normalizedJobSetupId,
-        job_id: canonicalJobId,
-        job_setup_id: normalizedJobSetupId,
+        vacancy_id: normalizedVacancyId,
+        job_id: jobId || null,
         title: label
       });
     }
 
     function applyServerState(data) {
-      if (data.sessionId) {
-        activeSessionId = String(data.sessionId);
-        updateCopyLinkButton();
-      }
-
       if (data.playbookActive && data.playbookKey) {
         activePlaybookKey = data.playbookKey;
       } else {
         clearActivePlaybookState();
       }
 
-      const resolvedJobId = data.jobId || data.vacancyId || null;
-      if (!resolvedJobId) return;
+      if (!data.vacancyId) return;
 
-      selectedVacancyId = data.jobSetupId || data.vacancyId || resolvedJobId;
-      selectedVacancyJobId = resolvedJobId;
-      selectedVacancyJobSetupId = data.jobSetupId || data.vacancyId || selectedVacancyJobSetupId || resolvedJobId;
+      selectedVacancyId = data.vacancyId;
+      selectedVacancyJobId = data.jobId || selectedVacancyJobId || null;
       selectedVacancyTitle = data.vacancyTitle || selectedVacancyTitle || 'Новая вакансия';
-      localStorage.setItem(LAST_JOB_KEY, String(selectedVacancyJobId));
-      localStorage.removeItem(LEGACY_LAST_VACANCY_KEY);
-      upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId, selectedVacancyJobSetupId);
+      localStorage.setItem(LAST_VACANCY_KEY, String(selectedVacancyId));
+      upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
       syncContext();
       persistChatState();
-      renderSessionHistory();
     }
 
     function sendMessage(text) {
       if (!text || !text.trim()) return;
       if (streaming) return;
-      if (!ws || ws.readyState !== 1) return;
 
       streaming = true;
       updateSendEnabled();
@@ -1837,14 +1589,105 @@ const CHAT_HTML = `<!DOCTYPE html>
       msgInput.value = '';
       msgInput.style.height = 'auto';
 
-      ws.send(JSON.stringify({
+      const payload = {
         type: 'message',
         text: text.trim(),
-        vacancyId: selectedVacancyJobSetupId || selectedVacancyId || selectedVacancyJobId || null,
+        vacancyId: selectedVacancyId,
         jobId: selectedVacancyJobId || null,
         playbookKey: activePlaybookKey || null,
         clientContext: activePlaybookContext || null
-      }));
+      };
+
+      if (!preferHttpFallback && ws && ws.readyState === 1) {
+        ws.send(JSON.stringify(payload));
+        return;
+      }
+
+      void sendMessageHttp(payload);
+    }
+
+    async function sendMessageHttp(payload) {
+      try {
+        const response = await fetch(withBasePath('/api/chat'), {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: payload.text,
+            playbook_key: payload.playbookKey || null,
+            client_context: payload.clientContext || null,
+            vacancy_id: payload.vacancyId || null,
+            job_id: payload.jobId || null
+          })
+        });
+
+        if (response.status === 401) {
+          window.location = LOGIN_PATH;
+          return;
+        }
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.message || data.error || 'Ошибка сервера');
+        }
+
+        applyServerState({
+          playbookActive: Boolean(data.playbook_active),
+          playbookKey: data.playbook_key || null,
+          sessionId: data.session_id || null,
+          vacancyId: data.vacancy_id || null,
+          jobId: data.job_id || null,
+          vacancyTitle: data.vacancy_title || null,
+          replyKind: data.reply?.kind || null,
+          reply: data.reply || null
+        });
+        activePlaybookContext = data.reply || null;
+
+        const markdown = String(data.markdown || data.text || '');
+        currentAssistant.text += markdown;
+        renderMarkdown(currentAssistant.contentEl, currentAssistant.text);
+
+        if (Array.isArray(data.actions) && data.actions.length > 0) {
+          data.actions.forEach(({ label, message }) => {
+            const btn = document.createElement('button');
+            btn.className = 'action-btn';
+            btn.textContent = label;
+            btn.dataset.msg = message;
+            btn.addEventListener('click', () => sendMessage(message));
+            currentAssistant.actionsEl.appendChild(btn);
+          });
+        }
+
+        pushChatHistoryEntry({
+          kind: 'assistant',
+          markdown: currentAssistant.text,
+          actions: Array.isArray(data.actions) ? data.actions : []
+        });
+
+        currentAssistant.bubbleEl.classList.remove('streaming');
+        currentAssistant = null;
+        streaming = false;
+        updateSendEnabled();
+        scrollBottom();
+      } catch (error) {
+        if (currentAssistant) {
+          currentAssistant.bubbleEl.classList.remove('streaming');
+          const errEl = document.createElement('p');
+          errEl.style.color = 'var(--red)';
+          errEl.style.fontSize = '13px';
+          errEl.textContent = '❌ ' + (error?.message || 'Ошибка сервера');
+          currentAssistant.contentEl.appendChild(errEl);
+          pushChatHistoryEntry({
+            kind: 'assistant',
+            markdown: (currentAssistant.text || '') + '\\n\\n❌ ' + (error?.message || 'Ошибка сервера'),
+            actions: []
+          });
+          currentAssistant = null;
+        }
+        streaming = false;
+        updateSendEnabled();
+      }
     }
 
     // ── Vacancy selector ──────────────────────────────────────────────────────
@@ -1853,9 +1696,9 @@ const CHAT_HTML = `<!DOCTYPE html>
         const res = await fetch(withBasePath('/api/jobs'));
         if (res.status === 401) { window.location = LOGIN_PATH; return; }
         const data = await res.json();
-        const jobs = Array.isArray(data.jobs) ? data.jobs : (Array.isArray(data.vacancies) ? data.vacancies : []);
+        const jobs = Array.isArray(data.vacancies) ? data.vacancies : (Array.isArray(data.jobs) ? data.jobs : []);
         availableVacancies = jobs;
-        const savedJobId = localStorage.getItem(LAST_JOB_KEY) || localStorage.getItem(LEGACY_LAST_VACANCY_KEY);
+        const savedVacancyId = localStorage.getItem(LAST_VACANCY_KEY);
 
         if (jobs.length === 0) {
           vacancySelect.innerHTML = '<option value="">Нет вакансий</option>';
@@ -1877,7 +1720,7 @@ const CHAT_HTML = `<!DOCTYPE html>
 
         jobs.forEach(job => {
           const opt = document.createElement('option');
-          opt.value = job.job_id;
+          opt.value = job.vacancy_id;
           opt.textContent = job.title;
           vacancySelect.appendChild(opt);
         });
@@ -1888,26 +1731,23 @@ const CHAT_HTML = `<!DOCTYPE html>
         createOpt.textContent = '+ Создать вакансию';
         vacancySelect.appendChild(createOpt);
 
-        if (pendingInitialChatStatePromise) {
-          const pendingInitialChatState = await pendingInitialChatStatePromise;
-          pendingInitialChatStatePromise = null;
-          if (pendingInitialChatState) {
-            restoreChatState(pendingInitialChatState);
-            return;
-          }
+        if (pendingInitialChatState) {
+          restoreChatState(pendingInitialChatState);
+          pendingInitialChatState = null;
+          return;
         }
 
-        const savedMatch = jobs.find((job) => String(job.job_id ?? job.vacancy_id) === savedJobId);
+        const savedMatch = jobs.find((job) => String(job.vacancy_id) === savedVacancyId);
         if (savedMatch) {
-          vacancySelect.value = savedMatch.job_id;
-          onVacancySelected(savedMatch.vacancy_id ?? savedMatch.job_setup_id ?? savedMatch.job_id, savedMatch.title, savedMatch.job_id, savedMatch.job_setup_id ?? savedMatch.vacancy_id ?? savedMatch.job_id);
+          vacancySelect.value = savedMatch.vacancy_id;
+          onVacancySelected(savedMatch.vacancy_id, savedMatch.title, savedMatch.job_id);
           return;
         }
 
         // Auto-select if only one
         if (jobs.length === 1) {
-          vacancySelect.value = jobs[0].job_id;
-          onVacancySelected(jobs[0].vacancy_id ?? jobs[0].job_setup_id ?? jobs[0].job_id, jobs[0].title, jobs[0].job_id, jobs[0].job_setup_id ?? jobs[0].vacancy_id ?? jobs[0].job_id);
+          vacancySelect.value = jobs[0].vacancy_id;
+          onVacancySelected(jobs[0].vacancy_id, jobs[0].title, jobs[0].job_id);
         }
       } catch {
         vacancySelect.innerHTML = '<option value="">Ошибка загрузки</option>';
@@ -1921,25 +1761,17 @@ const CHAT_HTML = `<!DOCTYPE html>
         return;
       }
       const title = vacancySelect.options[vacancySelect.selectedIndex]?.text ?? '';
-      const selected = availableVacancies.find((job) => String(job.job_id ?? job.vacancy_id) === String(val));
-      onVacancySelected(selected?.vacancy_id ?? selected?.job_setup_id ?? val || null, title, selected?.job_id ?? val ?? null, selected?.job_setup_id ?? selected?.vacancy_id ?? val ?? null);
+      const selected = availableVacancies.find((job) => String(job.vacancy_id) === String(val));
+      onVacancySelected(val || null, title, selected?.job_id ?? null);
     });
 
-    function onVacancySelected(vacancyId, title, jobId, jobSetupId) {
+    function onVacancySelected(vacancyId, title, jobId) {
       clearActivePlaybookState();
-      activeSessionId = null;
-      updateCopyLinkButton();
-      selectedVacancyId = vacancyId || jobSetupId || jobId || null;
-      selectedVacancyJobId = jobId || vacancyId || null;
-      selectedVacancyJobSetupId = jobSetupId || vacancyId || jobId || null;
+      selectedVacancyId = vacancyId;
+      selectedVacancyJobId = jobId || null;
       selectedVacancyTitle = title || '';
-      if (selectedVacancyJobId) {
-        localStorage.setItem(LAST_JOB_KEY, String(selectedVacancyJobId));
-        localStorage.removeItem(LEGACY_LAST_VACANCY_KEY);
-      } else {
-        localStorage.removeItem(LAST_JOB_KEY);
-        localStorage.removeItem(LEGACY_LAST_VACANCY_KEY);
-      }
+      if (vacancyId) localStorage.setItem(LAST_VACANCY_KEY, String(vacancyId));
+      else localStorage.removeItem(LAST_VACANCY_KEY);
 
       syncContext();
 
@@ -1947,13 +1779,13 @@ const CHAT_HTML = `<!DOCTYPE html>
       chatLog.innerHTML = '';
       clearChatHistory();
 
-      if (!selectedVacancyJobId) {
+      if (!vacancyId) {
         chatLog.appendChild(emptyState);
         updateSendEnabled();
         return;
       }
 
-      showWelcome(selectedVacancyJobId, title);
+      showWelcome(vacancyId, title);
       updateSendEnabled();
     }
 
@@ -1964,11 +1796,8 @@ const CHAT_HTML = `<!DOCTYPE html>
 
     function triggerCreateVacancy() {
       clearActivePlaybookState();
-      activeSessionId = null;
-      updateCopyLinkButton();
       selectedVacancyId = null;
       selectedVacancyJobId = null;
-      selectedVacancyJobSetupId = null;
       selectedVacancyTitle = '';
       vacancySelect.value = '';
       syncContext();
@@ -1987,7 +1816,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     });
 
     function syncContext() {
-      const hasVacancy = Boolean(selectedVacancyJobId);
+      const hasVacancy = Boolean(selectedVacancyId);
 
       contextVacancyTitle.textContent = hasVacancy ? selectedVacancyTitle : 'Вакансия не выбрана';
       contextVacancyCopy.textContent = hasVacancy
@@ -2022,13 +1851,12 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       syncShortcuts();
       persistChatState();
-      renderSessionHistory();
     }
 
     function syncShortcuts() {
       shortcutButtons.forEach((button) => {
         const requiresVacancy = button.dataset.requiresVacancy === 'true';
-        button.disabled = requiresVacancy && !selectedVacancyJobId;
+        button.disabled = requiresVacancy && !selectedVacancyId;
       });
     }
 
@@ -2048,7 +1876,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     sendBtn.addEventListener('click', () => sendMessage(msgInput.value));
 
     function updateSendEnabled() {
-      const ready = ws?.readyState === 1 && !streaming && msgInput.value.trim().length > 0;
+      const transportReady = preferHttpFallback || ws?.readyState === 1;
+      const ready = transportReady && !streaming && msgInput.value.trim().length > 0;
       sendBtn.disabled = !ready;
     }
 
@@ -2071,10 +1900,8 @@ const CHAT_HTML = `<!DOCTYPE html>
     function serializeChatState() {
       return {
         version: CHAT_STATE_VERSION,
-        sessionId: activeSessionId ? String(activeSessionId) : null,
-        vacancyId: selectedVacancyJobSetupId ? String(selectedVacancyJobSetupId) : (selectedVacancyId ? String(selectedVacancyId) : null),
+        vacancyId: selectedVacancyId ? String(selectedVacancyId) : null,
         jobId: selectedVacancyJobId ? String(selectedVacancyJobId) : null,
-        jobSetupId: selectedVacancyJobSetupId ? String(selectedVacancyJobSetupId) : null,
         vacancyTitle: selectedVacancyTitle || '',
         playbookKey: activePlaybookKey || null,
         playbookContext: activePlaybookContext || null,
@@ -2134,10 +1961,8 @@ const CHAT_HTML = `<!DOCTYPE html>
 
       return {
         version: Number(state.version) || CHAT_STATE_VERSION,
-        sessionId: state.sessionId ? String(state.sessionId) : null,
-        vacancyId: state.jobSetupId ? String(state.jobSetupId) : (state.vacancyId ? String(state.vacancyId) : null),
-        jobId: state.jobId ? String(state.jobId) : (state.vacancyId ? String(state.vacancyId) : null),
-        jobSetupId: state.jobSetupId ? String(state.jobSetupId) : (state.vacancyId ? String(state.vacancyId) : null),
+        vacancyId: state.vacancyId ? String(state.vacancyId) : null,
+        jobId: state.jobId ? String(state.jobId) : null,
         vacancyTitle: typeof state.vacancyTitle === 'string' ? state.vacancyTitle : '',
         playbookKey: typeof state.playbookKey === 'string' ? state.playbookKey : null,
         playbookContext: state.playbookContext && typeof state.playbookContext === 'object' ? state.playbookContext : null,
@@ -2148,10 +1973,11 @@ const CHAT_HTML = `<!DOCTYPE html>
     function persistChatState() {
       const state = serializeChatState();
       const hasMeaningfulState = Boolean(
-        state.jobId
+        state.vacancyId
         || state.playbookKey
         || state.history.length > 0
       );
+      const encoded = hasMeaningfulState ? encodeChatState(state) : '';
 
       try {
         if (hasMeaningfulState) {
@@ -2162,31 +1988,16 @@ const CHAT_HTML = `<!DOCTYPE html>
       } catch {}
 
       const nextUrl = new URL(window.location.href);
-      nextUrl.searchParams.delete(CHAT_STATE_QUERY_PARAM);
-      nextUrl.hash = activeSessionId
-        ? CHAT_SESSION_HASH_PREFIX + encodeURIComponent(activeSessionId)
-        : '';
+      if (encoded) {
+        nextUrl.searchParams.set(CHAT_STATE_QUERY_PARAM, encoded);
+      } else {
+        nextUrl.searchParams.delete(CHAT_STATE_QUERY_PARAM);
+      }
       history.replaceState(null, '', nextUrl.toString());
-      updateCopyLinkButton();
     }
 
-    async function loadInitialChatState() {
-      const hashSessionId = window.location.hash.startsWith('#' + CHAT_SESSION_HASH_PREFIX)
-        ? decodeURIComponent(window.location.hash.slice(CHAT_SESSION_HASH_PREFIX.length + 1))
-        : '';
-      if (hashSessionId) {
-        activeSessionId = hashSessionId;
-        const fromServer = await fetchChatStateBySessionId(hashSessionId);
-        if (fromServer) return fromServer;
-        activeSessionId = null;
-      }
-
-      const hashState = window.location.hash.startsWith('#' + CHAT_STATE_HASH_PREFIX)
-        ? window.location.hash.slice(CHAT_STATE_HASH_PREFIX.length + 1)
-        : '';
-      const fromUrl = decodeChatState(
-        hashState || new URLSearchParams(window.location.search).get(CHAT_STATE_QUERY_PARAM)
-      );
+    function loadInitialChatState() {
+      const fromUrl = decodeChatState(new URLSearchParams(window.location.search).get(CHAT_STATE_QUERY_PARAM));
       if (fromUrl) return fromUrl;
 
       try {
@@ -2201,26 +2012,21 @@ const CHAT_HTML = `<!DOCTYPE html>
       if (!normalized) return;
 
       clearActivePlaybookState();
-      activeSessionId = normalized.sessionId || activeSessionId;
-      updateCopyLinkButton();
       activePlaybookKey = normalized.playbookKey;
       activePlaybookContext = normalized.playbookContext;
       selectedVacancyId = normalized.vacancyId;
       selectedVacancyJobId = normalized.jobId;
-      selectedVacancyJobSetupId = normalized.jobSetupId;
       selectedVacancyTitle = normalized.vacancyTitle || '';
 
-      if (selectedVacancyJobId) {
-        localStorage.setItem(LAST_JOB_KEY, String(selectedVacancyJobId));
-        localStorage.removeItem(LEGACY_LAST_VACANCY_KEY);
+      if (selectedVacancyId) {
+        localStorage.setItem(LAST_VACANCY_KEY, String(selectedVacancyId));
         if (selectedVacancyTitle) {
-          upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId, selectedVacancyJobSetupId);
+          upsertVacancyOption(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId);
         } else {
-          vacancySelect.value = String(selectedVacancyJobId);
+          vacancySelect.value = String(selectedVacancyId);
         }
       } else {
-        localStorage.removeItem(LAST_JOB_KEY);
-        localStorage.removeItem(LEGACY_LAST_VACANCY_KEY);
+        localStorage.removeItem(LAST_VACANCY_KEY);
         vacancySelect.value = '';
       }
 
@@ -2228,54 +2034,16 @@ const CHAT_HTML = `<!DOCTYPE html>
       chatLog.innerHTML = '';
       chatHistory = normalized.history;
 
-      if (!selectedVacancyJobId) {
+      if (!selectedVacancyId) {
         chatLog.appendChild(emptyState);
       } else if (chatHistory.length > 0) {
         chatHistory.forEach((entry) => renderChatHistoryEntry(entry));
       } else {
-        showWelcome(selectedVacancyJobId, selectedVacancyTitle || 'Новая вакансия');
+        showWelcome(selectedVacancyId, selectedVacancyTitle || 'Новая вакансия');
       }
 
       updateSendEnabled();
       persistChatState();
-      upsertSessionHistoryEntry(normalized);
-    }
-
-    async function fetchChatStateBySessionId(sessionId) {
-      if (!sessionId) return null;
-
-      try {
-        const res = await fetch(withBasePath('/api/chat-state?session_id=' + encodeURIComponent(sessionId)));
-        if (res.status === 401) {
-          window.location = LOGIN_PATH;
-          return null;
-        }
-        if (!res.ok) {
-          return null;
-        }
-        const data = await res.json();
-        return normalizeChatState(data.snapshot);
-      } catch {
-        return null;
-      }
-    }
-
-    async function saveServerChatState() {
-      if (!activeSessionId) return;
-
-      try {
-        const res = await fetch(withBasePath('/api/chat-state'), {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            session_id: activeSessionId,
-            snapshot: serializeChatState()
-          })
-        });
-        if (res.ok) {
-          upsertSessionHistoryEntry(serializeChatState());
-        }
-      } catch {}
     }
 
     // ── Init ──────────────────────────────────────────────────────────────────
@@ -2285,35 +2053,9 @@ const CHAT_HTML = `<!DOCTYPE html>
     }
 
     // Start WS
+    void refreshHealthStatus();
+    scheduleHealthStatusPolling();
     connect();
-
-    historyToggleBtn.addEventListener('click', () => setHistoryOpen(!historyOpen));
-    historyLauncherBtn.addEventListener('click', () => setHistoryOpen(true));
-    chatHistoryBtn.addEventListener('click', () => setHistoryOpen(!historyOpen));
-    newSessionBtn.addEventListener('click', () => {
-      if (selectedVacancyJobId) {
-        onVacancySelected(selectedVacancyId, selectedVacancyTitle, selectedVacancyJobId, selectedVacancyJobSetupId);
-      } else {
-        chatLog.innerHTML = '';
-        clearChatHistory();
-        clearActivePlaybookState();
-        activeSessionId = null;
-        updateCopyLinkButton();
-        chatLog.appendChild(emptyState);
-        syncContext();
-      }
-      if (!isDesktopHistoryLayout()) {
-        setHistoryOpen(false);
-      }
-    });
-    copyLinkBtn.addEventListener('click', () => {
-      void copyCurrentSessionLink();
-    });
-    window.addEventListener('resize', () => {
-      if (isDesktopHistoryLayout() && !historyOpen) {
-        historyLauncherBtn.hidden = false;
-      }
-    });
 
     // Load vacancies
     loadVacancies();
@@ -2322,8 +2064,6 @@ const CHAT_HTML = `<!DOCTYPE html>
     chatLog.innerHTML = '';
     chatLog.appendChild(emptyState);
     syncContext();
-    renderSessionHistory();
-    setHistoryOpen(isDesktopHistoryLayout());
   </script>
 </body>
 </html>`;
@@ -2340,7 +2080,6 @@ function formatCommunicationPlanMarkdown(reply) {
   const examples = Array.isArray(reply.examples) ? reply.examples : [];
   const conversationExamples = Array.isArray(reply.conversation_examples) ? reply.conversation_examples : [];
   const note = String(reply.note ?? "").trim();
-  const jobId = String(reply.job_id ?? "").trim();
   const vacancyId = String(reply.vacancy_id ?? "").trim();
 
   const tableRows = rows.length > 0
@@ -2363,9 +2102,7 @@ function formatCommunicationPlanMarkdown(reply) {
     ].join("\n")
     : "";
 
-  const reportPath = jobId
-    ? `chat/communication-examples?job_id=${encodeURIComponent(jobId)}`
-    : (vacancyId ? `chat/communication-examples?vacancy_id=${encodeURIComponent(vacancyId)}` : null);
+  const reportPath = vacancyId ? `chat/communication-examples?vacancy_id=${encodeURIComponent(vacancyId)}` : null;
   const conversationsBlock = conversationExamples.length > 0
     ? [
       "",
@@ -2577,7 +2314,6 @@ async function handleChatWs(ws, msg, wsContext, app) {
       sessionId: result.body?.session_id ?? null,
       vacancyId: result.body?.vacancy_id ?? null,
       jobId: result.body?.job_id ?? null,
-      jobSetupId: result.body?.job_setup_id ?? result.body?.vacancy_id ?? null,
       vacancyTitle: result.body?.vacancy_title ?? null,
       replyKind: reply?.kind ?? null,
       reply
@@ -2601,7 +2337,6 @@ export function createHiringAgentServer(app, options = {}) {
   const rootPath = appBasePath ? `${appBasePath}/` : "/";
   const sessionCookieName = options.sessionCookieName ?? process.env.SESSION_COOKIE_NAME ?? sessionCookieNameFromBasePath(appBasePath);
   const sessionCookiePath = appBasePath || "/";
-  let wss;
 
   const server = createServer(async (request, response) => {
     try {
@@ -2619,18 +2354,17 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
 
-      if (request.method === "GET" && (requestUrl.pathname === "/health-web-socket" || normalizedPath === "/health-web-socket")) {
-        writeJson(response, 200, {
-          status: "ok",
-          app_env: appEnv,
-          websocket: {
-            enabled: Boolean(wss),
-            path: wsPath,
-            requires_auth: true,
-            heartbeat_interval_ms: 30_000,
-            check_hint: "perform a websocket upgrade and expect open or unauthorized close"
-          }
-        });
+      if (request.method === "GET" && (requestUrl.pathname === "/health_status" || normalizedPath === "/health_status")) {
+        const cookies = parseCookies(request.headers.cookie ?? "");
+        const sessionToken = cookies[sessionCookieName];
+        const session = await resolveSession(managementSql, sessionToken);
+        const result = await app.getHealth();
+        writeJson(response, 200, await buildHealthStatusResponse({
+          health: result.body,
+          session,
+          requestUrl,
+          appBasePath
+        }));
         return;
       }
 
@@ -2655,7 +2389,10 @@ export function createHiringAgentServer(app, options = {}) {
         const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
 
         if (!email || !password) {
-          writeJson(response, 400, { error: "email and password required" });
+          writeJson(response, 400, {
+            error: "missing_credentials",
+            message: "Укажите email и пароль."
+          });
           return;
         }
 
@@ -2668,7 +2405,10 @@ export function createHiringAgentServer(app, options = {}) {
 
         const activeRecruiter = !managementSql || recruiter?.status === "active";
         if (!recruiter || !validPassword || !activeRecruiter) {
-          writeJson(response, 401, { error: "Invalid credentials" });
+          writeJson(response, 401, {
+            error: "invalid_credentials",
+            message: "Не удалось войти. Проверьте email и пароль."
+          });
           return;
         }
 
@@ -2702,7 +2442,7 @@ export function createHiringAgentServer(app, options = {}) {
         });
         if (!accessContext) return;
 
-        const chatbotBaseUrl = process.env.CHATBOT_BASE_URL || "https://candidate-chatbot.recruiter-assistant.com";
+        const chatbotBaseUrl = process.env.CHATBOT_BASE_URL ?? process.env.CANDIDATE_CHATBOT_BASE_URL ?? "";
         const recruiterToken = await getChatbotRecruiterToken(accessContext.tenantSql, accessContext.recruiterId);
         const chatbotModerationBase = recruiterToken ? `${chatbotBaseUrl}/recruiter/${recruiterToken}` : "";
 
@@ -2761,50 +2501,6 @@ export function createHiringAgentServer(app, options = {}) {
           tenantSql: accessContext.tenantSql,
           tenantId: accessContext.tenantId
         });
-        writeJson(response, result.status, result.body);
-        return;
-      }
-
-      if (request.method === "GET" && normalizedPath === "/api/chat-state") {
-        const accessContext = await requireAccessContext(request, response, {
-          managementStore,
-          poolRegistry,
-          appEnv,
-          sessionCookieName
-        });
-        if (!accessContext) return;
-
-        const sessionId = requestUrl.searchParams.get("session_id");
-        const result = await app.getChatState({
-          tenantId: accessContext.tenantId,
-          sessionId,
-          managementSql
-        });
-        writeJson(response, result.status, result.body);
-        return;
-      }
-
-      if (request.method === "POST" && normalizedPath === "/api/chat-state") {
-        const accessContext = await requireAccessContext(request, response, {
-          managementStore,
-          poolRegistry,
-          appEnv,
-          sessionCookieName
-        });
-        if (!accessContext) return;
-
-        const body = await readJsonBody(request);
-        const result = await app.saveChatState({
-          tenantId: accessContext.tenantId,
-          sessionId: body.session_id,
-          snapshot: body.snapshot,
-          managementSql
-        });
-        if (result.status === 204) {
-          response.writeHead(204);
-          response.end();
-          return;
-        }
         writeJson(response, result.status, result.body);
         return;
       }
@@ -2875,7 +2571,7 @@ export function createHiringAgentServer(app, options = {}) {
   });
 
   // ── WebSocket server ─────────────────────────────────────────────────────────
-  wss = new WebSocketServer({ server, path: wsPath });
+  const wss = new WebSocketServer({ server, path: wsPath });
 
   wss.on("connection", async (ws, req) => {
     console.log("[ws] new connection");
@@ -3055,6 +2751,208 @@ function writeJson(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
+async function buildHealthStatusResponse({ health, session, requestUrl, appBasePath }) {
+  const authenticated = Boolean(session);
+  const runtimeOk = health?.status === "ok";
+  const loginPath = joinBasePath(appBasePath, "/login");
+  const deploy = await readDeployStatus();
+  const runtime = {
+    health_ok: runtimeOk,
+    service: health?.service ?? "hiring-agent",
+    mode: health?.mode ?? "unknown",
+    app_env: health?.app_env ?? "unknown",
+    deploy_sha: health?.deploy_sha ?? "unknown",
+    started_at: health?.started_at ?? null,
+    port: health?.port ?? null
+  };
+
+  if (!authenticated) {
+    return {
+      status_key: "auth_required",
+      title: "Нужен повторный вход",
+      message: "Сессия истекла или ещё не создана. Войдите, чтобы продолжить работу.",
+      severity: "warning",
+      deploy,
+      runtime,
+      auth: {
+        authenticated: false,
+        login_path: loginPath
+      },
+      details: {
+        request_path: requestUrl.pathname,
+        reason: "no_active_session"
+      }
+    };
+  }
+
+  if (deploy?.state === "failed") {
+    return {
+      status_key: "deploy_failed",
+      title: "Обновление сервера завершилось с ошибкой",
+      message: "Это не похоже на обычное ожидание. Последняя выкладка не завершилась.",
+      severity: "warning",
+      deploy,
+      runtime,
+      auth: {
+        authenticated: true,
+        recruiter_email: session.email ?? null,
+        recruiter_status: session.recruiter_status ?? null,
+        tenant_status: session.tenant_status ?? null
+      },
+      details: {
+        request_path: requestUrl.pathname
+      }
+    };
+  }
+
+  if (deploy?.state === "in_progress" || deploy?.state === "queued") {
+    return {
+      status_key: "deploy_in_progress",
+      title: "Идёт обновление сервера",
+      message: formatDeployInProgressMessage(deploy, runtime),
+      severity: "info",
+      deploy,
+      runtime,
+      auth: {
+        authenticated: true,
+        recruiter_email: session.email ?? null,
+        recruiter_status: session.recruiter_status ?? null,
+        tenant_status: session.tenant_status ?? null
+      },
+      details: {
+        request_path: requestUrl.pathname,
+        sha_matches_expected: runtime.deploy_sha === (deploy.expected_sha ?? runtime.deploy_sha)
+      }
+    };
+  }
+
+  if (deploy?.state === "succeeded" && deploy.expected_sha && runtime.deploy_sha !== deploy.expected_sha) {
+    return {
+      status_key: "deploy_pending_switch",
+      title: "Новый релиз уже выложен",
+      message: "Обновление завершилось, но публичный сервер ещё не переключился на новую версию.",
+      severity: "info",
+      deploy,
+      runtime,
+      auth: {
+        authenticated: true,
+        recruiter_email: session.email ?? null,
+        recruiter_status: session.recruiter_status ?? null,
+        tenant_status: session.tenant_status ?? null
+      },
+      details: {
+        request_path: requestUrl.pathname,
+        sha_matches_expected: false
+      }
+    };
+  }
+
+  if (runtimeOk) {
+    return {
+      status_key: "runtime_available",
+      title: "Сервер отвечает",
+      message: "Сервис доступен. Если live-канал задерживается, можно продолжать через обычные запросы.",
+      severity: "info",
+      deploy,
+      runtime,
+      auth: {
+        authenticated: true,
+        recruiter_email: session.email ?? null,
+        recruiter_status: session.recruiter_status ?? null,
+        tenant_status: session.tenant_status ?? null
+      },
+      details: {
+        request_path: requestUrl.pathname
+      }
+    };
+  }
+
+  return {
+    status_key: "runtime_unavailable",
+    title: "Сервер отвечает нестабильно",
+    message: "Сервис доступен, но сообщил о проблеме со своим состоянием.",
+    severity: "warning",
+    deploy,
+    runtime,
+    auth: {
+      authenticated: true,
+      recruiter_email: session.email ?? null,
+      recruiter_status: session.recruiter_status ?? null,
+      tenant_status: session.tenant_status ?? null
+    },
+    details: {
+      request_path: requestUrl.pathname
+    }
+  };
+}
+
+async function readDeployStatus() {
+  const candidates = [
+    process.env.DEPLOY_STATUS_FILE,
+    path.resolve(process.cwd(), "deploy-status.json"),
+    path.resolve(process.cwd(), "../deploy-status.json")
+  ].filter(Boolean);
+
+  for (const filename of candidates) {
+    try {
+      const raw = await readFile(filename, "utf8");
+      const parsed = JSON.parse(raw);
+      return normalizeDeployStatus(parsed);
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") continue;
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function normalizeDeployStatus(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const startedAt = typeof raw.started_at === "string" ? raw.started_at : null;
+  const completedAt = typeof raw.completed_at === "string" ? raw.completed_at : null;
+  const updatedAt = typeof raw.updated_at === "string" ? raw.updated_at : null;
+  return {
+    state: typeof raw.state === "string" ? raw.state : "unknown",
+    target: typeof raw.target === "string" ? raw.target : null,
+    expected_sha: typeof raw.expected_sha === "string" ? raw.expected_sha : null,
+    started_at: startedAt,
+    completed_at: completedAt,
+    updated_at: updatedAt,
+    avg_duration_sec: Number.isFinite(Number(raw.avg_duration_sec)) ? Number(raw.avg_duration_sec) : null,
+    elapsed_sec: startedAt ? Math.max(0, Math.round((Date.now() - Date.parse(startedAt)) / 1000)) : null,
+    run_url: typeof raw.run_url === "string" ? raw.run_url : null,
+    workflow: typeof raw.workflow === "string" ? raw.workflow : null
+  };
+}
+
+function formatDeployInProgressMessage(deploy, runtime) {
+  const bits = [];
+  if (deploy.avg_duration_sec) {
+    bits.push(`Обычно это занимает около ${formatDurationSeconds(deploy.avg_duration_sec)}.`);
+  } else {
+    bits.push("Обычно это занимает несколько минут.");
+  }
+
+  if (deploy.elapsed_sec != null) {
+    bits.push(`Сейчас прошло ${formatDurationSeconds(deploy.elapsed_sec)}.`);
+  }
+
+  if (deploy.expected_sha && runtime.deploy_sha && deploy.expected_sha !== runtime.deploy_sha) {
+    bits.push("Пока ещё работает предыдущая версия сервиса.");
+  }
+
+  return bits.join(" ");
+}
+
+function formatDurationSeconds(totalSeconds) {
+  const safeSeconds = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  if (minutes === 0) return `${seconds} сек`;
+  return `${minutes} мин ${seconds} сек`;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -3067,13 +2965,13 @@ function escapeHtml(value) {
 async function getCommunicationExamplesReportData(tenantSql, { vacancyId, jobId }) {
   const rows = vacancyId
     ? await tenantSql`
-      SELECT vacancy_id, job_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
+      SELECT vacancy_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
       FROM chatbot.vacancies
       WHERE vacancy_id = ${vacancyId}
       LIMIT 1
     `
     : await tenantSql`
-      SELECT vacancy_id, job_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
+      SELECT vacancy_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
       FROM chatbot.vacancies
       WHERE job_id = ${jobId}
       ORDER BY
@@ -3092,7 +2990,6 @@ async function getCommunicationExamplesReportData(tenantSql, { vacancyId, jobId 
 
   return {
     vacancyId: vacancy.vacancy_id,
-    jobId: vacancy.job_id ?? vacancy.vacancy_id,
     title: vacancy.title ?? "Вакансия",
     updatedAt: vacancy.updated_at ?? null,
     plan: normalizeReportPlan(vacancy.communication_plan_draft) ?? normalizeReportPlan(vacancy.communication_plan),
@@ -3192,7 +3089,7 @@ function renderCommunicationExamplesReportHtml(report) {
   <main class="shell">
     <section class="panel">
       <h1>Примеры общения</h1>
-      <p class="meta"><strong>Вакансия:</strong> ${escapeHtml(report.title)}<br><strong>job_id:</strong> ${escapeHtml(report.jobId)}<br><strong>vacancy_id:</strong> ${escapeHtml(report.vacancyId)}<br><strong>Обновлено:</strong> ${escapeHtml(updatedAtLabel)}</p>
+      <p class="meta"><strong>Вакансия:</strong> ${escapeHtml(report.title)}<br><strong>vacancy_id:</strong> ${escapeHtml(report.vacancyId)}<br><strong>Обновлено:</strong> ${escapeHtml(updatedAtLabel)}</p>
     </section>
     <section class="panel">
       <h2>План коммуникации</h2>
