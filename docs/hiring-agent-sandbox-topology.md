@@ -88,9 +88,9 @@ If one of those is production, this is not a sandbox.
 
 Чтобы параллелить задачи, используем 3 независимых slot-окружения:
 
-- `sandbox-1`
-- `sandbox-2`
-- `sandbox-3`
+- `dev-slot-1` (physical `sandbox-1`)
+- `dev-slot-2` (physical `sandbox-2`)
+- `preprod` (physical `sandbox-3`)
 
 Каждый slot — это отдельный GitHub `environment` с собственными секретами:
 
@@ -131,13 +131,13 @@ pnpm sandbox:slots:status
 ### Trigger Deploy to Slot
 
 ```bash
-pnpm deploy:hiring-agent:sandbox-slot -- sandbox-1
-pnpm deploy:hiring-agent:sandbox-slot -- sandbox-2 feature/my-branch
-pnpm deploy:hiring-agent:sandbox-slot -- sandbox-3 main 3101
+pnpm deploy:hiring-agent:sandbox-slot -- dev-slot-1
+pnpm deploy:hiring-agent:sandbox-slot -- dev-slot-2 feature/my-branch
+pnpm deploy:hiring-agent:sandbox-slot -- preprod main 3101
 ```
 
 Формат:
 
 ```bash
-scripts/deploy-hiring-agent-sandbox-slot.sh <sandbox-1|sandbox-2|sandbox-3> [ref] [port]
+scripts/deploy-hiring-agent-sandbox-slot.sh <dev-slot-1|dev-slot-2|preprod> [ref] [port]
 ```

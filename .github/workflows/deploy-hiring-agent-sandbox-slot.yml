@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       slot:
-        description: "Sandbox slot"
+        description: "Slot alias (dev-slot-1/dev-slot-2/preprod)"
         required: true
         type: choice
         options:
@@ -20,7 +20,7 @@ on:
         required: false
         default: ""
 
-run-name: slot=${{ inputs.slot }} ref=${{ inputs.deploy_ref }} actor=@${{ github.actor }}
+run-name: ${{ inputs.slot == 'sandbox-1' && 'dev-slot-1' || inputs.slot == 'sandbox-2' && 'dev-slot-2' || inputs.slot == 'sandbox-3' && 'preprod' || inputs.slot }} ref=${{ inputs.deploy_ref }} actor=@${{ github.actor }}
 
 permissions:
   contents: read
@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy ${{ inputs.slot }}
+    name: Deploy ${{ inputs.slot == 'sandbox-1' && 'dev-slot-1' || inputs.slot == 'sandbox-2' && 'dev-slot-2' || inputs.slot == 'sandbox-3' && 'preprod' || inputs.slot }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.slot }}
     env:
@@ -277,29 +277,37 @@ jobs:
           MONITOR_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
         run: |
           set -euo pipefail
+          echo "::group::Public health"
           HEALTH=$(curl -sf "${HIRING_AGENT_BASE_URL%/}/health" 2>/dev/null || echo '{}')
           STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
           MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
           DEPLOY_SHA=$(echo "$HEALTH" | jq -r '.deploy_sha // "unknown"')
           APP_ENV=$(echo "$HEALTH" | jq -r '.app_env // "unknown"')
           echo "Health: $STATUS / $MODE / sha=$DEPLOY_SHA / env=$APP_ENV"
+          echo "$HEALTH" | jq .
+          echo "::endgroup::"
           [ "$STATUS" = "ok" ] || exit 1
           [ "$MODE" = "management-auth" ] || exit 1
           [ "$APP_ENV" = "sandbox" ] || exit 1
           [ "$DEPLOY_SHA" = "${{ steps.resolve_sha.outputs.sha }}" ] || exit 1
 
-          pnpm monitor:hiring-agent -- --base-url "${HIRING_AGENT_BASE_URL%/}" --expected-env sandbox --expected-port "${{ steps.slot.outputs.target_port }}" --require-auth-ws
+          echo "::group::Websocket monitor"
+          corepack pnpm monitor:hiring-agent -- --base-url "${HIRING_AGENT_BASE_URL%/}" --expected-env sandbox --expected-port "${{ steps.slot.outputs.target_port }}" --require-auth-ws
+          echo "::endgroup::"
 
           COOKIE_JAR="$(mktemp)"
           trap 'rm -f "$COOKIE_JAR"' EXIT
 
+          echo "::group::Authenticated jobs smoke"
           curl -sf -c "$COOKIE_JAR" \
             -H 'content-type: application/json' \
             -d "{\"email\":\"${HIRING_AGENT_SMOKE_EMAIL}\",\"password\":\"${HIRING_AGENT_SMOKE_PASSWORD}\"}" \
             "${HIRING_AGENT_BASE_URL%/}/auth/login" >/tmp/hiring-agent-login.json
 
-          grep -q 'session_sandbox_003' "$COOKIE_JAR" || { echo "Expected sandbox session cookie"; cat "$COOKIE_JAR"; exit 1; }
+          grep -q "${{ steps.slot.outputs.session_cookie_name }}" "$COOKIE_JAR" || { echo "Expected sandbox session cookie ${{ steps.slot.outputs.session_cookie_name }}"; cat "$COOKIE_JAR"; exit 1; }
+          echo "Session cookie present: ${{ steps.slot.outputs.session_cookie_name }}"
 
           JOBS_JSON="$(curl -sf -b "$COOKIE_JAR" "${HIRING_AGENT_BASE_URL%/}/api/jobs")"
           echo "$JOBS_JSON" | jq .
           echo "$JOBS_JSON" | jq -e '(.jobs // .vacancies // []) | type == "array"' >/dev/null
+          echo "::endgroup::"
