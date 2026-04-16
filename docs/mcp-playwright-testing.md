@@ -142,7 +142,7 @@ node scripts/smoke-moderation-report.js
 3. Сгенерировать communication plan.
 4. Сгенерировать conversation examples.
 5. Проверить, что открывается report path
-   `chat/communication-examples?vacancy_id=...`
+   `chat/communication-examples?job_id=...`
 6. Убедиться, что в отчёте есть vacancy title, updated timestamp и контент примеров.
 
 ## MCP Playwright Session Workflow

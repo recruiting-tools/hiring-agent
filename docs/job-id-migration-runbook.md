@@ -28,6 +28,7 @@
 - `management.playbook_sessions.vacancy_id` как переходное поле рядом с `job_setup_id`
 - HH/provider adapters и fixture data, где upstream contract реально оперирует vacancy ids
 - read compatibility для старых snapshot/session payloads
+- legacy playbook key aliases `write_vacancy_text` / `vacancy-text` / `vacancy_text`, которые canonicalize-ятся в `view_vacancy`
 
 Нельзя использовать `vacancy_id` как canonical key в новых:
 
