@@ -274,6 +274,17 @@ export class PostgresHiringStore {
   }
 
   async addInboundMessage(request, conversation) {
+    // Idempotent: if this channel_message_id was already stored by the importer,
+    // return the existing row rather than throwing a unique constraint violation.
+    if (request.channel_message_id) {
+      const existing = await this.sql`
+        SELECT message_id, conversation_id, candidate_id, direction, message_type, body, channel, channel_message_id, occurred_at, received_at
+        FROM chatbot.messages
+        WHERE conversation_id = ${conversation.conversation_id} AND channel_message_id = ${request.channel_message_id}
+        LIMIT 1
+      `;
+      if (existing[0]) return existing[0];
+    }
     const messageId = randomUUID();
     const rows = await this.sql`
       INSERT INTO chatbot.messages
