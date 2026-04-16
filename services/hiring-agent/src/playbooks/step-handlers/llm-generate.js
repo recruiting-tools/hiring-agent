@@ -1,4 +1,5 @@
 import { interpolate } from "../context-interpolation.js";
+import { syncJobSetupContext } from "../job-setup-context.js";
 import { parseJsonResponse } from "../../json-response.js";
 import { PlaybookLlmError, saveVacancyField } from "./llm-extract.js";
 
@@ -7,12 +8,13 @@ export async function handleLlmGenerateStep({ step, context, tenantSql, llmAdapt
     throw new PlaybookLlmError("llmAdapter.generate is required");
   }
 
-  const prompt = interpolate(step.prompt_template, context);
+  const syncedContext = syncJobSetupContext(context);
+  const prompt = interpolate(step.prompt_template, syncedContext);
   const raw = await llmAdapter.generate(prompt);
   const generatedValue = parseMaybeJson(raw);
   const nextContext = step.context_key
-    ? { ...context, [step.context_key]: generatedValue }
-    : context;
+    ? syncJobSetupContext({ ...syncedContext, [step.context_key]: generatedValue })
+    : syncedContext;
 
   if (step.db_save_column) {
     await saveVacancyField({

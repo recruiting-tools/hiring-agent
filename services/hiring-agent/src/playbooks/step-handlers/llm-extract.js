@@ -1,10 +1,12 @@
 import { interpolate } from "../context-interpolation.js";
+import { syncJobSetupContext } from "../job-setup-context.js";
 import { parseJsonResponse } from "../../json-response.js";
 
 export class PlaybookLlmError extends Error {}
 
 export async function handleLlmExtractStep({ step, context, tenantSql, llmAdapter, llmConfig = {} }) {
-  const prompt = buildJsonPrompt(step, context);
+  const syncedContext = syncJobSetupContext(context);
+  const prompt = buildJsonPrompt(step, syncedContext);
   const model = resolveExtractModelOverride(step, llmConfig);
   const raw = await generateWithRetry(llmAdapter, prompt, { model });
   let parsed;
@@ -14,8 +16,8 @@ export async function handleLlmExtractStep({ step, context, tenantSql, llmAdapte
     throw new PlaybookLlmError(error instanceof Error ? error.message : "Invalid JSON response");
   }
   const nextContext = step.context_key
-    ? { ...context, [step.context_key]: parsed }
-    : context;
+    ? syncJobSetupContext({ ...syncedContext, [step.context_key]: parsed })
+    : syncedContext;
 
   if (step.db_save_column) {
     await saveVacancyField({

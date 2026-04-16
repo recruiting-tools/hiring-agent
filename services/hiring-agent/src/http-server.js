@@ -2150,6 +2150,7 @@ function formatCommunicationPlanMarkdown(reply) {
   const examples = Array.isArray(reply.examples) ? reply.examples : [];
   const conversationExamples = Array.isArray(reply.conversation_examples) ? reply.conversation_examples : [];
   const note = String(reply.note ?? "").trim();
+  const jobId = String(reply.job_id ?? "").trim();
   const vacancyId = String(reply.vacancy_id ?? "").trim();
 
   const tableRows = rows.length > 0
@@ -2172,7 +2173,9 @@ function formatCommunicationPlanMarkdown(reply) {
     ].join("\n")
     : "";
 
-  const reportPath = vacancyId ? `chat/communication-examples?vacancy_id=${encodeURIComponent(vacancyId)}` : null;
+  const reportPath = jobId
+    ? `chat/communication-examples?job_id=${encodeURIComponent(jobId)}`
+    : (vacancyId ? `chat/communication-examples?vacancy_id=${encodeURIComponent(vacancyId)}` : null);
   const conversationsBlock = conversationExamples.length > 0
     ? [
       "",
@@ -2384,6 +2387,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       sessionId: result.body?.session_id ?? null,
       vacancyId: result.body?.vacancy_id ?? null,
       jobId: result.body?.job_id ?? null,
+      jobSetupId: result.body?.job_setup_id ?? result.body?.vacancy_id ?? null,
       vacancyTitle: result.body?.vacancy_title ?? null,
       replyKind: reply?.kind ?? null,
       reply
@@ -3035,13 +3039,13 @@ function escapeHtml(value) {
 async function getCommunicationExamplesReportData(tenantSql, { vacancyId, jobId }) {
   const rows = vacancyId
     ? await tenantSql`
-      SELECT vacancy_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
+      SELECT vacancy_id, job_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
       FROM chatbot.vacancies
       WHERE vacancy_id = ${vacancyId}
       LIMIT 1
     `
     : await tenantSql`
-      SELECT vacancy_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
+      SELECT vacancy_id, job_id, title, updated_at, communication_plan, communication_plan_draft, communication_examples
       FROM chatbot.vacancies
       WHERE job_id = ${jobId}
       ORDER BY
@@ -3060,6 +3064,7 @@ async function getCommunicationExamplesReportData(tenantSql, { vacancyId, jobId 
 
   return {
     vacancyId: vacancy.vacancy_id,
+    jobId: vacancy.job_id ?? vacancy.vacancy_id ?? null,
     title: vacancy.title ?? "Вакансия",
     updatedAt: vacancy.updated_at ?? null,
     plan: normalizeReportPlan(vacancy.communication_plan_draft) ?? normalizeReportPlan(vacancy.communication_plan),
@@ -3159,7 +3164,7 @@ function renderCommunicationExamplesReportHtml(report) {
   <main class="shell">
     <section class="panel">
       <h1>Примеры общения</h1>
-      <p class="meta"><strong>Вакансия:</strong> ${escapeHtml(report.title)}<br><strong>vacancy_id:</strong> ${escapeHtml(report.vacancyId)}<br><strong>Обновлено:</strong> ${escapeHtml(updatedAtLabel)}</p>
+      <p class="meta"><strong>Вакансия:</strong> ${escapeHtml(report.title)}<br><strong>job_id:</strong> ${escapeHtml(report.jobId ?? "—")}<br><strong>vacancy_id:</strong> ${escapeHtml(report.vacancyId)}<br><strong>Обновлено:</strong> ${escapeHtml(updatedAtLabel)}</p>
     </section>
     <section class="panel">
       <h2>План коммуникации</h2>
