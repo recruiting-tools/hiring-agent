@@ -262,6 +262,15 @@ jobs:
       - run: corepack enable
       - run: corepack pnpm install --frozen-lockfile
 
+      - name: Validate required deploy config
+        run: |
+          [ -n "${VM_HOST:-}" ] || { echo "Missing deploy config: VM_HOST"; exit 1; }
+          [ -n "${VM_USER:-}" ] || { echo "Missing deploy config: VM_USER"; exit 1; }
+          [ -n "${HIRING_AGENT_PUBLIC_URL:-}" ] || { echo "Missing deploy config: HIRING_AGENT_PUBLIC_URL"; exit 1; }
+          [ -n "${{ secrets.VM_SSH_KEY }}" ] || { echo "Missing secret: VM_SSH_KEY"; exit 1; }
+          [ -n "${{ secrets.MANAGEMENT_DATABASE_URL }}" ] || { echo "Missing secret: MANAGEMENT_DATABASE_URL"; exit 1; }
+          [ -n "${{ secrets.OPENROUTER_API_KEY }}" ] || { echo "Missing secret: OPENROUTER_API_KEY"; exit 1; }
+
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v3
         with:
