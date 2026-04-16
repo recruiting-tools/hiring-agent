@@ -21,9 +21,7 @@ export async function handleAutoFetchStep({ step, context, tenantSql }) {
       job_id: vacancy.job_id ?? context.job_id ?? null,
       job_setup_id: context.job_setup_id ?? vacancy.vacancy_id ?? null,
       job_setup: vacancy,
-      vacancy,
-      raw_job_setup_text: vacancy.raw_text,
-      raw_vacancy_text: vacancy.raw_text
+      raw_job_setup_text: vacancy.raw_text
     }),
     nextStepOrder: step.next_step_order ?? null,
     reply: null

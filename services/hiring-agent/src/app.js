@@ -13,6 +13,7 @@ import {
   buildStaticPlaybookReply
 } from "./playbooks/playbook-contracts.js";
 import { createManagementStore } from "../../../packages/access-context/src/management-store.js";
+import { getJobSetup } from "./playbooks/job-setup-context.js";
 
 const TENANT_DB_TIMEOUT_MS = 5000;
 const DATA_RETENTION_CONFIRMATION_TEXT = "delete all my data";
@@ -664,7 +665,7 @@ export function createHiringAgentApp(options = {}) {
 
       const runtimeVacancyId = runtimeResult.vacancyId ?? effectiveVacancyId ?? null;
       const runtimeJobId = runtimeResult.jobId ?? effectiveJobId ?? null;
-      const runtimeVacancyTitle = runtimeResult.context?.vacancy?.title ?? identity.vacancy?.title ?? null;
+      const runtimeVacancyTitle = getJobSetup(runtimeResult.context)?.title ?? identity.vacancy?.title ?? null;
       const runtimePlaybookActive = runtimeResult.reply?.kind !== "completed";
       let reply = runtimeResult.reply;
 
@@ -1483,9 +1484,9 @@ function normalizePersistedChatState(snapshot) {
 }
 
 function buildFallbackChatStateSnapshot(session, context) {
-  const vacancy = context?.vacancy && typeof context.vacancy === "object" ? context.vacancy : null;
-  const jobId = vacancy?.job_id ?? session?.job_id ?? session?.vacancy_id ?? null;
-  const jobSetupId = session?.job_setup_id ?? session?.vacancy_id ?? vacancy?.vacancy_id ?? jobId ?? null;
+  const jobSetup = getJobSetup(context);
+  const jobId = jobSetup?.job_id ?? session?.job_id ?? session?.vacancy_id ?? null;
+  const jobSetupId = session?.job_setup_id ?? session?.vacancy_id ?? jobSetup?.vacancy_id ?? jobId ?? null;
 
   return {
     version: 1,
@@ -1493,7 +1494,7 @@ function buildFallbackChatStateSnapshot(session, context) {
     vacancyId: jobSetupId ? String(jobSetupId) : null,
     jobId: jobId ? String(jobId) : null,
     jobSetupId: jobSetupId ? String(jobSetupId) : null,
-    vacancyTitle: typeof vacancy?.title === "string" ? vacancy.title : "",
+    vacancyTitle: typeof jobSetup?.title === "string" ? jobSetup.title : "",
     playbookKey: session?.playbook_key ? String(session.playbook_key) : null,
     playbookContext: null,
     history: []

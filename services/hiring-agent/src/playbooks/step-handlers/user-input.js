@@ -46,7 +46,6 @@ export async function handleUserInputStep({
     nextContext.job_id = vacancy.job_id ?? nextContext.job_id ?? null;
     nextContext.job_setup_id = vacancy.vacancy_id;
     nextContext.job_setup = vacancy;
-    nextContext.vacancy = vacancy;
   }
 
   const syncedContext = syncJobSetupContext(nextContext);
@@ -54,7 +53,7 @@ export async function handleUserInputStep({
   return {
     context: syncedContext,
     vacancyId: syncedContext.vacancy_id ?? null,
-    jobId: syncedContext.job_id ?? syncedContext.job_setup?.job_id ?? syncedContext.vacancy?.job_id ?? null,
+    jobId: syncedContext.job_id ?? syncedContext.job_setup?.job_id ?? null,
     jobSetupId: syncedContext.job_setup_id ?? syncedContext.vacancy_id ?? null,
     nextStepOrder: step.next_step_order ?? null,
     reply: null
