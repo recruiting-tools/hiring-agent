@@ -182,6 +182,10 @@ export class HhConnector {
       processed,
       failed
     });
+    if (failed > 0) {
+      const failedResults = results.filter((r) => !r.ok);
+      console.error(JSON.stringify({ event: "pollAll_failures", failures: failedResults }));
+    }
     return { due_count: due.length, processed, failed, results };
   }
 

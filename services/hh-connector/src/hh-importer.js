@@ -7,7 +7,6 @@ export class HhImporter {
 
   async syncApplicants({ vacancyMappings, windowStart, windowEnd = new Date().toISOString() }) {
     const results = [];
-    const syncStartedAt = new Date().toISOString();
     for (const mapping of vacancyMappings) {
       for (const collection of (mapping.collections ?? this.collections)) {
         try {
@@ -17,13 +16,6 @@ export class HhImporter {
             collection,
             windowStart,
             windowEnd
-          });
-          console.info("[hh-import] collection_done", {
-            hh_vacancy_id: mapping.hh_vacancy_id,
-            job_id: mapping.job_id,
-            collection,
-            imported_negotiations: imported.imported_negotiations,
-            imported_messages: imported.imported_messages
           });
           results.push(imported);
         } catch (error) {
@@ -43,7 +35,6 @@ export class HhImporter {
 
     return {
       ok: true,
-      sync_started_at: syncStartedAt,
       imported_collections: results.length,
       imported_negotiations: results.reduce((sum, item) => sum + (item.imported_negotiations ?? 0), 0),
       imported_messages: results.reduce((sum, item) => sum + (item.imported_messages ?? 0), 0),
@@ -69,13 +60,6 @@ export class HhImporter {
         const imported = await this.importNegotiation({ item, job_id });
         imported_negotiations += imported.imported_negotiation ? 1 : 0;
         imported_messages += imported.imported_messages;
-        console.info("[hh-import] negotiation_imported", {
-          hh_negotiation_id: item.id,
-          job_id,
-          collection,
-          imported_negotiation: imported.imported_negotiation,
-          imported_messages: imported.imported_messages
-        });
       }
 
       page += 1;
@@ -89,11 +73,6 @@ export class HhImporter {
     const existing = await this.store.findHhNegotiation(item.id);
     const collection = item.state?.id ?? item.collection ?? "response";
     const resume = await this.getResumeSafe(item);
-    console.info("[hh-import] negotiation_start", {
-      hh_negotiation_id: item.id,
-      job_id,
-      existing: Boolean(existing)
-    });
     const ids = await this.store.ensureImportedHhNegotiation({
       hhNegotiation: item,
       job_id,
@@ -118,11 +97,23 @@ export class HhImporter {
     }
 
     const lastMessage = sorted.at(-1);
+    // For new negotiations: set hh_updated_at to the last EMPLOYER message time.
+    // This ensures the poll only calls the chatbot for applicant messages that arrived
+    // AFTER our last employer reply — avoiding re-processing V1 history on first import.
+    // If no employer message exists yet, null means the poll will see all messages as new.
+    // For existing negotiations: preserve hh_updated_at from poll state so the poll
+    // continues exactly from where it left off (don't overwrite with last import timestamp).
+    const existingPollState = existing ? await this.store.getHhPollState(item.id) : null;
+    const lastEmployerMessage = sorted.filter((m) => m.author === "employer").at(-1);
+    const pollHhUpdatedAt = existingPollState
+      ? existingPollState.hh_updated_at
+      : (lastEmployerMessage?.created_at ?? null);
+
     await this.store.upsertHhPollState(item.id, {
       last_polled_at: new Date().toISOString(),
-      hh_updated_at: lastMessage?.created_at ?? item.updated_at ?? null,
-      last_sender: lastMessage?.author ?? null,
-      awaiting_reply: lastMessage ? lastMessage.author === "employer" : false,
+      hh_updated_at: pollHhUpdatedAt,
+      last_sender: existingPollState?.last_sender ?? (lastMessage?.author ?? null),
+      awaiting_reply: existingPollState?.awaiting_reply ?? (lastMessage ? lastMessage.author === "employer" : false),
       next_poll_at: new Date(Date.now() + 60_000).toISOString()
     });
 
