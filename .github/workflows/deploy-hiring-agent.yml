@@ -241,6 +241,17 @@ jobs:
           echo "$JOBS_JSON" | jq -e '(.jobs // .vacancies // []) | type == "array"' >/dev/null
           echo "::endgroup::"
 
+      - name: Sandbox auth shell smoke
+        env:
+          HIRING_AGENT_BASE_URL: ${{ env.SANDBOX_PUBLIC_URL }}
+          HIRING_AGENT_SMOKE_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
+          HIRING_AGENT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "::group::Sandbox auth shell smoke"
+          node scripts/check-hiring-agent-auth-shell.js
+          echo "::endgroup::"
+
   deploy:
     runs-on: ubuntu-latest
     needs: preprod

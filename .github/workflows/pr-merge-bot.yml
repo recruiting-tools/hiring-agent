@@ -28,12 +28,24 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const LABEL = "automerge";
-            const REQUIRED_CHECKS = [
+            const BASE_REQUIRED_CHECKS = [
               "impact-check",
               "migration-check",
               "gate",
               "up-to-date-with-main",
               "single-owner"
+            ];
+            const HIRING_AGENT_CHECK = "hiring-agent-gate";
+            const HIRING_AGENT_PATH_PREFIXES = [
+              "services/hiring-agent/",
+              "packages/access-context/",
+              "tests/integration/hiring-agent",
+              "tests/unit/hiring-agent",
+              ".github/workflows/deploy-hiring-agent",
+              ".github/workflows/deploy-hiring-agent-sandbox-slot",
+              ".github/workflows/hiring-agent-pr-gate.yml",
+              "scripts/deploy-hiring-agent.sh",
+              "scripts/monitor-hiring-agent.js"
             ];
 
             function hasLabel(pr, label) {
@@ -89,7 +101,29 @@ jobs:
               };
             }
 
-            async function checksAreGreen(pr) {
+            function isHiringAgentPath(path) {
+              return HIRING_AGENT_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+            }
+
+            async function requiredChecksForPr(pr) {
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner,
+                repo,
+                pull_number: pr.number,
+                per_page: 100
+              });
+
+              const requiredChecks = [...BASE_REQUIRED_CHECKS];
+              const changedPaths = files.map((file) => file.filename);
+
+              if (changedPaths.some(isHiringAgentPath)) {
+                requiredChecks.push(HIRING_AGENT_CHECK);
+              }
+
+              return requiredChecks;
+            }
+
+            async function checksAreGreen(pr, requiredChecks) {
               const checkRuns = await github.paginate(github.rest.checks.listForRef, {
                 owner,
                 repo,
@@ -100,7 +134,7 @@ jobs:
               const latest = latestCheckByName(checkRuns);
               const failures = [];
 
-              for (const checkName of REQUIRED_CHECKS) {
+              for (const checkName of requiredChecks) {
                 const run = latest.get(checkName);
                 if (!run) {
                   failures.push(`${checkName}: missing`);
@@ -138,7 +172,10 @@ jobs:
                 continue;
               }
 
-              const checks = await checksAreGreen(pr);
+              const requiredChecks = await requiredChecksForPr(pr);
+              core.info(`#${pr.number}: required checks -> ${requiredChecks.join(", ")}`);
+
+              const checks = await checksAreGreen(pr, requiredChecks);
               if (!checks.ok) {
                 core.info(`#${pr.number}: checks not green -> ${checks.failures.join("; ")}`);
                 continue;

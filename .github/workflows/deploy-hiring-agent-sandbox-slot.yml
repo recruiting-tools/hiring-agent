@@ -311,3 +311,7 @@ jobs:
           echo "$JOBS_JSON" | jq .
           echo "$JOBS_JSON" | jq -e '(.jobs // .vacancies // []) | type == "array"' >/dev/null
           echo "::endgroup::"
+
+          echo "::group::Authenticated shell smoke"
+          node scripts/check-hiring-agent-auth-shell.js
+          echo "::endgroup::"
