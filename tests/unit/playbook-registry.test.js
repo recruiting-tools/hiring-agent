@@ -43,11 +43,35 @@ const baseDefinitions = [
     step_count: 1
   },
   {
+    playbook_key: "check_candidate",
+    name: "Проверить кандидата",
+    trigger_description: "candidate snapshot",
+    status: "available",
+    sort_order: 3,
+    step_count: 4
+  },
+  {
+    playbook_key: "today_summary",
+    name: "Сводка за сегодня",
+    trigger_description: "today summary",
+    status: "available",
+    sort_order: 4,
+    step_count: 2
+  },
+  {
+    playbook_key: "candidate_search",
+    name: "Поиск кандидатов",
+    trigger_description: "candidate search",
+    status: "available",
+    sort_order: 5,
+    step_count: 3
+  },
+  {
     playbook_key: "agent_capabilities",
     name: "Возможности агента",
     trigger_description: "capabilities",
     status: "available",
-    sort_order: 3,
+    sort_order: 6,
     step_count: 1
   },
   {
@@ -55,7 +79,7 @@ const baseDefinitions = [
     name: "Быстрый старт",
     trigger_description: "quick start",
     status: "available",
-    sort_order: 4,
+    sort_order: 7,
     step_count: 1
   }
 ];
@@ -64,6 +88,9 @@ test("registry: returns static fallback playbooks without management db", async 
   const fallback = await getPlaybookRegistry();
   const capabilities = fallback.find((item) => item.playbook_key === "agent_capabilities");
   const quickStart = fallback.find((item) => item.playbook_key === "quick_start");
+  const checkCandidate = fallback.find((item) => item.playbook_key === "check_candidate");
+  const todaySummary = fallback.find((item) => item.playbook_key === "today_summary");
+  const candidateSearch = fallback.find((item) => item.playbook_key === "candidate_search");
   const accountAccess = fallback.find((item) => item.playbook_key === "account_access");
   const dataRetention = fallback.find((item) => item.playbook_key === "data_retention");
   const rejectCandidate = fallback.find((item) => item.playbook_key === "reject_candidate");
@@ -73,6 +100,9 @@ test("registry: returns static fallback playbooks without management db", async 
 
   assert.equal(capabilities?.enabled, true);
   assert.equal(quickStart?.enabled, true);
+  assert.equal(checkCandidate?.enabled, true);
+  assert.equal(todaySummary?.enabled, true);
+  assert.equal(candidateSearch?.enabled, true);
   assert.equal(accountAccess?.enabled, true);
   assert.equal(dataRetention?.enabled, true);
   assert.equal(rejectCandidate?.enabled, true);

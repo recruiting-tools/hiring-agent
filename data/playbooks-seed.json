@@ -41,12 +41,36 @@
       "sort_order": 5
     },
     {
+      "playbook_key": "check_candidate",
+      "name": "Проверить кандидата",
+      "trigger_description": "Рекрутер хочет быстро открыть статус кандидата, последнее сообщение и следующий queued touch",
+      "keywords": ["проверь кандидата", "статус кандидата", "карточка кандидата", "check candidate"],
+      "status": "available",
+      "sort_order": 6
+    },
+    {
+      "playbook_key": "today_summary",
+      "name": "Сводка за сегодня",
+      "trigger_description": "Рекрутер хочет увидеть быстрый daily summary по ответам, отправкам и застрявшим кандидатам",
+      "keywords": ["сводка за сегодня", "итоги дня", "что сегодня", "today summary"],
+      "status": "available",
+      "sort_order": 7
+    },
+    {
+      "playbook_key": "candidate_search",
+      "name": "Поиск кандидатов",
+      "trigger_description": "Рекрутер хочет найти кандидатов по свободному тексту, стеку или этапу",
+      "keywords": ["найди кандидата", "поиск кандидата", "поиск по кандидатам", "search candidate"],
+      "status": "available",
+      "sort_order": 8
+    },
+    {
       "playbook_key": "reject_candidate",
       "name": "Отклонить кандидата",
       "trigger_description": "Рекрутер хочет вручную остановить кандидата и закрыть дальнейшие касания",
       "keywords": ["отклони кандидата", "откажи кандидату", "отказать кандидату", "reject candidate"],
       "status": "available",
-      "sort_order": 6
+      "sort_order": 9
     },
     {
       "playbook_key": "remind_me",
@@ -54,7 +78,7 @@
       "trigger_description": "Рекрутер хочет поставить follow-up сообщением в очередь без открытия большого сценария",
       "keywords": ["напомни кандидату", "follow up кандидату", "пингани кандидата", "remind me"],
       "status": "available",
-      "sort_order": 7
+      "sort_order": 10
     },
     {
       "playbook_key": "edit_vacancy_field",
@@ -62,7 +86,7 @@
       "trigger_description": "Рекрутер хочет быстро исправить одно поле текущей вакансии",
       "keywords": ["измени вакансию", "исправь вакансию", "обнови поле вакансии", "edit vacancy"],
       "status": "available",
-      "sort_order": 8
+      "sort_order": 11
     },
     {
       "playbook_key": "pause_vacancy",
@@ -70,7 +94,7 @@
       "trigger_description": "Рекрутер хочет временно остановить вакансию и погасить очередь сообщений",
       "keywords": ["поставь вакансию на паузу", "приостанови вакансию", "pause vacancy"],
       "status": "available",
-      "sort_order": 9
+      "sort_order": 12
     },
     {
       "playbook_key": "account_access",
@@ -85,7 +109,7 @@
         "хочу отключить hh"
       ],
       "status": "available",
-      "sort_order": 10
+      "sort_order": 13
     },
     {
       "playbook_key": "data_retention",
@@ -99,7 +123,7 @@
         "удаление данных"
       ],
       "status": "available",
-      "sort_order": 11
+      "sort_order": 14
     }
   ],
 
@@ -569,6 +593,141 @@
       "next_step_order": null,
       "options": null,
       "notes": "Table columns: step name | arrived | stuck >1h | stuck >24h | stuck >48h."
+    },
+
+    // ── check_candidate ─────────────────────────────────────────────────────
+
+    {
+      "step_key": "check_candidate.1",
+      "playbook_key": "check_candidate",
+      "step_order": 1,
+      "name": "Проверить notebook context кандидата",
+      "step_type": "decision",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": null,
+      "db_save_column": null,
+      "next_step_order": 2,
+      "options": null,
+      "notes": "{\"rules\":[{\"condition\":\"Boolean(context.pipeline_run_id || context.conversation_id || context.candidate_id || context.client_context?.pipeline_run_id || context.client_context?.conversation_id || context.client_context?.candidate_id)\",\"next\":3},{\"default\":true,\"next\":2}]}"
+    },
+    {
+      "step_key": "check_candidate.2",
+      "playbook_key": "check_candidate",
+      "step_order": 2,
+      "name": "Запросить кандидата",
+      "step_type": "user_input",
+      "user_message": "Укажите имя, candidate_id или короткий поисковый запрос по кандидату.",
+      "prompt_template": null,
+      "context_key": "candidate_lookup_query",
+      "db_save_column": null,
+      "next_step_order": 3,
+      "options": null,
+      "notes": null
+    },
+    {
+      "step_key": "check_candidate.3",
+      "playbook_key": "check_candidate",
+      "step_order": 3,
+      "name": "Получить snapshot кандидата",
+      "step_type": "data_fetch",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": "candidate_snapshot",
+      "db_save_column": null,
+      "next_step_order": 4,
+      "options": null,
+      "notes": "{\"source\":\"candidate_snapshot\"}"
+    },
+    {
+      "step_key": "check_candidate.4",
+      "playbook_key": "check_candidate",
+      "step_order": 4,
+      "name": "Показать snapshot кандидата",
+      "step_type": "display",
+      "user_message": "{{context.candidate_snapshot | candidate_snapshot}}",
+      "prompt_template": null,
+      "context_key": null,
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": null,
+      "notes": null
+    },
+
+    // ── today_summary ───────────────────────────────────────────────────────
+
+    {
+      "step_key": "today_summary.1",
+      "playbook_key": "today_summary",
+      "step_order": 1,
+      "name": "Получить daily summary",
+      "step_type": "data_fetch",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": "today_summary",
+      "db_save_column": null,
+      "next_step_order": 2,
+      "options": null,
+      "notes": "{\"source\":\"today_summary\",\"stalledHours\":24}"
+    },
+    {
+      "step_key": "today_summary.2",
+      "playbook_key": "today_summary",
+      "step_order": 2,
+      "name": "Показать daily summary",
+      "step_type": "display",
+      "user_message": "{{context.today_summary | today_summary}}",
+      "prompt_template": null,
+      "context_key": null,
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": null,
+      "notes": null
+    },
+
+    // ── candidate_search ────────────────────────────────────────────────────
+
+    {
+      "step_key": "candidate_search.1",
+      "playbook_key": "candidate_search",
+      "step_order": 1,
+      "name": "Запросить критерий поиска",
+      "step_type": "user_input",
+      "user_message": "Что ищем? Можно имя, стек, этап или свободный текст.",
+      "prompt_template": null,
+      "context_key": "search_query",
+      "db_save_column": null,
+      "next_step_order": 2,
+      "options": null,
+      "notes": null
+    },
+    {
+      "step_key": "candidate_search.2",
+      "playbook_key": "candidate_search",
+      "step_order": 2,
+      "name": "Найти кандидатов",
+      "step_type": "data_fetch",
+      "user_message": null,
+      "prompt_template": null,
+      "context_key": "candidate_search_results",
+      "db_save_column": null,
+      "next_step_order": 3,
+      "options": null,
+      "notes": "{\"source\":\"candidate_search\",\"limit\":10}"
+    },
+    {
+      "step_key": "candidate_search.3",
+      "playbook_key": "candidate_search",
+      "step_order": 3,
+      "name": "Показать результаты поиска",
+      "step_type": "display",
+      "user_message": "Результаты поиска:\n{{context.candidate_search_results | candidate_search_results}}",
+      "prompt_template": null,
+      "context_key": null,
+      "db_save_column": null,
+      "next_step_order": null,
+      "options": null,
+      "notes": null
     },
 
     // ── reject_candidate ────────────────────────────────────────────────────

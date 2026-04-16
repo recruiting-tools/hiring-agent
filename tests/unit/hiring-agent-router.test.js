@@ -63,6 +63,18 @@ test("router: maps broadcast request to mass_broadcast", async () => {
   assert.equal(await routePlaybook("Отправь всем кандидатам ссылку на календарь"), "mass_broadcast");
 });
 
+test("router: maps candidate snapshot request to check_candidate", async () => {
+  assert.equal(await routePlaybook("проверь кандидата"), "check_candidate");
+});
+
+test("router: maps daily summary request to today_summary", async () => {
+  assert.equal(await routePlaybook("нужна сводка за сегодня"), "today_summary");
+});
+
+test("router: maps candidate search request to candidate_search", async () => {
+  assert.equal(await routePlaybook("найди кандидата по java"), "candidate_search");
+});
+
 test("router: maps simple mailing request to mass_broadcast", async () => {
   assert.equal(await routePlaybook("сделай рассылку"), "mass_broadcast");
 });
