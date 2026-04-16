@@ -1835,7 +1835,115 @@ const CHAT_HTML = `<!DOCTYPE html>
         jobId: selectedVacancyJobId || null,
         playbookKey: activePlaybookKey || null,
         clientContext: activePlaybookContext || null
-      }));
+      };
+
+      if (!preferHttpFallback && ws && ws.readyState === 1) {
+        ws.send(JSON.stringify(payload));
+        return;
+      }
+
+      void sendMessageHttp(payload);
+    }
+
+    async function sendMessageHttp(payload) {
+      try {
+        const response = await fetch(withBasePath('/api/chat'), {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: payload.text,
+            playbook_key: payload.playbookKey || null,
+            client_context: payload.clientContext || null,
+            vacancy_id: payload.vacancyId || null,
+            job_id: payload.jobId || null
+          })
+        });
+
+        if (response.status === 401) {
+          window.location = LOGIN_PATH;
+          return;
+        }
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (data && (data.markdown || data.text)) {
+            const markdown = String(data.markdown || data.text || '');
+            currentAssistant.text += markdown;
+            renderMarkdown(currentAssistant.contentEl, currentAssistant.text);
+            pushChatHistoryEntry({
+              kind: 'assistant',
+              markdown: currentAssistant.text,
+              actions: []
+            });
+            currentAssistant.bubbleEl.classList.remove('streaming');
+            currentAssistant = null;
+            streaming = false;
+            updateSendEnabled();
+            scrollBottom();
+            return;
+          }
+
+          throw new Error(data.message || data.error || 'Ошибка сервера');
+        }
+
+        applyServerState({
+          playbookActive: Boolean(data.playbook_active),
+          playbookKey: data.playbook_key || null,
+          sessionId: data.session_id || null,
+          vacancyId: data.vacancy_id || null,
+          jobId: data.job_id || null,
+          vacancyTitle: data.vacancy_title || null,
+          replyKind: data.reply?.kind || null,
+          reply: data.reply || null
+        });
+        activePlaybookContext = data.reply || null;
+
+        const markdown = String(data.markdown || data.text || '');
+        currentAssistant.text += markdown;
+        renderMarkdown(currentAssistant.contentEl, currentAssistant.text);
+
+        if (Array.isArray(data.actions) && data.actions.length > 0) {
+          data.actions.forEach(({ label, message }) => {
+            const btn = document.createElement('button');
+            btn.className = 'action-btn';
+            btn.textContent = label;
+            btn.dataset.msg = message;
+            btn.addEventListener('click', () => sendMessage(message));
+            currentAssistant.actionsEl.appendChild(btn);
+          });
+        }
+
+        pushChatHistoryEntry({
+          kind: 'assistant',
+          markdown: currentAssistant.text,
+          actions: Array.isArray(data.actions) ? data.actions : []
+        });
+
+        currentAssistant.bubbleEl.classList.remove('streaming');
+        currentAssistant = null;
+        streaming = false;
+        updateSendEnabled();
+        scrollBottom();
+      } catch (error) {
+        if (currentAssistant) {
+          currentAssistant.bubbleEl.classList.remove('streaming');
+          const errEl = document.createElement('p');
+          errEl.style.color = 'var(--red)';
+          errEl.style.fontSize = '13px';
+          errEl.textContent = '❌ ' + (error?.message || 'Ошибка сервера');
+          currentAssistant.contentEl.appendChild(errEl);
+          pushChatHistoryEntry({
+            kind: 'assistant',
+            markdown: (currentAssistant.text || '') + '\\n\\n❌ ' + (error?.message || 'Ошибка сервера'),
+            actions: []
+          });
+          currentAssistant = null;
+        }
+        streaming = false;
+        updateSendEnabled();
+      }
     }
 
     // ── Vacancy selector ──────────────────────────────────────────────────────
@@ -2395,6 +2503,10 @@ function replyToMarkdown(reply) {
   if (normalizedReply) {
     reply = normalizedReply;
   }
+  const mappedErrorReply = mapErrorBodyToReply(reply);
+  if (mappedErrorReply) {
+    reply = mappedErrorReply;
+  }
 
   if (!reply || typeof reply !== "object") {
     return { markdown: String(reply ?? "…"), actions: [] };
@@ -2502,6 +2614,35 @@ function serializeReplyForClient(reply) {
   };
 }
 
+function mapErrorBodyToReply(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body) || body.kind) {
+    return null;
+  }
+
+  if (body.error === "job_not_found" || body.error === "vacancy_not_found") {
+    return {
+      kind: "fallback_text",
+      text: "Не удалось найти актуальную вакансию для этого запроса. Выберите вакансию заново и повторите попытку."
+    };
+  }
+
+  if (typeof body.message === "string" && body.message.trim()) {
+    return {
+      kind: "fallback_text",
+      text: body.message.trim()
+    };
+  }
+
+  if (typeof body.error === "string" && body.error.trim()) {
+    return {
+      kind: "fallback_text",
+      text: body.error.trim()
+    };
+  }
+
+  return null;
+}
+
 function tryParseStructuredReply(reply) {
   if (typeof reply !== "string") {
     return null;
@@ -2542,7 +2683,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
       client_context: clientContext ?? null,
     });
 
-    const reply = result.body?.reply ?? result.body;
+    const reply = result.body?.reply ?? mapErrorBodyToReply(result.body) ?? result.body;
     console.log("[ws] reply kind:", reply?.kind ?? "unknown", "status:", result.status);
 
     send({ type: "progress", tool: "render", label: "Генерирую ответ" });
@@ -2772,18 +2913,15 @@ export function createHiringAgentServer(app, options = {}) {
         });
 
         const bodyWithRender = (() => {
-          if (
-            result.status >= 200
-            && result.status < 300
-            && result.body
-            && Object.hasOwn(result.body, "reply")
-          ) {
-            return {
-              ...result.body,
-              ...serializeReplyForClient(result.body.reply)
-            };
+          const reply = result.body?.reply ?? mapErrorBodyToReply(result.body);
+          if (!result.body || !reply) {
+            return result.body;
           }
-          return result.body;
+
+          return {
+            ...result.body,
+            ...serializeReplyForClient(reply)
+          };
         })();
 
         writeJson(response, result.status, bodyWithRender);

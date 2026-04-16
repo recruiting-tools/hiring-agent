@@ -2224,6 +2224,68 @@ test("hiring-agent: management-backed chat rejects foreign job_id before funnel 
   }
 });
 
+test("hiring-agent: management-backed chat returns user-facing markdown for job_not_found", async () => {
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+    assert.match(text, /WHERE job_id = \$1/);
+    assert.deepEqual(values, ["job-foreign", "tenant-alpha-001"]);
+    return [];
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "Визуализируй воронку по кандидатам",
+      job_id: "job-foreign"
+    }, "session=sess-alpha");
+    assert.equal(status, 404);
+    assert.equal(body.error, "job_not_found");
+    assert.match(body.markdown, /Не удалось найти актуальную вакансию/i);
+    assert.equal(body.text, body.markdown);
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: management-backed chat isolates foreign job_id between two recruiters", async () => {
   const tenantSqlByToken = {
     "sess-alpha": async (strings, ...values) => {
@@ -2529,6 +2591,107 @@ test("hiring-agent: management-backed chat resolves job_id from vacancy_id for f
     assert.equal(status, 200);
     assert.equal(body.reply.kind, "render_funnel");
     assert.equal(body.reply.summary.total, 4);
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed funnel ignores stale echoed job_id when vacancy_id is valid", async () => {
+  let callIndex = 0;
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+    callIndex += 1;
+
+    if (callIndex === 1) {
+      assert.match(text, /FROM chatbot\.vacancies/);
+      assert.match(text, /WHERE vacancy_id = \$1/);
+      assert.deepEqual(values, ["vac-123"]);
+      return [{
+        vacancy_id: "vac-123",
+        job_id: "job-owned",
+        title: "Owned role",
+        status: "active",
+        extraction_status: "complete"
+      }];
+    }
+
+    if (callIndex === 2) {
+      assert.match(text, /FROM chatbot\.jobs/);
+      assert.match(text, /WHERE job_id = \$1\s+AND client_id = \$2/);
+      assert.deepEqual(values, ["job-stale", "tenant-alpha-001"]);
+      return [];
+    }
+
+    if (callIndex === 3) {
+      assert.match(text, /FROM chatbot\.jobs/);
+      assert.match(text, /WHERE job_id = \$1\s+AND client_id = \$2/);
+      assert.deepEqual(values, ["job-owned", "tenant-alpha-001"]);
+      return [{ job_id: "job-owned", title: "Owned role" }];
+    }
+
+    assert.match(text, /with scoped_runs as/);
+    return [{
+      step_name: "Screening",
+      step_id: "screening",
+      step_index: 0,
+      total: 5,
+      in_progress: 2,
+      completed: 2,
+      stuck: 0,
+      rejected: 1
+    }];
+  };
+
+  const app = createHiringAgentApp({ demoMode: false });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "Визуализируй воронку по кандидатам",
+      vacancy_id: "vac-123",
+      job_id: "job-stale"
+    }, "session=sess-alpha");
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "render_funnel");
+    assert.equal(body.reply.summary.total, 5);
+    assert.equal(body.job_id, "job-owned");
   } finally {
     server.close();
   }
