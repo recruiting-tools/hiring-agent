@@ -1,4 +1,5 @@
 import { interpolate } from "../context-interpolation.js";
+import { syncJobSetupContext } from "../job-setup-context.js";
 import { resolveCreateVacancyMaterials } from "../../create-vacancy-materials.js";
 
 export async function handleUserInputStep({
@@ -43,13 +44,18 @@ export async function handleUserInputStep({
     });
     nextContext.vacancy_id = vacancy.vacancy_id;
     nextContext.job_id = vacancy.job_id ?? nextContext.job_id ?? null;
+    nextContext.job_setup_id = vacancy.vacancy_id;
+    nextContext.job_setup = vacancy;
     nextContext.vacancy = vacancy;
   }
 
+  const syncedContext = syncJobSetupContext(nextContext);
+
   return {
-    context: nextContext,
-    vacancyId: nextContext.vacancy_id ?? null,
-    jobId: nextContext.job_id ?? nextContext.vacancy?.job_id ?? null,
+    context: syncedContext,
+    vacancyId: syncedContext.vacancy_id ?? null,
+    jobId: syncedContext.job_id ?? syncedContext.job_setup?.job_id ?? syncedContext.vacancy?.job_id ?? null,
+    jobSetupId: syncedContext.job_setup_id ?? syncedContext.vacancy_id ?? null,
     nextStepOrder: step.next_step_order ?? null,
     reply: null
   };

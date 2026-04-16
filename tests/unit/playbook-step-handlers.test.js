@@ -30,7 +30,10 @@ test("playbook handler: auto_fetch loads vacancy and raw text into context", asy
 
   assert.equal(result.nextStepOrder, 1);
   assert.equal(result.reply, null);
+  assert.equal(result.context.job_setup_id, "vac-1");
+  assert.equal(result.context.raw_job_setup_text, "Текст вакансии");
   assert.equal(result.context.raw_vacancy_text, "Текст вакансии");
+  assert.equal(result.context.job_setup.title, "Sales manager");
   assert.equal(result.context.vacancy.title, "Sales manager");
 });
 
@@ -63,6 +66,8 @@ test("playbook handler: auto_fetch falls back to job_id when vacancy_id is synth
   assert.equal(result.nextStepOrder, 1);
   assert.equal(result.context.vacancy_id, "vac-1");
   assert.equal(result.context.job_id, "job-1");
+  assert.equal(result.context.job_setup_id, "vac-1");
+  assert.equal(result.context.job_setup.title, "Sales manager");
   assert.equal(result.context.vacancy.title, "Sales manager");
 });
 
@@ -88,6 +93,7 @@ test("playbook handler: user_input prompts first and stores recruiter input on r
   });
   assert.equal(result.reply, null);
   assert.equal(result.nextStepOrder, 2);
+  assert.equal(result.context.raw_job_setup_text, "Нужен плиточник с опытом");
   assert.equal(result.context.raw_vacancy_text, "Нужен плиточник с опытом");
 });
 
@@ -122,6 +128,8 @@ test("playbook handler: create_vacancy user_input inserts draft vacancy with exp
 
   assert.equal(result.nextStepOrder, 2);
   assert.equal(result.context.vacancy_id, "vac-new-1");
+  assert.equal(result.context.job_setup_id, "vac-new-1");
+  assert.equal(result.context.job_setup?.status, "draft");
   assert.equal(result.context.vacancy?.status, "draft");
 });
 
@@ -183,6 +191,9 @@ test("playbook handler: create_vacancy user_input expands HH vacancy link into r
   assert.equal(fetchCalls, 1);
   assert.equal(result.nextStepOrder, 2);
   assert.equal(result.context.vacancy_id, "vac-hh-1");
+  assert.equal(result.context.job_setup_id, "vac-hh-1");
+  assert.match(result.context.raw_job_setup_text, /Описание вакансии:/);
+  assert.match(result.context.raw_job_setup_text, /- Опыт рецензирования/);
   assert.match(result.context.raw_vacancy_text, /Описание вакансии:/);
   assert.match(result.context.raw_vacancy_text, /- Опыт рецензирования/);
 });
@@ -1088,7 +1099,9 @@ test("playbook runtime: creates a session, skips silent auto_fetch, and returns 
         vacancy_id: "vac-7",
         job_id: "job-7",
         job_setup_id: "vac-7",
+        job_setup: { vacancy_id: "vac-7", job_id: "job-7", raw_text: "raw text", title: "Ops manager" },
         vacancy: { vacancy_id: "vac-7", job_id: "job-7", raw_text: "raw text", title: "Ops manager" },
+        raw_job_setup_text: "raw text",
         raw_vacancy_text: "raw text"
       },
       vacancyId: "vac-7",

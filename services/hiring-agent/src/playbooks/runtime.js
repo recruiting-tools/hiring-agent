@@ -8,6 +8,7 @@ import { handleDisplayStep } from "./step-handlers/display.js";
 import { handleLlmExtractStep, PlaybookLlmError } from "./step-handlers/llm-extract.js";
 import { handleLlmGenerateStep } from "./step-handlers/llm-generate.js";
 import { getFallbackPlaybookSteps } from "./local-seed-fallback.js";
+import { syncJobSetupContext } from "./job-setup-context.js";
 import { handleSubroutineStep } from "./step-handlers/subroutine.js";
 import { handleUserInputStep } from "./step-handlers/user-input.js";
 
@@ -308,40 +309,17 @@ function buildInitialContext({ vacancyId, jobId, jobSetupId, clientContext = nul
       }
     }
   }
-  return context;
+  return syncJobSetupContext(context, { vacancyId, jobId, jobSetupId });
 }
 
 function mergeIdentityIntoContext(context, { vacancyId = null, jobId = null, jobSetupId = null } = {}) {
-  const nextContext = context && typeof context === "object" && !Array.isArray(context)
-    ? { ...context }
-    : {};
-
-  if (vacancyId && !nextContext.vacancy_id) {
-    nextContext.vacancy_id = vacancyId;
-  }
-  if (jobId && !nextContext.job_id) {
-    nextContext.job_id = jobId;
-  }
-  if ((jobSetupId ?? vacancyId) && !nextContext.job_setup_id) {
-    nextContext.job_setup_id = jobSetupId ?? vacancyId;
-  }
-
-  if (nextContext.vacancy?.vacancy_id && !nextContext.vacancy_id) {
-    nextContext.vacancy_id = nextContext.vacancy.vacancy_id;
-  }
-  if (nextContext.vacancy?.job_id && !nextContext.job_id) {
-    nextContext.job_id = nextContext.vacancy.job_id;
-  }
-  if (nextContext.vacancy?.vacancy_id && !nextContext.job_setup_id) {
-    nextContext.job_setup_id = nextContext.vacancy.vacancy_id;
-  }
-
-  return nextContext;
+  return syncJobSetupContext(context, { vacancyId, jobId, jobSetupId });
 }
 
 function deriveIdentity(context, { vacancyId = null, jobId = null, session = null } = {}) {
-  const contextVacancyId = context?.vacancy?.vacancy_id ?? context?.vacancy_id ?? null;
-  const contextJobId = context?.vacancy?.job_id ?? context?.job_id ?? null;
+  const canonicalJobSetup = context?.job_setup ?? context?.vacancy ?? null;
+  const contextVacancyId = canonicalJobSetup?.vacancy_id ?? context?.vacancy_id ?? null;
+  const contextJobId = canonicalJobSetup?.job_id ?? context?.job_id ?? null;
   const contextJobSetupId = context?.job_setup_id ?? contextVacancyId ?? null;
 
   return {

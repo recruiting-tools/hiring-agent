@@ -51,4 +51,5 @@ test("playbook runtime: falls back to bundled steps when DB steps are missing", 
   assert.equal(sessionUpdates.length, 1);
   assert.equal(sessionUpdates[0].sessionId, "sess-fallback-001");
   assert.equal(sessionUpdates[0].payload.currentStepOrder, 1);
+  assert.equal(sessionUpdates[0].payload.context.job_setup_id ?? null, null);
 });

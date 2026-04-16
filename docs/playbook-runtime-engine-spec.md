@@ -51,7 +51,7 @@ return reply to UI (buttons / text / display / loading)
 ## Session lifecycle
 
 ### Start
-- Recruiter selects a vacancy (UI sets `vacancy_id` in request body alongside `job_id`)
+- Recruiter selects a vacancy (UI sets `job_id` as the external key and may still send `vacancy_id` as a compatibility alias; runtime stores `job_setup_id` as the internal key)
 - Recruiter triggers a playbook (keyword or chip click → `playbook_key`)
 - Runtime checks `management.playbook_sessions` for an active session:
   ```sql
@@ -77,13 +77,15 @@ return reply to UI (buttons / text / display / loading)
 ## Step type handlers
 
 ### `auto_fetch` (step_order = 0, always silent)
-Load vacancy from tenant DB, inject into session context. Never shown to recruiter.
+Load job setup from tenant DB, inject into session context. Never shown to recruiter.
 
 ```js
 const vacancy = await tenantSql`
   SELECT * FROM chatbot.vacancies WHERE vacancy_id = ${context.vacancy_id}
 `[0];
+context.job_setup = vacancy;
 context.vacancy = vacancy;
+context.raw_job_setup_text = vacancy.raw_text;
 context.raw_vacancy_text = vacancy.raw_text;
 // advance immediately to step 1, no reply to UI
 ```
@@ -206,10 +208,10 @@ Execute a controlled tenant-data fetch and store the result in `context[context_
 Preferred contract:
 - `step.notes` contains JSON config such as `{ "source": "candidate_funnel" }`
 - the handler resolves `source` to a known fetch adapter instead of executing arbitrary SQL text
-- adapter inputs come from runtime context (`tenantId`, `vacancy.job_id`, selection filters, etc.)
+- adapter inputs come from runtime context (`tenantId`, `job_setup.job_id`, selection filters, etc.)
 
 Current implementation supports:
-- `source = "candidate_funnel"` for per-vacancy funnel aggregation via `vacancy.job_id`
+- `source = "candidate_funnel"` for per-job funnel aggregation via `job_setup.job_id`
 - `source = "mass_broadcast_candidates"` for safe recruiter-reviewed candidate selection
 
 The handler still preserves a compatibility fallback for legacy `candidate_funnel` seeds that omitted explicit JSON config.
@@ -222,7 +224,7 @@ Function: `interpolate(template, context) → string`
 
 Syntax: `{{path}}` with optional filter `{{path | filter}}`
 
-Paths use dot notation: `context.vacancy.must_haves`
+Paths use dot notation: `context.job_setup.must_haves`
 
 Filters:
 | Filter | Output |
