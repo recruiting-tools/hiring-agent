@@ -1,4 +1,3 @@
-import { hasFallbackSteps } from "./local-seed-fallback.js";
 import { canBypassTenantPlaybookLock, canonicalizePlaybookKey } from "./playbook-key-map.js";
 import { ALWAYS_RUNNABLE_PLAYBOOK_KEYS, FALLBACK_PLAYBOOKS } from "./playbook-contracts.js";
 
@@ -71,11 +70,13 @@ async function getBaseRegistry(managementSql) {
     `.then((rows) => {
       const normalizedRows = rows.map((row) => {
         const playbookKey = canonicalizePlaybookKey(row.playbook_key);
+        const runnable = isRunnablePlaybook(playbookKey, row.step_count);
         return {
           ...row,
           playbook_key: playbookKey,
           title: row.name,
-          enabled: row.status === "available" && isRunnablePlaybook(playbookKey, row.step_count)
+          runnable,
+          enabled: row.status === "available" && runnable
         };
       });
       cachedPlaybooks = dedupeByPlaybookKey(normalizedRows);
@@ -117,7 +118,6 @@ export async function findPlaybook(playbookKey, managementSql = null, tenantId =
 function isRunnablePlaybook(playbookKey, stepCount) {
   return (
     ALWAYS_RUNNABLE_PLAYBOOK_KEYS.has(playbookKey)
-    || hasFallbackSteps(playbookKey)
     || Number(stepCount ?? 0) > 0
   );
 }

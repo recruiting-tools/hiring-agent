@@ -90,23 +90,23 @@ test("router: maps vacancy text request to view_vacancy in static fallback mode"
   assert.equal(await routePlaybook("покажи текст текущей вакансии"), "view_vacancy");
 });
 
-test("router: canonicalizes legacy write_vacancy_text to view_vacancy", async () => {
+test("router: canonicalizes legacy write_vacancy_text to view_vacancy when runtime steps exist", async () => {
   const fakeManagementSql = async () => ([
     {
       playbook_key: "write_vacancy_text",
       keywords: ["текст вакансии"],
-      step_count: 0
+      step_count: 2
     }
   ]);
   assert.equal(await routePlaybook("покажи текст вакансии", fakeManagementSql), "view_vacancy");
 });
 
-test("router: canonicalizes legacy vacancy-text to view_vacancy", async () => {
+test("router: canonicalizes legacy vacancy-text to view_vacancy when runtime steps exist", async () => {
   const fakeManagementSql = async () => ([
     {
       playbook_key: "vacancy-text",
       keywords: ["текст вакансии"],
-      step_count: 0
+      step_count: 2
     }
   ]);
   assert.equal(await routePlaybook("покажи текст вакансии", fakeManagementSql), "view_vacancy");
