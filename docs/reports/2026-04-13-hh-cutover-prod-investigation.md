@@ -45,7 +45,7 @@ It is intentionally forensic first:
 
 Cloud Run service: `candidate-chatbot-v2`
 
-Observed via `gcloud run services describe candidate-chatbot-v2 --region=europe-west1 --project=project-5d8dd8a0-67af-44ba-b6e`:
+Observed via `gcloud run services describe candidate-chatbot-v2 --region=europe-west1 --project=<gcp-project-id>`:
 
 - latest ready revision: `candidate-chatbot-v2-00014-vwz`
 - `DEPLOY_SHA=54660cc5a0cf3905b68a2600f91bc5d7f6ef1ac2`
@@ -76,7 +76,7 @@ Observed gap:
 
 - no client row corresponding to the 4 HH vacancies described in PR `#2`
 - no tenant that obviously represents the migrated real recruiter account
-- one recruiter row still references `client-demo-001`, but that client row is absent from `management.clients`
+- one recruiter row still references `<demo-client-id>`, but that client row is absent from `management.clients`
 
 ### Jobs
 
@@ -101,8 +101,8 @@ Observed gap:
 | `rec-alpha-002` | `client-alpha-001` | `alex@alpha.test` | `rec-tok-alpha-002` | `false` |
 | `rec-beta-001` | `client-beta-001` | `bob@beta.test` | `rec-tok-beta-001` | `false` |
 | `rec-beta-002` | `client-beta-001` | `bella@beta.test` | `rec-tok-beta-002` | `false` |
-| `recruiter-demo-001` | `client-demo-001` | `recruiter@example.test` | `rec-tok-demo-001` | `false` |
-| `recruiter-prod-001` | `client-prod-001` | `demo@hiring-agent.app` | `rec-tok-prod-001` | `true` |
+| `<demo-recruiter-id>` | `<demo-client-id>` | `recruiter@example.test` | `<demo-recruiter-token>` | `false` |
+| `recruiter-prod-001` | `client-prod-001` | `demo@example.test` | `<prod-recruiter-token>` | `true` |
 
 Observed gap:
 
@@ -153,7 +153,7 @@ This is a release-process failure, not only a data-migration failure.
 
 Repository docs describe a split topology:
 
-- dev project: `round-leaf-16031956`
+- dev project: `<dev-project-id>`
 - sandbox branch inside that dev project
 - temporary `pr-*` Neon branches for dry runs
 - production project: `shiny-darkness-67314937`
@@ -166,7 +166,7 @@ Relevant source files:
 
 Observed mismatch:
 
-- PR `#2` planning assumes validation on a dedicated Neon branch in dev project `round-leaf-16031956`
+- PR `#2` planning assumes validation on a dedicated Neon branch in dev project `<dev-project-id>`
 - live production runtime reads `V2_PROD_NEON_URL` from GCP and points at the production DB
 - there is no visible automation in the production deploy workflow that:
   - runs outstanding DB migrations on the production DB

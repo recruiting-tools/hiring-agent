@@ -2,7 +2,7 @@
 
 > Historical plan only.
 > Auth sections in this document are stale after the management-auth migration.
-> `hiring-chat.recruiter-assistant.com/login` now uses `management.recruiters` and `management.sessions`,
+> `<hiring-agent-host>/login` now uses `management.recruiters` and `management.sessions`,
 > not `chatbot.recruiters` / `chatbot.sessions`.
 
 **Ревью пройдено** — исправлены 3 критических + 4 медиум замечания от Claude-ревьюера (2026-04-13).
@@ -14,13 +14,13 @@
 **Работает локально:**
 ```bash
 PORT=3100 DATABASE_URL=$V2_DEV_NEON_URL node services/hiring-agent/src/index.js
-# → http://localhost:3100/?token=rec-tok-demo-001
+# → http://localhost:3100/?token=<demo-recruiter-token>
 ```
 
 **Не сделано для прода:**
 1. Нормальная auth (сейчас token из URL-параметра)
-2. Деплой на GCP VM `34.31.217.176`
-3. Nginx + домен `hiring-chat.recruiter-assistant.com`
+2. Деплой на GCP VM `<vm-public-ip>`
+3. Nginx + домен `<hiring-agent-host>`
 4. CI/CD workflow
 
 ---
@@ -30,7 +30,7 @@ PORT=3100 DATABASE_URL=$V2_DEV_NEON_URL node services/hiring-agent/src/index.js
 ```
 браузер рекрутера
        ↓ HTTPS
-hiring-chat.recruiter-assistant.com  (DNS A → 34.31.217.176)
+<hiring-agent-host>  (DNS A → <vm-public-ip>)
        ↓
   Nginx (VM) — SSL termination, proxy → :3100
        ↓
@@ -105,7 +105,7 @@ export async function getRecruiterByEmail(sql, email) {
 ### Режим без DB (demo mode)
 Если `sql === null`:
 - `POST /auth/login` — принимает любой email без проверки пароля
-- `resolveSession()` — возвращает фиктивного рекрутера `{recruiter_token: "rec-tok-demo-001", email: "demo@local"}`
+- `resolveSession()` — возвращает фиктивного рекрутера `{recruiter_token: "<demo-recruiter-token>", email: "demo@local"}`
 - Для прода этот режим не используется
 
 ---
@@ -198,16 +198,16 @@ module.exports = {
 ```nginx
 server {
     listen 80;
-    server_name hiring-chat.recruiter-assistant.com;
+    server_name <hiring-agent-host>;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl;
-    server_name hiring-chat.recruiter-assistant.com;
+    server_name <hiring-agent-host>;
 
-    ssl_certificate     /etc/letsencrypt/live/hiring-chat.recruiter-assistant.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/hiring-chat.recruiter-assistant.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/<hiring-agent-host>/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/<hiring-agent-host>/privkey.pem;
 
     location / {
         proxy_pass         http://127.0.0.1:3100;
@@ -227,11 +227,11 @@ server {
 
 ```bash
 #!/bin/bash
-# Деплоит hiring-agent на GCP VM (34.31.217.176) через SSH.
+# Деплоит hiring-agent на GCP VM (<vm-public-ip>) через SSH.
 # Usage: VM_USER=username ./scripts/deploy-hiring-agent.sh
 set -e
 
-VM_HOST="${VM_HOST:-34.31.217.176}"
+VM_HOST="${VM_HOST:-<vm-public-ip>}"
 VM_USER="${VM_USER:-vladimir}"
 REPO_DIR="/opt/hiring-agent"
 SHA=$(git rev-parse HEAD)
@@ -313,24 +313,24 @@ jobs:
           mkdir -p ~/.ssh
           gcloud secrets versions access latest \
             --secret=VM_SSH_KEY \
-            --project=project-5d8dd8a0-67af-44ba-b6e \
+            --project=<gcp-project-id> \
             > ~/.ssh/hiring_agent_vm_key
           chmod 600 ~/.ssh/hiring_agent_vm_key
           eval "$(ssh-agent -s)"
           ssh-add ~/.ssh/hiring_agent_vm_key
 
       - name: Add VM to known_hosts
-        run: ssh-keyscan -H 34.31.217.176 >> ~/.ssh/known_hosts
+        run: ssh-keyscan -H <vm-public-ip> >> ~/.ssh/known_hosts
 
       - name: Deploy
         env:
-          VM_HOST: 34.31.217.176
+          VM_HOST: <vm-public-ip>
           VM_USER: vladimir
         run: bash ./scripts/deploy-hiring-agent.sh
 
       - name: Post-deploy smoke
         run: |
-          STATUS=$(curl -sf https://hiring-chat.recruiter-assistant.com/health \
+          STATUS=$(curl -sf https://<hiring-agent-host>/health \
             | jq -r '.status' 2>/dev/null || echo "failed")
           echo "Health: $STATUS"
           [ "$STATUS" = "ok" ] || { echo "SMOKE FAILED"; exit 1; }
@@ -384,11 +384,11 @@ Tasks 5-8 можно параллельно с 1-4.
 
 ## Ручные шаги (не Codex, один раз)
 
-1. **DNS**: A-запись `hiring-chat.recruiter-assistant.com → 34.31.217.176` в Google Domains (domains.google.com → recruiter-assistant.com → DNS)
+1. **DNS**: A-запись `<hiring-agent-host> → <vm-public-ip>` в Google Domains (domains.google.com → <public-domain> → DNS)
 
 2. **VM first-time setup** (если не сделано):
    ```bash
-   ssh vladimir@34.31.217.176
+   ssh <vm-user>@<vm-public-ip>
    # Node 20+ через NodeSource (apt install nodejs даёт старую версию)
    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
    sudo apt-get install -y nodejs nginx certbot python3-certbot-nginx
@@ -406,16 +406,16 @@ Tasks 5-8 можно параллельно с 1-4.
 
 4. **Nginx**: скопировать `infra/hiring-agent/nginx.conf` в `/etc/nginx/sites-available/hiring-agent`, сделать symlink в `sites-enabled`, reload nginx
 
-5. **Certbot**: `sudo certbot --nginx -d hiring-chat.recruiter-assistant.com`
+5. **Certbot**: `sudo certbot --nginx -d <hiring-agent-host>`
 
 6. **GCP Secret Manager**: добавить SSH-ключ `VM_SSH_KEY` для CI:
    ```bash
-   gcloud secrets create VM_SSH_KEY --project=project-5d8dd8a0-67af-44ba-b6e
+   gcloud secrets create VM_SSH_KEY --project=<gcp-project-id>
    gcloud secrets versions add VM_SSH_KEY --data-file=~/.ssh/hiring_agent_vm_key
    # Дать доступ Service Account который используется в CI
    gcloud secrets add-iam-policy-binding VM_SSH_KEY \
      --member="serviceAccount:<SA>" --role="roles/secretmanager.secretAccessor" \
-     --project=project-5d8dd8a0-67af-44ba-b6e
+     --project=<gcp-project-id>
    ```
 
 ---
@@ -424,7 +424,7 @@ Tasks 5-8 можно параллельно с 1-4.
 
 - [ ] `pnpm test:hiring-agent` зелёный (включая новые auth тесты)
 - [ ] Локально: форма входа, чат, job selector, logout работают
-- [ ] `hiring-chat.recruiter-assistant.com` → редирект на `/login`
+- [ ] `<hiring-agent-host>` → редирект на `/login`
 - [ ] После входа: chat работает, `recruiter_token` из сессии доходит до playbook
 - [ ] `/health` возвращает `{"status":"ok"}`
 - [ ] CI workflow `deploy-hiring-agent` зелёный

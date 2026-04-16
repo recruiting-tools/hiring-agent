@@ -7,7 +7,7 @@ Purpose: give admins a deterministic way to inspect recruiter users in a target 
 > This script is legacy tenant-local tooling.
 > It updates `chatbot.recruiters` only.
 > It does NOT create or update `management.recruiters`, so it is not the correct bootstrap path
-> for `hiring-chat.recruiter-assistant.com/login`.
+> for `<hiring-agent-host>/login`.
 >
 > For `hiring-agent` login/bootstrap use:
 > - `scripts/bootstrap-demo-user.js` for demo/bootstrap flows
@@ -24,7 +24,7 @@ DATABASE_URL=... node scripts/bootstrap-recruiter-access.js list
 Filter by client:
 
 ```bash
-DATABASE_URL=... node scripts/bootstrap-recruiter-access.js list --client-id client-demo-001
+DATABASE_URL=... node scripts/bootstrap-recruiter-access.js list --client-id <demo-client-id>
 ```
 
 Create a recruiter access row for an existing client:
@@ -32,7 +32,7 @@ Create a recruiter access row for an existing client:
 ```bash
 DATABASE_URL=... node scripts/bootstrap-recruiter-access.js create \
   --recruiter-id recruiter-client-001 \
-  --client-id client-demo-001 \
+  --client-id <demo-client-id> \
   --email recruiter@example.test \
   --token rec-tok-client-001
 ```
@@ -48,9 +48,9 @@ Set password with explicit tenant guard and token update:
 
 ```bash
 DATABASE_URL=... node scripts/bootstrap-recruiter-access.js set-password \
-  --recruiter-id recruiter-demo-001 \
-  --client-id client-demo-001 \
-  --set-token rec-tok-prod-001
+  --recruiter-id <demo-recruiter-id> \
+  --client-id <demo-client-id> \
+  --set-token <prod-recruiter-token>
 ```
 
 ## Safety Rules
@@ -72,6 +72,6 @@ DATABASE_URL=... node scripts/bootstrap-recruiter-access.js set-password \
 
 ## Not Intended For
 
-- bootstrapping `hiring-chat.recruiter-assistant.com/login`
+- bootstrapping `<hiring-agent-host>/login`
 - validating `management.sessions`
 - provisioning control-plane auth for the management-backed `hiring-agent`

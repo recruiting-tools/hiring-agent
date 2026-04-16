@@ -47,7 +47,7 @@ Additionally: because `009` is unapplied, the `management.feature_flags` table d
 
 #### Gap 2 — Dev/sandbox environment state not verified
 
-The investigation correctly notes that the planned cutover dry run was supposed to target a Neon branch in dev project `round-leaf-16031956`. But the doc does not show what data actually exists there. The investigation closes with "the import was never executed, or was executed only on a non-production Neon branch/project" as co-equal hypotheses.
+The investigation correctly notes that the planned cutover dry run was supposed to target a Neon branch in dev project `<dev-project-id>`. But the doc does not show what data actually exists there. The investigation closes with "the import was never executed, or was executed only on a non-production Neon branch/project" as co-equal hypotheses.
 
 This is the most important question for the remediation plan (it determines whether there is recoverable import data or whether the import must be run fresh against production). The investigation should query the dev project's main branch and any `pr-*` branches for the same tables it queried on production, and commit that evidence.
 
@@ -61,7 +61,7 @@ The investigation should extract and record the specific vacancy IDs from PR #2'
 
 #### Minor — Potential data integrity issue not flagged
 
-In the recruiters table, `recruiter-demo-001` references `client_id = 'client-demo-001'`. That client ID does not appear in the clients table snapshot (which shows `client-alpha-001`, `client-beta-001`, `client-prod-001`). This is either a foreign key violation worth flagging or an error in the investigation's representation of the data. Should be confirmed and noted either way.
+In the recruiters table, `<demo-recruiter-id>` references `client_id = '<demo-client-id>'`. That client ID does not appear in the clients table snapshot (which shows `client-alpha-001`, `client-beta-001`, `client-prod-001`). This is either a foreign key violation worth flagging or an error in the investigation's representation of the data. Should be confirmed and noted either way.
 
 ---
 
@@ -119,9 +119,9 @@ The plan references `009_hh_oauth_and_flags.sql` as the migration to apply (impl
 | # | Document | Change |
 |---|---|---|
 | 1 | Investigation | Update "Migration State" section: production is missing both `009` and `010`, not only `009`. Add implication that `feature_flags` table does not exist at all. |
-| 2 | Investigation | Add evidence section: dev/sandbox Neon project data state (query `round-leaf-16031956` the same way production was queried). |
+| 2 | Investigation | Add evidence section: dev/sandbox Neon project data state (query `<dev-project-id>` the same way production was queried). |
 | 3 | Investigation | Add the specific HH vacancy IDs from PR #2 scope to the evidence record. |
-| 4 | Investigation | Confirm or explain `client-demo-001` / `recruiter-demo-001` foreign key situation. |
+| 4 | Investigation | Confirm or explain `<demo-client-id>` / `<demo-recruiter-id>` foreign key situation. |
 | 5 | Remediation plan | Update execution order to include "author and dry-run import script" as an explicit step between pipeline patch and import execution. |
 | 6 | Remediation plan | Make WS3→WS2 dependency explicit: define promotion path before codifying it in CI. |
 | 7 | Remediation plan | Convert Open Question 4 into a decision with rationale. |

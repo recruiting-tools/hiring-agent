@@ -39,7 +39,7 @@ Use a dedicated feature branch and draft PR for:
 Use a dedicated Neon branch to validate schema, import, and UI behavior on a safe copy.
 
 - default project: `v2-dev-client`
-- Neon project id: `round-leaf-16031956`
+- Neon project id: `<dev-project-id>`
 - default parent branch: `sandbox`
 
 Code review happens in GitHub PR. Data safety and migration validation happen in Neon branches.
@@ -63,7 +63,7 @@ This cutover requires a new importer in this repo.
 
 ## Neon Dry Run Workstream
 
-- Create `pr-<N>` Neon branch from `sandbox` in project `round-leaf-16031956`.
+- Create `pr-<N>` Neon branch from `sandbox` in project `<dev-project-id>`.
 - Run all migrations there.
 - Keep `hh_import=false` and `hh_send=false` at start.
 - Import only the in-scope dialogs.
@@ -216,7 +216,7 @@ WHERE flag = 'hh_send';
 ## Final Cutover Checklist
 
 - Confirm target environment and Neon branch names.
-- Confirm Neon project id `round-leaf-16031956` and parent branch `sandbox` unless exception approved.
+- Confirm Neon project id `<dev-project-id>` and parent branch `sandbox` unless exception approved.
 - Confirm exact export manifest timestamp and recent-activity window.
 - Confirm all 4 HH vacancy mappings exist.
 - Confirm recruiter auth exists for moderation UI.
