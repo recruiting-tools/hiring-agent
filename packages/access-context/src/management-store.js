@@ -5,6 +5,14 @@ const SESSION_RENEWAL_WINDOW_DAYS = 7;
 
 export function createManagementStore(managementSql) {
   const value = (input) => (input === undefined ? null : input);
+  const resolveJobSetupKey = ({ jobSetupId, vacancyId }) => value(jobSetupId ?? vacancyId ?? null);
+  const normalizeSessionRow = (row) => {
+    if (!row) return null;
+    return {
+      ...row,
+      job_setup_id: row.job_setup_id ?? row.vacancy_id ?? null
+    };
+  };
 
   return {
     async getRecruiterSession(sessionToken) {
@@ -105,7 +113,8 @@ export function createManagementStore(managementSql) {
       return rows;
     },
 
-    async getActiveSession({ tenantId, recruiterId, vacancyId, playbookKey }) {
+    async getActiveSession({ tenantId, recruiterId, vacancyId, jobId = null, jobSetupId = null, playbookKey }) {
+      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId, vacancyId });
       const rows = await managementSql`
         SELECT
           session_id,
@@ -114,6 +123,8 @@ export function createManagementStore(managementSql) {
           conversation_id,
           playbook_key,
           current_step_order,
+          job_id,
+          job_setup_id,
           vacancy_id,
           context,
           call_stack,
@@ -124,12 +135,21 @@ export function createManagementStore(managementSql) {
         FROM management.playbook_sessions
         WHERE tenant_id = ${value(tenantId)}
           AND recruiter_id = ${value(recruiterId)}
-          AND vacancy_id IS NOT DISTINCT FROM ${value(vacancyId)}
           AND playbook_key = ${value(playbookKey)}
           AND status = 'active'
+          AND (
+            (${value(jobId)}::text IS NOT NULL AND job_id IS NOT DISTINCT FROM ${value(jobId)})
+            OR (${resolvedJobSetupId}::text IS NOT NULL AND COALESCE(job_setup_id, vacancy_id) IS NOT DISTINCT FROM ${resolvedJobSetupId})
+            OR (
+              ${value(jobId)}::text IS NULL
+              AND ${resolvedJobSetupId}::text IS NULL
+              AND job_id IS NULL
+              AND COALESCE(job_setup_id, vacancy_id) IS NULL
+            )
+          )
         LIMIT 1
       `;
-      return rows[0] ?? null;
+      return normalizeSessionRow(rows[0] ?? null);
     },
 
     async getPlaybookSessionById({ tenantId, sessionId }) {
@@ -163,9 +183,12 @@ export function createManagementStore(managementSql) {
       playbookKey,
       currentStepOrder,
       vacancyId = null,
+      jobId = null,
+      jobSetupId = null,
       context = {},
       callStack = []
     }) {
+      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId, vacancyId });
       const rows = await managementSql`
         INSERT INTO management.playbook_sessions (
           tenant_id,
@@ -173,6 +196,8 @@ export function createManagementStore(managementSql) {
           conversation_id,
           playbook_key,
           current_step_order,
+          job_id,
+          job_setup_id,
           vacancy_id,
           context,
           call_stack
@@ -183,6 +208,8 @@ export function createManagementStore(managementSql) {
           ${value(conversationId)},
           ${value(playbookKey)},
           ${value(currentStepOrder)},
+          ${value(jobId)},
+          ${resolvedJobSetupId},
           ${value(vacancyId)},
           ${JSON.stringify(context ?? {})}::jsonb,
           ${JSON.stringify(callStack ?? [])}::jsonb
@@ -194,6 +221,8 @@ export function createManagementStore(managementSql) {
           conversation_id,
           playbook_key,
           current_step_order,
+          job_id,
+          job_setup_id,
           vacancy_id,
           context,
           call_stack,
@@ -202,7 +231,7 @@ export function createManagementStore(managementSql) {
           updated_at,
           completed_at
       `;
-      return rows[0] ?? null;
+      return normalizeSessionRow(rows[0] ?? null);
     },
 
     async updateSession(sessionId, {
@@ -210,14 +239,19 @@ export function createManagementStore(managementSql) {
       context,
       callStack,
       vacancyId,
+      jobId,
+      jobSetupId,
       status
     } = {}) {
+      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId, vacancyId });
       const rows = await managementSql`
         UPDATE management.playbook_sessions
         SET
           current_step_order = COALESCE(${value(currentStepOrder)}, current_step_order),
           context = COALESCE(${context === undefined ? null : JSON.stringify(context)}::jsonb, context),
           call_stack = COALESCE(${callStack === undefined ? null : JSON.stringify(callStack)}::jsonb, call_stack),
+          job_id = COALESCE(${value(jobId)}, job_id),
+          job_setup_id = COALESCE(${resolvedJobSetupId}, job_setup_id),
           vacancy_id = COALESCE(${value(vacancyId)}, vacancy_id),
           status = COALESCE(${value(status)}, status),
           updated_at = now()
@@ -229,6 +263,8 @@ export function createManagementStore(managementSql) {
           conversation_id,
           playbook_key,
           current_step_order,
+          job_id,
+          job_setup_id,
           vacancy_id,
           context,
           call_stack,
@@ -237,10 +273,11 @@ export function createManagementStore(managementSql) {
           updated_at,
           completed_at
       `;
-      return rows[0] ?? null;
+      return normalizeSessionRow(rows[0] ?? null);
     },
 
-    async completeSession(sessionId, { context, callStack, vacancyId } = {}) {
+    async completeSession(sessionId, { context, callStack, vacancyId, jobId, jobSetupId } = {}) {
+      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId, vacancyId });
       const rows = await managementSql`
         UPDATE management.playbook_sessions
         SET
@@ -248,6 +285,8 @@ export function createManagementStore(managementSql) {
           current_step_order = null,
           context = COALESCE(${context === undefined ? null : JSON.stringify(context)}::jsonb, context),
           call_stack = COALESCE(${callStack === undefined ? null : JSON.stringify(callStack)}::jsonb, call_stack),
+          job_id = COALESCE(${value(jobId)}, job_id),
+          job_setup_id = COALESCE(${resolvedJobSetupId}, job_setup_id),
           vacancy_id = COALESCE(${value(vacancyId)}, vacancy_id),
           updated_at = now(),
           completed_at = now()
@@ -259,6 +298,8 @@ export function createManagementStore(managementSql) {
           conversation_id,
           playbook_key,
           current_step_order,
+          job_id,
+          job_setup_id,
           vacancy_id,
           context,
           call_stack,
@@ -267,19 +308,29 @@ export function createManagementStore(managementSql) {
           updated_at,
           completed_at
       `;
-      return rows[0] ?? null;
+      return normalizeSessionRow(rows[0] ?? null);
     },
 
-    async abortActiveSessions({ tenantId, recruiterId, vacancyId, excludePlaybookKey = null }) {
+    async abortActiveSessions({ tenantId, recruiterId, vacancyId, jobId = null, jobSetupId = null, excludePlaybookKey = null }) {
+      const resolvedJobSetupId = resolveJobSetupKey({ jobSetupId, vacancyId });
       await managementSql`
         UPDATE management.playbook_sessions
         SET status = 'aborted',
             updated_at = now()
         WHERE tenant_id = ${value(tenantId)}
           AND recruiter_id = ${value(recruiterId)}
-          AND vacancy_id IS NOT DISTINCT FROM ${value(vacancyId)}
           AND status = 'active'
           AND (${value(excludePlaybookKey)}::text IS NULL OR playbook_key <> ${value(excludePlaybookKey)})
+          AND (
+            (${value(jobId)}::text IS NOT NULL AND job_id IS NOT DISTINCT FROM ${value(jobId)})
+            OR (${resolvedJobSetupId}::text IS NOT NULL AND COALESCE(job_setup_id, vacancy_id) IS NOT DISTINCT FROM ${resolvedJobSetupId})
+            OR (
+              ${value(jobId)}::text IS NULL
+              AND ${resolvedJobSetupId}::text IS NULL
+              AND job_id IS NULL
+              AND COALESCE(job_setup_id, vacancy_id) IS NULL
+            )
+          )
       `;
     }
   };
