@@ -19,11 +19,7 @@ ALTER TABLE chatbot.hh_vacancy_job_mappings
   CHECK (
     jsonb_typeof(collections) = 'array'
     AND jsonb_array_length(collections) > 0
-    AND NOT EXISTS (
-      SELECT 1
-      FROM jsonb_array_elements_text(collections) AS collection
-      WHERE collection NOT IN ('response', 'phone_interview')
-    )
+    AND collections <@ '["response","phone_interview"]'::jsonb
   ),
   ADD CONSTRAINT chk_hh_vacancy_job_mappings_vacancy_id_not_empty
   CHECK (btrim(hh_vacancy_id) <> '');
