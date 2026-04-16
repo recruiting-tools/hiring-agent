@@ -26,7 +26,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Lock per slot, not globally; other slots can deploy in parallel.
   group: deploy-hiring-agent-${{ inputs.slot }}
   cancel-in-progress: false
 
@@ -38,276 +37,61 @@ jobs:
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
-      DEPLOY_REF: ${{ inputs.deploy_ref }}
+      VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
       SANDBOX_PUBLIC_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
       HIRING_AGENT_PUBLIC_HOST: ${{ vars.HIRING_AGENT_PUBLIC_HOST || secrets.HIRING_AGENT_PUBLIC_HOST }}
       SANDBOX_DEMO_EMAIL: ${{ secrets.HIRING_AGENT_SANDBOX_DEMO_EMAIL }}
       SANDBOX_DEMO_PASSWORD: ${{ secrets.HIRING_AGENT_SANDBOX_DEMO_PASSWORD }}
       SANDBOX_DEMO_RECRUITER_ID: recruiter-demo-001
       SANDBOX_DEMO_CLIENT_ID: client-demo-001
+      MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      REPO_URL: git@github.com:recruiting-tools/hiring-agent.git
 
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.deploy_ref }}
-
       - name: Resolve slot config
-        id: slot
         run: |
           set -euo pipefail
           case "${{ inputs.slot }}" in
             sandbox-1)
-              default_port=3201
-              base_path="/sandbox-001"
-              deploy_dir="/home/vova/hiring-agent-sandbox-001"
-              pm2_app_name="hiring-agent-sandbox-001"
-              session_cookie_name="session_sandbox_001"
+              echo "TARGET_PORT=${{ inputs.target_port || '3201' }}" >> "$GITHUB_ENV"
+              echo "DEPLOY_DIR=/home/vova/hiring-agent-sandbox-001" >> "$GITHUB_ENV"
+              echo "PM2_APP_NAME=hiring-agent-sandbox-001" >> "$GITHUB_ENV"
+              echo "APP_BASE_PATH=/sandbox-001" >> "$GITHUB_ENV"
+              echo "SESSION_COOKIE_NAME=session_sandbox_001" >> "$GITHUB_ENV"
               ;;
             sandbox-2)
-              default_port=3202
-              base_path="/sandbox-002"
-              deploy_dir="/home/vova/hiring-agent-sandbox-002"
-              pm2_app_name="hiring-agent-sandbox-002"
-              session_cookie_name="session_sandbox_002"
+              echo "TARGET_PORT=${{ inputs.target_port || '3202' }}" >> "$GITHUB_ENV"
+              echo "DEPLOY_DIR=/home/vova/hiring-agent-sandbox-002" >> "$GITHUB_ENV"
+              echo "PM2_APP_NAME=hiring-agent-sandbox-002" >> "$GITHUB_ENV"
+              echo "APP_BASE_PATH=/sandbox-002" >> "$GITHUB_ENV"
+              echo "SESSION_COOKIE_NAME=session_sandbox_002" >> "$GITHUB_ENV"
               ;;
             sandbox-3)
-              default_port=3203
-              base_path="/sandbox-003"
-              deploy_dir="/home/vova/hiring-agent-sandbox-003"
-              pm2_app_name="hiring-agent-sandbox-003"
-              session_cookie_name="session_sandbox_003"
+              echo "TARGET_PORT=${{ inputs.target_port || '3203' }}" >> "$GITHUB_ENV"
+              echo "DEPLOY_DIR=/home/vova/hiring-agent-sandbox-003" >> "$GITHUB_ENV"
+              echo "PM2_APP_NAME=hiring-agent-sandbox-003" >> "$GITHUB_ENV"
+              echo "APP_BASE_PATH=/sandbox-003" >> "$GITHUB_ENV"
+              echo "SESSION_COOKIE_NAME=session_sandbox_003" >> "$GITHUB_ENV"
               ;;
             *)
               echo "Unsupported slot: ${{ inputs.slot }}"
               exit 1
               ;;
           esac
-
-          target_port="${{ inputs.target_port }}"
-          if [ -z "$target_port" ]; then
-            target_port="$default_port"
-          fi
-
-          echo "target_port=$target_port" >> "$GITHUB_OUTPUT"
-          echo "base_path=$base_path" >> "$GITHUB_OUTPUT"
-          echo "deploy_dir=$deploy_dir" >> "$GITHUB_OUTPUT"
-          echo "pm2_app_name=$pm2_app_name" >> "$GITHUB_OUTPUT"
-          echo "session_cookie_name=$session_cookie_name" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve deploy SHA
-        id: resolve_sha
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Validate required secrets
-        run: |
-          [ -n "${VM_HOST:-}" ] || { echo "Missing secret: VM_HOST"; exit 1; }
-          [ -n "${VM_USER:-}" ] || { echo "Missing secret: VM_USER"; exit 1; }
-          [ -n "${SANDBOX_PUBLIC_URL:-}" ] || { echo "Missing secret: SANDBOX_PUBLIC_URL"; exit 1; }
-          [ -n "${HIRING_AGENT_PUBLIC_HOST:-}" ] || { echo "Missing secret/var: HIRING_AGENT_PUBLIC_HOST"; exit 1; }
-          [ -n "${{ secrets.VM_SSH_KEY }}" ] || { echo "Missing secret: VM_SSH_KEY"; exit 1; }
-          [ -n "${{ secrets.MANAGEMENT_DATABASE_URL }}" ] || { echo "Missing secret: MANAGEMENT_DATABASE_URL"; exit 1; }
-          [ -n "${{ secrets.OPENROUTER_API_KEY }}" ] || { echo "Missing secret: OPENROUTER_API_KEY"; exit 1; }
-          [ -n "${{ secrets.HIRING_AGENT_SANDBOX_DEMO_EMAIL }}" ] || { echo "Missing secret: HIRING_AGENT_SANDBOX_DEMO_EMAIL"; exit 1; }
-          [ -n "${{ secrets.HIRING_AGENT_SANDBOX_DEMO_PASSWORD }}" ] || { echo "Missing secret: HIRING_AGENT_SANDBOX_DEMO_PASSWORD"; exit 1; }
-          [ "${{ steps.slot.outputs.target_port }}" != "3101" ] || {
-            echo "Refusing sandbox deploy: target_port must not be production port 3101";
-            exit 1;
-          }
-          expected_url="https://${HIRING_AGENT_PUBLIC_HOST}${{ steps.slot.outputs.base_path }}"
-          [ "${SANDBOX_PUBLIC_URL%/}" = "$expected_url" ] || {
-            echo "Invalid SANDBOX_PUBLIC_URL: expected '$expected_url' but got '${SANDBOX_PUBLIC_URL%/}'";
-            exit 1;
-          }
-
-      - name: Load SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/vm_key
-          chmod 600 ~/.ssh/vm_key
-          printf 'Host %s\n  IdentityFile ~/.ssh/vm_key\n  StrictHostKeyChecking accept-new\n' \
-            "$VM_HOST" >> ~/.ssh/config
-
-      - name: Add VM to known_hosts
-        run: ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
-
-      - name: Ensure nginx routes for sandbox paths
-        env:
-          HIRING_AGENT_PUBLIC_HOST: ${{ env.HIRING_AGENT_PUBLIC_HOST }}
-        run: |
-          SNIPPET_B64=$(cat <<'NGINX' | base64 -w0
-          location = /sandbox-001 { return 301 /sandbox-001/; }
-          location = /sandbox-002 { return 301 /sandbox-002/; }
-          location = /sandbox-003 { return 301 /sandbox-003/; }
-
-          location ^~ /sandbox-001/ {
-            proxy_pass http://127.0.0.1:3201;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-          }
-
-          location ^~ /sandbox-002/ {
-            proxy_pass http://127.0.0.1:3202;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-          }
-
-          location ^~ /sandbox-003/ {
-            proxy_pass http://127.0.0.1:3203;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-          }
-          NGINX
-          )
-
-          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" HIRING_AGENT_PUBLIC_HOST="$HIRING_AGENT_PUBLIC_HOST" SNIPPET_B64="$SNIPPET_B64" bash -s << 'EOF'
-            set -euo pipefail
-            if ! sudo -n true 2>/dev/null; then
-              echo "ERROR: sudo without password is required to configure nginx sandbox routes"
-              exit 1
-            fi
-
-            echo "$SNIPPET_B64" | base64 -d | sudo tee /etc/nginx/snippets/hiring-agent-sandbox-locations.conf >/dev/null
-
-            SITE_FILE=$(sudo grep -Rls "server_name .*${HIRING_AGENT_PUBLIC_HOST//./\\.}" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -n1 || true)
-            if [ -z "$SITE_FILE" ]; then
-              echo "ERROR: could not locate nginx server block for ${HIRING_AGENT_PUBLIC_HOST}"
-              exit 1
-            fi
-
-            if ! sudo grep -q "hiring-agent-sandbox-locations.conf" "$SITE_FILE"; then
-              sudo sed -i "/server_name .*${HIRING_AGENT_PUBLIC_HOST//./\\.}.*;/a\\    include \\/etc\\/nginx\\/snippets\\/hiring-agent-sandbox-locations.conf;" "$SITE_FILE"
-            fi
-
-            sudo nginx -t
-            sudo systemctl reload nginx
-          EOF
-
-      - name: Check slot process on VM
-        run: |
-          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << 'EOF'
-            ss -tlnp | awk 'NR==1 || /LISTEN/' || netstat -tlnp 2>/dev/null || true
-            pm2 list 2>/dev/null || echo "(pm2 not running)"
-          EOF
-
-      - name: Write slot .env on VM
-        env:
-          MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          ENV_B64=$(printf 'NODE_ENV=production\nAPP_ENV=sandbox\nAPP_BASE_PATH=%s\nSESSION_COOKIE_NAME=%s\nDEPLOY_SHA=%s\nMANAGEMENT_DATABASE_URL=%s\nOPENROUTER_API_KEY=%s\n' "${{ steps.slot.outputs.base_path }}" "${{ steps.slot.outputs.session_cookie_name }}" "${{ steps.resolve_sha.outputs.sha }}" "$MANAGEMENT_DATABASE_URL" "$OPENROUTER_API_KEY" | base64 -w0)
-          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" \
-            "mkdir -p '${{ steps.slot.outputs.deploy_dir }}' && echo '$ENV_B64' | base64 -d > '${{ steps.slot.outputs.deploy_dir }}/.env' && echo '.env written: ${{ steps.slot.outputs.deploy_dir }}/.env'"
-
-      - name: Install runner dependencies for bootstrap
-        run: |
-          corepack enable >/dev/null 2>&1 || true
-          corepack pnpm install --frozen-lockfile --ignore-scripts
-
-      - name: Bootstrap sandbox demo recruiter
-        env:
-          MANAGEMENT_DATABASE_URL: ${{ secrets.MANAGEMENT_DATABASE_URL }}
-          DEMO_RECRUITER_ID: ${{ env.SANDBOX_DEMO_RECRUITER_ID }}
-          DEMO_CLIENT_ID: ${{ env.SANDBOX_DEMO_CLIENT_ID }}
-          DEMO_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
-          DEMO_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
-        run: node scripts/bootstrap-demo-user.js
-
-      - name: Deploy
-        env:
-          TARGET_PORT: ${{ steps.slot.outputs.target_port }}
-          DEPLOY_DIR: ${{ steps.slot.outputs.deploy_dir }}
-          PM2_APP_NAME: ${{ steps.slot.outputs.pm2_app_name }}
-          REPO_URL: git@github.com:recruiting-tools/hiring-agent.git
-        run: bash ./scripts/deploy-hiring-agent.sh
-
-      - name: Ensure sandbox bindings exist
-        run: |
-          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << 'EOF'
-            set -euo pipefail
-            cd "${{ steps.slot.outputs.deploy_dir }}"
-            MANAGEMENT_DATABASE_URL=$(awk -F= '
-              /^MANAGEMENT_DATABASE_URL=/ {
-                sub(/^MANAGEMENT_DATABASE_URL=/, "")
-                print
-                exit
-              }
-            ' ./.env)
-            [ -n "${MANAGEMENT_DATABASE_URL:-}" ] || { echo "ERROR: MANAGEMENT_DATABASE_URL missing in .env"; exit 1; }
-            export MANAGEMENT_DATABASE_URL
-            node ./scripts/bootstrap-sandbox-bindings.js --source-env prod --target-env sandbox
-          EOF
-
-      - name: Verify runtime on VM
-        run: |
-          ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$VM_HOST" bash -s << 'EOF'
-            set -euo pipefail
-            HEALTH=$(curl -sf "http://127.0.0.1:${{ steps.slot.outputs.target_port }}/health")
-            STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
-            MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
-            DEPLOY_SHA=$(echo "$HEALTH" | jq -r '.deploy_sha // "unknown"')
-            APP_ENV=$(echo "$HEALTH" | jq -r '.app_env // "unknown"')
-            echo "Local health: $STATUS / $MODE / sha=$DEPLOY_SHA / env=$APP_ENV"
-            [ "$STATUS" = "ok" ] || exit 1
-            [ "$MODE" = "management-auth" ] || exit 1
-            [ "$APP_ENV" = "sandbox" ] || exit 1
-            [ "$DEPLOY_SHA" = "${{ steps.resolve_sha.outputs.sha }}" ] || exit 1
-          EOF
-
-      - name: Post-deploy smoke
-        env:
-          HIRING_AGENT_BASE_URL: ${{ secrets.SANDBOX_PUBLIC_URL }}
-          HIRING_AGENT_SMOKE_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
-          HIRING_AGENT_SMOKE_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
-          MONITOR_EMAIL: ${{ env.SANDBOX_DEMO_EMAIL }}
-          MONITOR_PASSWORD: ${{ env.SANDBOX_DEMO_PASSWORD }}
-        run: |
-          set -euo pipefail
-          echo "::group::Public health"
-          HEALTH=$(curl -sf "${HIRING_AGENT_BASE_URL%/}/health" 2>/dev/null || echo '{}')
-          STATUS=$(echo "$HEALTH" | jq -r '.status // "failed"')
-          MODE=$(echo "$HEALTH" | jq -r '.mode // "unknown"')
-          DEPLOY_SHA=$(echo "$HEALTH" | jq -r '.deploy_sha // "unknown"')
-          APP_ENV=$(echo "$HEALTH" | jq -r '.app_env // "unknown"')
-          echo "Health: $STATUS / $MODE / sha=$DEPLOY_SHA / env=$APP_ENV"
-          echo "$HEALTH" | jq .
-          echo "::endgroup::"
-          [ "$STATUS" = "ok" ] || exit 1
-          [ "$MODE" = "management-auth" ] || exit 1
-          [ "$APP_ENV" = "sandbox" ] || exit 1
-          [ "$DEPLOY_SHA" = "${{ steps.resolve_sha.outputs.sha }}" ] || exit 1
-
-          echo "::group::Websocket monitor"
-          corepack pnpm monitor:hiring-agent -- --base-url "${HIRING_AGENT_BASE_URL%/}" --expected-env sandbox --expected-port "${{ steps.slot.outputs.target_port }}" --require-auth-ws
-          echo "::endgroup::"
-
-          COOKIE_JAR="$(mktemp)"
-          trap 'rm -f "$COOKIE_JAR"' EXIT
-
-          echo "::group::Authenticated jobs smoke"
-          curl -sf -c "$COOKIE_JAR" \
-            -H 'content-type: application/json' \
-            -d "{\"email\":\"${HIRING_AGENT_SMOKE_EMAIL}\",\"password\":\"${HIRING_AGENT_SMOKE_PASSWORD}\"}" \
-            "${HIRING_AGENT_BASE_URL%/}/auth/login" >/tmp/hiring-agent-login.json
-
-          grep -q "${{ steps.slot.outputs.session_cookie_name }}" "$COOKIE_JAR" || { echo "Expected sandbox session cookie ${{ steps.slot.outputs.session_cookie_name }}"; cat "$COOKIE_JAR"; exit 1; }
-          echo "Session cookie present: ${{ steps.slot.outputs.session_cookie_name }}"
-
-          JOBS_JSON="$(curl -sf -b "$COOKIE_JAR" "${HIRING_AGENT_BASE_URL%/}/api/jobs")"
-          echo "$JOBS_JSON" | jq .
-          echo "$JOBS_JSON" | jq -e '(.jobs // .vacancies // []) | type == "array"' >/dev/null
-          echo "::endgroup::"
+          echo "DEPLOY_REF=${{ inputs.deploy_ref }}" >> "$GITHUB_ENV"
+          echo "DEPLOY_TARGET=${{ inputs.slot == 'sandbox-3' && 'preprod' || inputs.slot }}" >> "$GITHUB_ENV"
+          echo "DEPLOY_AVG_DURATION_SEC=180" >> "$GITHUB_ENV"
+          echo "DEPLOY_WORKFLOW_NAME=Deploy hiring-agent to sandbox slot" >> "$GITHUB_ENV"
+          echo "DEPLOY_RUN_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          package-manager-cache: false
+      - run: corepack enable
+      - run: corepack pnpm install --frozen-lockfile
+      - name: Run slot deploy and smoke
+        run: bash ./scripts/ci/hiring-agent-preprod.sh
