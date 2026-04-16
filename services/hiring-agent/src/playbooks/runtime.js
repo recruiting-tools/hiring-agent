@@ -30,6 +30,7 @@ export async function dispatch({
   recruiterId,
   vacancyId = null,
   jobId = null,
+  jobSetupId = null,
   playbookKey,
   recruiterInput = null,
   llmAdapter,
@@ -57,6 +58,8 @@ export async function dispatch({
     tenantId,
     recruiterId,
     vacancyId,
+    jobId,
+    jobSetupId,
     playbookKey
   }));
 
@@ -65,6 +68,8 @@ export async function dispatch({
       tenantId,
       recruiterId,
       vacancyId,
+      jobId,
+      jobSetupId,
       excludePlaybookKey: playbookKey
     });
 
@@ -79,7 +84,9 @@ export async function dispatch({
       playbookKey,
       currentStepOrder: initialStep.step_order,
       vacancyId,
-      context: buildInitialContext({ vacancyId, jobId }),
+      jobId,
+      jobSetupId,
+      context: buildInitialContext({ vacancyId, jobId, jobSetupId }),
       callStack: []
     });
     session = normalizeSession(session);
@@ -93,7 +100,8 @@ export async function dispatch({
   let currentStepOrder = session.current_step_order ?? steps[0].step_order;
   let context = mergeIdentityIntoContext(normalizeSessionContext(session.context), {
     vacancyId: vacancyId ?? session.vacancy_id ?? null,
-    jobId
+    jobId: jobId ?? session.job_id ?? null,
+    jobSetupId: jobSetupId ?? session.job_setup_id ?? session.vacancy_id ?? null
   });
 
   while (true) {
@@ -102,7 +110,9 @@ export async function dispatch({
         const identity = deriveIdentity(context, { vacancyId, jobId, session });
         await managementStore.completeSession(session.session_id, {
           context,
-          vacancyId: identity.vacancyId
+          vacancyId: identity.vacancyId,
+          jobId: identity.jobId,
+          jobSetupId: identity.jobSetupId
         });
         return {
           sessionId: session.session_id,
@@ -134,7 +144,8 @@ export async function dispatch({
 
       context = mergeIdentityIntoContext(result.context ?? context, {
         vacancyId: result.vacancyId ?? vacancyId ?? session.vacancy_id ?? null,
-        jobId: result.jobId ?? jobId ?? null
+        jobId: result.jobId ?? jobId ?? session.job_id ?? null,
+        jobSetupId: result.jobSetupId ?? jobSetupId ?? session.job_setup_id ?? session.vacancy_id ?? null
       });
       const identity = deriveIdentity(context, { vacancyId, jobId, session });
 
@@ -142,7 +153,9 @@ export async function dispatch({
         await managementStore.updateSession(session.session_id, {
           currentStepOrder: step.step_order,
           context,
-          vacancyId: identity.vacancyId
+          vacancyId: identity.vacancyId,
+          jobId: identity.jobId,
+          jobSetupId: identity.jobSetupId
         });
         return {
           sessionId: session.session_id,
@@ -156,7 +169,9 @@ export async function dispatch({
       if (result.nextStepOrder == null) {
         await managementStore.completeSession(session.session_id, {
           context,
-          vacancyId: identity.vacancyId
+          vacancyId: identity.vacancyId,
+          jobId: identity.jobId,
+          jobSetupId: identity.jobSetupId
         });
         return {
           sessionId: session.session_id,
@@ -173,7 +188,9 @@ export async function dispatch({
       await managementStore.updateSession(session.session_id, {
         currentStepOrder,
         context,
-        vacancyId: identity.vacancyId
+        vacancyId: identity.vacancyId,
+        jobId: identity.jobId,
+        jobSetupId: identity.jobSetupId
       });
 
       if (result.reply) {
@@ -191,6 +208,8 @@ export async function dispatch({
         await managementStore.updateSession(session.session_id, {
           context,
           vacancyId: identity.vacancyId,
+          jobId: identity.jobId,
+          jobSetupId: identity.jobSetupId,
           status: "error"
         });
         return {
@@ -243,6 +262,8 @@ function normalizeSession(session) {
     conversation_id: session.conversation_id ?? session.conversationId ?? null,
     playbook_key: session.playbook_key ?? session.playbookKey ?? null,
     current_step_order: session.current_step_order ?? session.currentStepOrder ?? null,
+    job_id: session.job_id ?? session.jobId ?? null,
+    job_setup_id: session.job_setup_id ?? session.jobSetupId ?? session.vacancy_id ?? session.vacancyId ?? null,
     vacancy_id: session.vacancy_id ?? session.vacancyId ?? null,
     context: session.context ?? null,
     call_stack: session.call_stack ?? session.callStack ?? [],
@@ -269,14 +290,15 @@ function normalizeSessionContext(value) {
   return {};
 }
 
-function buildInitialContext({ vacancyId, jobId }) {
+function buildInitialContext({ vacancyId, jobId, jobSetupId }) {
   const context = {};
   if (vacancyId) context.vacancy_id = vacancyId;
   if (jobId) context.job_id = jobId;
+  if (jobSetupId ?? vacancyId) context.job_setup_id = jobSetupId ?? vacancyId;
   return context;
 }
 
-function mergeIdentityIntoContext(context, { vacancyId = null, jobId = null } = {}) {
+function mergeIdentityIntoContext(context, { vacancyId = null, jobId = null, jobSetupId = null } = {}) {
   const nextContext = context && typeof context === "object" && !Array.isArray(context)
     ? { ...context }
     : {};
@@ -287,12 +309,18 @@ function mergeIdentityIntoContext(context, { vacancyId = null, jobId = null } = 
   if (jobId && !nextContext.job_id) {
     nextContext.job_id = jobId;
   }
+  if ((jobSetupId ?? vacancyId) && !nextContext.job_setup_id) {
+    nextContext.job_setup_id = jobSetupId ?? vacancyId;
+  }
 
   if (nextContext.vacancy?.vacancy_id && !nextContext.vacancy_id) {
     nextContext.vacancy_id = nextContext.vacancy.vacancy_id;
   }
   if (nextContext.vacancy?.job_id && !nextContext.job_id) {
     nextContext.job_id = nextContext.vacancy.job_id;
+  }
+  if (nextContext.vacancy?.vacancy_id && !nextContext.job_setup_id) {
+    nextContext.job_setup_id = nextContext.vacancy.vacancy_id;
   }
 
   return nextContext;
@@ -301,9 +329,11 @@ function mergeIdentityIntoContext(context, { vacancyId = null, jobId = null } = 
 function deriveIdentity(context, { vacancyId = null, jobId = null, session = null } = {}) {
   const contextVacancyId = context?.vacancy?.vacancy_id ?? context?.vacancy_id ?? null;
   const contextJobId = context?.vacancy?.job_id ?? context?.job_id ?? null;
+  const contextJobSetupId = context?.job_setup_id ?? contextVacancyId ?? null;
 
   return {
     vacancyId: contextVacancyId ?? vacancyId ?? session?.vacancy_id ?? null,
-    jobId: contextJobId ?? jobId ?? null
+    jobId: contextJobId ?? jobId ?? session?.job_id ?? null,
+    jobSetupId: contextJobSetupId ?? session?.job_setup_id ?? session?.vacancy_id ?? null
   };
 }

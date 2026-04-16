@@ -24,6 +24,8 @@ test("playbook runtime: falls back to bundled steps when DB steps are missing", 
         recruiter_id: recruiterId,
         playbook_key: playbookKey,
         current_step_order: currentStepOrder,
+        job_id: null,
+        job_setup_id: null,
         vacancy_id: null,
         context
       };
