@@ -1,0 +1,74 @@
+name: Hiring Agent PR Gate
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hiring-agent-pr-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hiring-agent-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect hiring-agent impact
+        id: impact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+            if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+              git fetch origin main --depth=1
+              BASE_SHA="$(git merge-base HEAD origin/main)"
+            fi
+          fi
+
+          HEAD_SHA="${{ github.sha }}"
+          echo "base_sha=$BASE_SHA"
+          echo "head_sha=$HEAD_SHA"
+
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" | tee /tmp/hiring-agent-changed-files.txt
+
+          if grep -E '^(services/hiring-agent/|tests/(integration|unit)/hiring-agent|packages/access-context/|scripts/(deploy-hiring-agent\.sh|monitor-hiring-agent\.js)|\.github/workflows/(deploy-hiring-agent|deploy-hiring-agent-sandbox-slot|hiring-agent-pr-gate)\.yml)' /tmp/hiring-agent-changed-files.txt >/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip when hiring-agent is not impacted
+        if: steps.impact.outputs.changed != 'true'
+        run: echo "No hiring-agent changes detected; skipping gate."
+
+      - uses: actions/setup-node@v5
+        if: steps.impact.outputs.changed == 'true'
+        with:
+          node-version: 20
+          package-manager-cache: false
+
+      - name: Install dependencies
+        if: steps.impact.outputs.changed == 'true'
+        run: |
+          corepack enable
+          corepack pnpm install --frozen-lockfile
+
+      - name: Run hiring-agent regression suite
+        if: steps.impact.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          echo "::group::Hiring agent tests"
+          corepack pnpm test:hiring-agent
+          echo "::endgroup::"
