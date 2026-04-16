@@ -267,3 +267,76 @@ test("alert: getAwaitingReplyStaleConversations does not return negotiation when
   const stale = await store.getAwaitingReplyStaleConversations(120);
   assert.equal(stale.length, 0, "Should not return negotiation when last message was < 2h ago");
 });
+
+test("send guard: stale sending attempt is treated as failed and retried", async () => {
+  const { store, hhClient } = await makeRuntimeWithNegotiation();
+  const pm = makePlannedMessage();
+  store.plannedMessages.push(pm);
+
+  store.deliveryAttempts.push({
+    attempt_id: "attempt-stale-send",
+    planned_message_id: pm.planned_message_id,
+    hh_negotiation_id: "neg-001",
+    status: "sending",
+    hh_message_id: null,
+    attempted_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    error_body: null,
+    retry_count: 0,
+    next_retry_at: null
+  });
+
+  const result = await sendHHWithGuard({
+    store,
+    hhClient,
+    plannedMessage: pm,
+    hhNegotiationId: "neg-001"
+  });
+
+  assert.equal(result.sent, true);
+  assert.equal(hhClient.sentCount(), 1);
+  const latest = store.deliveryAttempts.at(-1);
+  assert.equal(latest.status, "delivered");
+});
+
+test("send guard: retryable failures follow bounded retry schedule and hit DLQ after max", async () => {
+  const { store, hhClient } = await makeRuntimeWithNegotiation();
+  const pm = makePlannedMessage();
+  store.plannedMessages.push(pm);
+
+  let callCount = 0;
+  const error = new Error("temporary hh glitch");
+  error.status = 503;
+  hhClient.sendMessage = async () => {
+    callCount += 1;
+    throw error;
+  };
+
+  let finalResult = null;
+  for (let i = 0; i < 10; i += 1) {
+    const result = await sendHHWithGuard({
+      store,
+      hhClient,
+      plannedMessage: pm,
+      hhNegotiationId: "neg-001"
+    });
+    if (result.retry_after) {
+      const attempts = await store.getDeliveryAttempts(pm.planned_message_id);
+      const latest = attempts[0];
+      if (!latest || latest.status !== "failed") {
+        break;
+      }
+      latest.next_retry_at = new Date(Date.now() - 1000).toISOString();
+    }
+    finalResult = result;
+    if (result.dlq) break;
+  }
+
+  assert.ok(finalResult);
+  assert.equal(finalResult.dlq, true);
+  const updated = store.plannedMessages.find((m) => m.planned_message_id === pm.planned_message_id);
+  assert.equal(updated.review_status, "blocked");
+  assert.ok(callCount >= 5, "Should retry up to bounded limit");
+  assert.equal(callCount, 5);
+  const failed = store.deliveryAttempts.filter((attempt) => attempt.status === "failed");
+  assert.equal(failed.length >= 5, true);
+});

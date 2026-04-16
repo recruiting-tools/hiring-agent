@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 export class HhApiClient {
   constructor({
     clientId,
@@ -96,12 +98,22 @@ export class HhApiClient {
   }
 
   async _requestJson(method, path, { query, body, bodyType = "json", retryOn401 = true } = {}) {
+    const traceId = randomUUID();
     const tokens = await this._getUsableTokens();
     const response = await this._fetchJson(method, path, {
       query,
       body,
       bodyType,
-      accessToken: tokens.access_token
+      accessToken: tokens.access_token,
+      traceId,
+      method,
+      path
+    });
+    console.info("[hh-api-client] request", {
+      trace_id: traceId,
+      method,
+      path,
+      has_body: Boolean(body)
     });
 
     if (response.status === 401 && retryOn401) {
@@ -110,12 +122,19 @@ export class HhApiClient {
         query,
         body,
         bodyType,
-        accessToken: refreshed.access_token
+        accessToken: refreshed.access_token,
+        traceId,
+        method,
+        path
       });
-      return this._parseOrThrow(retried);
+      const payload = await this._parseOrThrow(retried);
+      console.info("[hh-api-client] request_success", { trace_id: traceId, method, path });
+      return payload;
     }
 
-    return this._parseOrThrow(response);
+    const payload = await this._parseOrThrow(response);
+    console.info("[hh-api-client] request_success", { trace_id: traceId, method, path });
+    return payload;
   }
 
   async _getUsableTokens() {
@@ -151,7 +170,7 @@ export class HhApiClient {
     return this._parseOrThrow(response);
   }
 
-  async _fetchJson(method, path, { query, body, bodyType, accessToken }) {
+  async _fetchJson(method, path, { query, body, bodyType = "json", accessToken, traceId }) {
     const url = new URL(`${this.apiBaseUrl}${path}`);
     if (query) {
       for (const [key, value] of Object.entries(query)) {
@@ -170,7 +189,7 @@ export class HhApiClient {
           ).toString()
         : JSON.stringify(body);
 
-    return this.fetchImpl(String(url), {
+    const response = await this.fetchImpl(String(url), {
       method,
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -185,6 +204,15 @@ export class HhApiClient {
       },
       ...(serializedBody ? { body: serializedBody } : {})
     });
+    if (!response.ok) {
+      console.warn("[hh-api-client] request_error", {
+        trace_id: traceId,
+        method,
+        path,
+        status: response.status
+      });
+    }
+    return response;
   }
 
   async _parseOrThrow(response) {
