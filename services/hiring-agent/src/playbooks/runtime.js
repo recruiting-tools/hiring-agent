@@ -46,6 +46,8 @@ export async function dispatch({
     throw new Error("managementStore or managementSql is required");
   }
 
+  const requestedJobSetupId = jobSetupId ?? vacancyId ?? null;
+
   let steps = (await managementStore.getPlaybookSteps(playbookKey)).map((step) => normalizeStep(step));
   if (!steps.length) {
     steps = getFallbackPlaybookSteps(playbookKey).map((step) => normalizeStep(step));
@@ -62,7 +64,7 @@ export async function dispatch({
     recruiterId,
     vacancyId,
     jobId,
-    jobSetupId,
+    jobSetupId: requestedJobSetupId,
     playbookKey
   }));
 
@@ -72,7 +74,7 @@ export async function dispatch({
       recruiterId,
       vacancyId,
       jobId,
-      jobSetupId,
+      jobSetupId: requestedJobSetupId,
       excludePlaybookKey: playbookKey
     });
 
@@ -88,8 +90,8 @@ export async function dispatch({
       currentStepOrder: initialStep.step_order,
       vacancyId,
       jobId,
-      jobSetupId,
-      context: buildInitialContext({ vacancyId, jobId, jobSetupId, clientContext }),
+      jobSetupId: requestedJobSetupId,
+      context: buildInitialContext({ vacancyId, jobId, jobSetupId: requestedJobSetupId, clientContext }),
       callStack: []
     });
     session = normalizeSession(session);
@@ -104,7 +106,7 @@ export async function dispatch({
   let context = mergeIdentityIntoContext(normalizeSessionContext(session.context), {
     vacancyId: vacancyId ?? session.vacancy_id ?? null,
     jobId: jobId ?? session.job_id ?? null,
-    jobSetupId: jobSetupId ?? session.job_setup_id ?? session.vacancy_id ?? null
+    jobSetupId: requestedJobSetupId ?? session.job_setup_id ?? session.vacancy_id ?? null
   });
 
   while (true) {
@@ -148,7 +150,7 @@ export async function dispatch({
       context = mergeIdentityIntoContext(result.context ?? context, {
         vacancyId: result.vacancyId ?? vacancyId ?? session.vacancy_id ?? null,
         jobId: result.jobId ?? jobId ?? session.job_id ?? null,
-        jobSetupId: result.jobSetupId ?? jobSetupId ?? session.job_setup_id ?? session.vacancy_id ?? null
+        jobSetupId: result.jobSetupId ?? requestedJobSetupId ?? session.job_setup_id ?? session.vacancy_id ?? null
       });
       const identity = deriveIdentity(context, { vacancyId, jobId, session });
 

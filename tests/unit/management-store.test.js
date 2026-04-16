@@ -31,6 +31,7 @@ test("management store: createPlaybookSession persists job_id and derived job_se
     currentStepOrder: 0,
     vacancyId: "vac-1",
     jobId: "job-1",
+    jobSetupId: "vac-1",
     context: { job_id: "job-1", job_setup_id: "vac-1" }
   });
 
@@ -48,9 +49,10 @@ test("management store: createPlaybookSession persists job_id and derived job_se
   assert.equal(session.job_setup_id, "vac-1");
 });
 
-test("management store: getActiveSession can resolve canonical job_id with legacy vacancy alias", async () => {
+test("management store: getActiveSession resolves by job_id and job_setup_id without vacancy fallback", async () => {
   const store = createManagementStore(createMockSql(({ text, values }) => {
-    assert.match(text, /COALESCE\(job_setup_id, vacancy_id\)/);
+    assert.doesNotMatch(text, /COALESCE\(job_setup_id, vacancy_id\)/);
+    assert.match(text, /job_setup_id IS NOT DISTINCT FROM/);
     assert.match(text, /job_id IS NOT DISTINCT FROM/);
     assert.deepEqual(values, [
       "tenant-1",
@@ -70,8 +72,8 @@ test("management store: getActiveSession can resolve canonical job_id with legac
       playbook_key: "setup_communication",
       current_step_order: 1,
       job_id: "job-1",
-      job_setup_id: null,
-      vacancy_id: "vac-1",
+      job_setup_id: "vac-1",
+      vacancy_id: null,
       context: { job_id: "job-1" },
       call_stack: [],
       status: "active"
@@ -83,12 +85,40 @@ test("management store: getActiveSession can resolve canonical job_id with legac
     recruiterId: "rec-1",
     vacancyId: "vac-1",
     jobId: "job-1",
+    jobSetupId: "vac-1",
     playbookKey: "setup_communication"
   });
 
   assert.equal(session.job_id, "job-1");
   assert.equal(session.job_setup_id, "vac-1");
-  assert.equal(session.vacancy_id, "vac-1");
+  assert.equal(session.vacancy_id, null);
+});
+
+test("management store: abortActiveSessions filters by job_setup_id without vacancy fallback", async () => {
+  const store = createManagementStore(createMockSql(({ text, values }) => {
+    assert.doesNotMatch(text, /COALESCE\(job_setup_id, vacancy_id\)/);
+    assert.match(text, /job_setup_id IS NOT DISTINCT FROM/);
+    assert.deepEqual(values, [
+      "tenant-1",
+      "rec-1",
+      null,
+      null,
+      "job-1",
+      "job-1",
+      "vac-1",
+      "vac-1",
+      "job-1",
+      "vac-1"
+    ]);
+    return [];
+  }));
+
+  await store.abortActiveSessions({
+    tenantId: "tenant-1",
+    recruiterId: "rec-1",
+    jobId: "job-1",
+    jobSetupId: "vac-1"
+  });
 });
 
 function createMockSql(handler) {
