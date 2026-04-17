@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   createManagementStore,
-  withAccessContextTimeout
+  withAccessContextResilience
 } from "../../../packages/access-context/src/index.js";
 
 const SESSION_TTL_DAYS = 30;
@@ -36,9 +36,10 @@ export async function resolveSession(sql, token, options = {}) {
   if (!sql) return { ...DEMO_RECRUITER };
 
   const managementStore = createManagementStore(sql);
-  const session = await withAccessContextTimeout(
-    managementStore.getRecruiterSession(token),
+  const session = await withAccessContextResilience(
+    () => managementStore.getRecruiterSession(token),
     {
+      operationName: "management session lookup",
       timeoutMs: options.timeoutMs,
       message: "Management session lookup timed out"
     }
