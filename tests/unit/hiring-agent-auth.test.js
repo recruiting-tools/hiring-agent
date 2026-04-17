@@ -24,6 +24,16 @@ function createMockSql(handler) {
   };
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 test.afterEach(() => {
   resetAccessContextCircuitBreaker();
 });
@@ -104,25 +114,31 @@ test("auth: resolveSession renews near-expiry session in background", async () =
 });
 
 test("auth: resolveSession fails fast when management session lookup hangs", async () => {
-  const sql = createMockSql(() => new Promise(() => {}));
+  const pending = createDeferred();
+  const sql = createMockSql(() => pending.promise);
 
-  await assert.rejects(
-    resolveSession(sql, "sess-timeout", { timeoutMs: 20 }),
-    (error) => {
-      assert.equal(error.code, "ERROR_ACCESS_CONTEXT_TIMEOUT");
-      assert.equal(error.httpStatus, 503);
-      assert.match(error.message, /timed out/i);
-      return true;
-    }
-  );
+  try {
+    await assert.rejects(
+      resolveSession(sql, "sess-timeout", { timeoutMs: 20 }),
+      (error) => {
+        assert.equal(error.code, "ERROR_ACCESS_CONTEXT_TIMEOUT");
+        assert.equal(error.httpStatus, 503);
+        assert.match(error.message, /timed out/i);
+        return true;
+      }
+    );
+  } finally {
+    pending.resolve([]);
+  }
 });
 
 test("auth: resolveSession retries one transient timeout before succeeding", async () => {
   let attempts = 0;
+  const firstAttempt = createDeferred();
   const sql = createMockSql(() => {
     attempts += 1;
     if (attempts === 1) {
-      return new Promise(() => {});
+      return firstAttempt.promise;
     }
 
     return [{
@@ -135,14 +151,18 @@ test("auth: resolveSession retries one transient timeout before succeeding", asy
     }];
   });
 
-  const recruiter = await resolveSession(sql, "sess-retry", {
-    timeoutMs: 10,
-    retryCount: 1,
-    retryDelayMs: 1
-  });
+  try {
+    const recruiter = await resolveSession(sql, "sess-retry", {
+      timeoutMs: 10,
+      retryCount: 1,
+      retryDelayMs: 1
+    });
 
-  assert.equal(attempts, 2);
-  assert.equal(recruiter.recruiter_id, "rec-1");
+    assert.equal(attempts, 2);
+    assert.equal(recruiter.recruiter_id, "rec-1");
+  } finally {
+    firstAttempt.resolve([]);
+  }
 });
 
 test("auth: createSession stores 30 day ttl", async () => {
