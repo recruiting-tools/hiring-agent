@@ -89,6 +89,20 @@ test("auth: resolveSession renews near-expiry session in background", async () =
   assert.equal(calls.length, 2);
 });
 
+test("auth: resolveSession fails fast when management session lookup hangs", async () => {
+  const sql = createMockSql(() => new Promise(() => {}));
+
+  await assert.rejects(
+    resolveSession(sql, "sess-timeout", { timeoutMs: 20 }),
+    (error) => {
+      assert.equal(error.code, "ERROR_ACCESS_CONTEXT_TIMEOUT");
+      assert.equal(error.httpStatus, 503);
+      assert.match(error.message, /timed out/i);
+      return true;
+    }
+  );
+});
+
 test("auth: createSession stores 30 day ttl", async () => {
   const sql = createMockSql(({ text, values }) => {
     assert.match(text, /INSERT INTO management\.sessions/);

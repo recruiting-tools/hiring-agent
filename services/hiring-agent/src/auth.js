@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { createManagementStore } from "../../../packages/access-context/src/index.js";
+import {
+  createManagementStore,
+  withAccessContextTimeout
+} from "../../../packages/access-context/src/index.js";
 
 const SESSION_TTL_DAYS = 30;
 const SESSION_RENEWAL_WINDOW_DAYS = 7;
@@ -28,12 +31,18 @@ export function parseCookies(header) {
     }, {});
 }
 
-export async function resolveSession(sql, token) {
+export async function resolveSession(sql, token, options = {}) {
   if (!token) return null;
   if (!sql) return { ...DEMO_RECRUITER };
 
   const managementStore = createManagementStore(sql);
-  const session = await managementStore.getRecruiterSession(token);
+  const session = await withAccessContextTimeout(
+    managementStore.getRecruiterSession(token),
+    {
+      timeoutMs: options.timeoutMs,
+      message: "Management session lookup timed out"
+    }
+  );
   if (!session) return null;
 
   if (session.expires_at && session.expires_at.getTime() < Date.now() + SESSION_RENEWAL_WINDOW_DAYS * 24 * 60 * 60 * 1000) {

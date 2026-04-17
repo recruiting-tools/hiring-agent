@@ -583,7 +583,7 @@ export class InMemoryHiringStore {
 
   // ─── Cron Sender ─────────────────────────────────────────────────────────────
 
-  async getPlannedMessagesDue(now) {
+  async getPlannedMessagesDue(now, limit = 100) {
     return this.plannedMessages
       .filter((pm) => {
         if (!["pending", "approved"].includes(pm.review_status)) return false;
@@ -607,7 +607,13 @@ export class InMemoryHiringStore {
         const conv = this.conversations.get(pm.conversation_id);
         if (!conv) throw new Error(`Missing conversation for planned_message ${pm.planned_message_id}`);
         return { ...pm, channel_thread_id: conv.channel_thread_id };
-      });
+      })
+      .sort((left, right) => {
+        const leftTs = new Date(left.auto_send_after ?? 0).getTime();
+        const rightTs = new Date(right.auto_send_after ?? 0).getTime();
+        return leftTs - rightTs;
+      })
+      .slice(0, limit);
   }
 
   // ─── Delivery Attempts ───────────────────────────────────────────────────────
