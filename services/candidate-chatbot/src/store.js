@@ -559,7 +559,11 @@ export class InMemoryHiringStore {
     const existing = this.messages.find(
       (message) => message.conversation_id === conversation_id && message.channel_message_id === channel_message_id
     );
-    if (existing) return null;
+    if (existing) {
+      existing.body = body;
+      existing.occurred_at = occurred_at;
+      return { ...existing, inserted: false };
+    }
 
     const stored = {
       message_id: this.nextId("msg"),
@@ -574,7 +578,7 @@ export class InMemoryHiringStore {
       received_at: new Date().toISOString()
     };
     this.messages.push(stored);
-    return stored;
+    return { ...stored, inserted: true };
   }
 
   // ─── Cron Sender ─────────────────────────────────────────────────────────────
@@ -668,6 +672,7 @@ export class InMemoryHiringStore {
     if (pm) {
       pm.review_status = "sent";
       pm.sent_at = sent_at;
+      if (hh_message_id) pm.hh_message_id = hh_message_id;
     }
     if (hh_message_id) {
       const attempt = this.deliveryAttempts.find(

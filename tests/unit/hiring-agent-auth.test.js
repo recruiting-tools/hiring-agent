@@ -24,6 +24,32 @@ function createMockSql(handler) {
   };
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function createPendingQuery() {
+  const deferred = createDeferred();
+  const keepAlive = setTimeout(() => {}, 60_000);
+  return {
+    promise: deferred.promise,
+    resolve(value = []) {
+      clearTimeout(keepAlive);
+      deferred.resolve(value);
+    },
+    reject(error) {
+      clearTimeout(keepAlive);
+      deferred.reject(error);
+    }
+  };
+}
+
 test.afterEach(() => {
   resetAccessContextCircuitBreaker();
 });
@@ -68,6 +94,7 @@ test("auth: resolveSession returns recruiter from sql row", async () => {
 
 test("auth: resolveSession renews near-expiry session in background", async () => {
   const calls = [];
+  const renewed = createDeferred();
   const sql = createMockSql(({ text, values }) => {
     calls.push({ text, values });
 
@@ -86,6 +113,7 @@ test("auth: resolveSession renews near-expiry session in background", async () =
     assert.match(text, /UPDATE management\.sessions/);
     assert.match(text, /SET expires_at = now\(\) \+ \$1::interval/);
     assert.deepEqual(values, ["30 days", "sess-001"]);
+    renewed.resolve();
     return [];
   });
 
@@ -99,30 +127,36 @@ test("auth: resolveSession renews near-expiry session in background", async () =
     tenant_status: "active"
   });
 
-  await new Promise((resolve) => setImmediate(resolve));
+  await renewed.promise;
   assert.equal(calls.length, 2);
 });
 
 test("auth: resolveSession fails fast when management session lookup hangs", async () => {
-  const sql = createMockSql(() => new Promise(() => {}));
+  const pending = createPendingQuery();
+  const sql = createMockSql(() => pending.promise);
 
-  await assert.rejects(
-    resolveSession(sql, "sess-timeout", { timeoutMs: 20 }),
-    (error) => {
-      assert.equal(error.code, "ERROR_ACCESS_CONTEXT_TIMEOUT");
-      assert.equal(error.httpStatus, 503);
-      assert.match(error.message, /timed out/i);
-      return true;
-    }
-  );
+  try {
+    await assert.rejects(
+      resolveSession(sql, "sess-timeout", { timeoutMs: 20 }),
+      (error) => {
+        assert.equal(error.code, "ERROR_ACCESS_CONTEXT_TIMEOUT");
+        assert.equal(error.httpStatus, 503);
+        assert.match(error.message, /timed out/i);
+        return true;
+      }
+    );
+  } finally {
+    pending.resolve();
+  }
 });
 
 test("auth: resolveSession retries one transient timeout before succeeding", async () => {
   let attempts = 0;
+  const firstAttempt = createPendingQuery();
   const sql = createMockSql(() => {
     attempts += 1;
     if (attempts === 1) {
-      return new Promise(() => {});
+      return firstAttempt.promise;
     }
 
     return [{
@@ -135,14 +169,18 @@ test("auth: resolveSession retries one transient timeout before succeeding", asy
     }];
   });
 
-  const recruiter = await resolveSession(sql, "sess-retry", {
-    timeoutMs: 10,
-    retryCount: 1,
-    retryDelayMs: 1
-  });
+  try {
+    const recruiter = await resolveSession(sql, "sess-retry", {
+      timeoutMs: 10,
+      retryCount: 1,
+      retryDelayMs: 1
+    });
 
-  assert.equal(attempts, 2);
-  assert.equal(recruiter.recruiter_id, "rec-1");
+    assert.equal(attempts, 2);
+    assert.equal(recruiter.recruiter_id, "rec-1");
+  } finally {
+    firstAttempt.resolve();
+  }
 });
 
 test("auth: createSession stores 30 day ttl", async () => {

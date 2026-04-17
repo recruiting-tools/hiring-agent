@@ -93,7 +93,7 @@ export class HhImporter {
         channel_message_id: message.id,
         occurred_at: message.created_at
       });
-      if (result) imported_messages += 1;
+      if (result?.inserted) imported_messages += 1;
     }
 
     const lastMessage = sorted.at(-1);
