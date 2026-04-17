@@ -3,7 +3,16 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import bcrypt from "bcryptjs";
 import { WebSocketServer } from "ws";
-import { createSession, getRecruiterByEmail, parseCookies, resolveSession } from "./auth.js";
+import {
+  createSession,
+  createSignedSessionSnapshot,
+  getRecruiterByEmail,
+  parseCookies,
+  resolveSession,
+  resolveSessionFromSignedSnapshot,
+  resolveSessionSnapshotSecret,
+  sessionSnapshotCookieNameFromSessionCookieName
+} from "./auth.js";
 import { normalizeJsonResponseText } from "./json-response.js";
 import { TenantDbTimeoutError } from "./app.js";
 import {
@@ -2993,6 +3002,15 @@ async function handleChatWs(ws, msg, wsContext, app) {
   };
 
   const { text, vacancyId, jobId, playbookKey, clientContext } = msg;
+  if (!wsContext.tenantSql && typeof wsContext.ensureAccessContext === "function") {
+    const resolvedContext = await wsContext.ensureAccessContext();
+    if (resolvedContext) {
+      wsContext.recruiterId = resolvedContext.recruiterId ?? wsContext.recruiterId;
+      wsContext.tenantId = resolvedContext.tenantId ?? wsContext.tenantId;
+      wsContext.recruiterEmail = resolvedContext.recruiterEmail ?? wsContext.recruiterEmail;
+      wsContext.tenantSql = resolvedContext.tenantSql ?? wsContext.tenantSql;
+    }
+  }
   console.log("[ws] message:", JSON.stringify({ text, vacancyId, jobId, playbookKey, tenantId: wsContext.tenantId }));
 
   try {
@@ -3046,6 +3064,8 @@ export function createHiringAgentServer(app, options = {}) {
   const wsPath = joinBasePath(appBasePath, "/ws");
   const rootPath = appBasePath ? `${appBasePath}/` : "/";
   const sessionCookieName = options.sessionCookieName ?? process.env.SESSION_COOKIE_NAME ?? sessionCookieNameFromBasePath(appBasePath);
+  const sessionSnapshotCookieName = options.sessionSnapshotCookieName ?? sessionSnapshotCookieNameFromSessionCookieName(sessionCookieName);
+  const sessionSnapshotSecret = options.sessionSnapshotSecret ?? resolveSessionSnapshotSecret();
   const sessionCookiePath = appBasePath || "/";
 
   const server = createServer(async (request, response) => {
@@ -3067,7 +3087,11 @@ export function createHiringAgentServer(app, options = {}) {
       if (request.method === "GET" && (requestUrl.pathname === "/health_status" || normalizedPath === "/health_status")) {
         const cookies = parseCookies(request.headers.cookie ?? "");
         const sessionToken = cookies[sessionCookieName];
-        const session = await resolveSession(managementSql, sessionToken);
+        const session = getSignedSessionSnapshot(cookies, {
+          sessionCookieName,
+          sessionSnapshotCookieName,
+          sessionSnapshotSecret
+        }) ?? await resolveSession(managementSql, sessionToken);
         const result = await app.getHealth();
         writeJson(response, 200, await buildHealthStatusResponse({
           health: result.body,
@@ -3126,9 +3150,18 @@ export function createHiringAgentServer(app, options = {}) {
         }
 
         const sessionToken = await createSession(managementSql, recruiter.recruiter_id);
+        const signedSessionSnapshot = createSignedSessionSnapshot(recruiter, sessionToken, {
+          secret: sessionSnapshotSecret
+        });
+        const setCookies = [
+          `${sessionCookieName}=${sessionToken}; HttpOnly; Path=${sessionCookiePath}; Max-Age=2592000; SameSite=Strict${secure}`
+        ];
+        if (signedSessionSnapshot) {
+          setCookies.push(`${sessionSnapshotCookieName}=${signedSessionSnapshot}; HttpOnly; Path=${sessionCookiePath}; Max-Age=2592000; SameSite=Strict${secure}`);
+        }
         response.writeHead(200, {
           "content-type": "application/json; charset=utf-8",
-          "set-cookie": `${sessionCookieName}=${sessionToken}; HttpOnly; Path=${sessionCookiePath}; Max-Age=2592000; SameSite=Strict${secure}`
+          "set-cookie": setCookies
         });
         response.end(JSON.stringify({ redirect: rootPath }));
         return;
@@ -3138,7 +3171,10 @@ export function createHiringAgentServer(app, options = {}) {
         const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
         response.writeHead(302, {
           location: loginPath,
-          "set-cookie": `${sessionCookieName}=; HttpOnly; Path=${sessionCookiePath}; Max-Age=0; SameSite=Strict${secure}`
+          "set-cookie": [
+            `${sessionCookieName}=; HttpOnly; Path=${sessionCookiePath}; Max-Age=0; SameSite=Strict${secure}`,
+            `${sessionSnapshotCookieName}=; HttpOnly; Path=${sessionCookiePath}; Max-Age=0; SameSite=Strict${secure}`
+          ]
         });
         response.end();
         return;
@@ -3302,11 +3338,31 @@ export function createHiringAgentServer(app, options = {}) {
     console.log("[ws] new connection");
     const cookies = parseCookies(req.headers.cookie ?? "");
     const sessionToken = cookies[sessionCookieName];
+    const snapshotSession = getSignedSessionSnapshot(cookies, {
+      sessionCookieName,
+      sessionSnapshotCookieName,
+      sessionSnapshotSecret
+    });
 
     // Resolve access context at connection time — mirrors requireAccessContext.
     // This ensures tenantSql is properly tenant-scoped in management mode.
     let wsContext;
-    if (managementStore && poolRegistry) {
+    if (snapshotSession) {
+      wsContext = {
+        recruiterId: snapshotSession.recruiter_id,
+        tenantId: snapshotSession.tenant_id,
+        recruiterEmail: snapshotSession.email,
+        tenantSql: null,
+        ensureAccessContext: managementStore && poolRegistry
+          ? createLazyAccessContextResolver({
+            managementStore,
+            poolRegistry,
+            appEnv,
+            sessionToken
+          })
+          : null
+      };
+    } else if (managementStore && poolRegistry) {
       try {
         const ctx = await resolveAccessContext({
           managementStore,
@@ -3341,6 +3397,7 @@ export function createHiringAgentServer(app, options = {}) {
         tenantId: recruiter.tenant_id,
         recruiterEmail: recruiter.email,
         tenantSql: null,
+        ensureAccessContext: null
       };
     }
 
@@ -3394,6 +3451,39 @@ function sessionCookieNameFromBasePath(basePath) {
   if (!basePath) return "session";
   const suffix = basePath.slice(1).replace(/[^a-zA-Z0-9_-]/g, "_");
   return `session_${suffix}`;
+}
+
+function getSignedSessionSnapshot(cookies, options = {}) {
+  const sessionCookieName = options.sessionCookieName ?? "session";
+  const sessionSnapshotCookieName = options.sessionSnapshotCookieName ?? sessionSnapshotCookieNameFromSessionCookieName(sessionCookieName);
+  const sessionToken = cookies?.[sessionCookieName];
+  const snapshotToken = cookies?.[sessionSnapshotCookieName];
+  return resolveSessionFromSignedSnapshot(snapshotToken, sessionToken, {
+    secret: options.sessionSnapshotSecret
+  });
+}
+
+function createLazyAccessContextResolver(options = {}) {
+  let pendingPromise = null;
+  return async () => {
+    if (!pendingPromise) {
+      pendingPromise = resolveAccessContext({
+        managementStore: options.managementStore,
+        poolRegistry: options.poolRegistry,
+        appEnv: options.appEnv ?? "local",
+        sessionToken: options.sessionToken
+      }).then((ctx) => ({
+        recruiterId: ctx.recruiterId,
+        tenantId: ctx.tenantId,
+        recruiterEmail: ctx.recruiterEmail,
+        tenantSql: ctx.tenantSql
+      })).catch((error) => {
+        pendingPromise = null;
+        throw error;
+      });
+    }
+    return pendingPromise;
+  };
 }
 
 function escapeJsString(value) {

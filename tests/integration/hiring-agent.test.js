@@ -3,6 +3,10 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import WsClient from "ws";
 import { createHiringAgentApp } from "../../services/hiring-agent/src/app.js";
+import {
+  createSignedSessionSnapshot,
+  sessionSnapshotCookieNameFromSessionCookieName
+} from "../../services/hiring-agent/src/auth.js";
 import { createHiringAgentServer } from "../../services/hiring-agent/src/http-server.js";
 import { clearPlaybookRegistryCache } from "../../services/hiring-agent/src/playbooks/registry.js";
 import {
@@ -26,17 +30,7 @@ async function req(server, method, path, body, cookie) {
 }
 
 async function login(server) {
-  const port = server.address().port;
-  const response = await fetch(`http://localhost:${port}/auth/login`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: "demo@local",
-      password: "demo"
-    })
-  });
-
-  return response.headers.get("set-cookie");
+  return cookieHeaderFromSetCookies(await loginResponse(server));
 }
 
 async function loginResponse(server) {
@@ -59,6 +53,20 @@ function createMockSql(handler) {
 
     return handler({ text, values });
   };
+}
+
+function getSetCookieValues(response) {
+  if (typeof response.headers.getSetCookie === "function") {
+    return response.headers.getSetCookie();
+  }
+  const value = response.headers.get("set-cookie");
+  return value ? [value] : [];
+}
+
+function cookieHeaderFromSetCookies(response) {
+  return getSetCookieValues(response)
+    .map((cookie) => cookie.split(";", 1)[0])
+    .join("; ");
 }
 
 test.beforeEach(() => {
@@ -133,6 +141,51 @@ test("hiring-agent: GET /health_status fails fast when management session lookup
     } else {
       process.env.ACCESS_CONTEXT_TIMEOUT_MS = previousTimeout;
     }
+    server.close();
+  }
+});
+
+test("hiring-agent: GET /health_status uses signed snapshot before management session lookup", async () => {
+  const sql = createMockSql(() => new Promise(() => {}));
+  const sessionToken = "sess-snapshot-health";
+  const sessionCookieName = "session";
+  const sessionSnapshotCookieName = sessionSnapshotCookieNameFromSessionCookieName(sessionCookieName);
+  const snapshot = createSignedSessionSnapshot({
+    recruiter_id: "rec-snapshot-1",
+    tenant_id: "tenant-snapshot-1",
+    email: "snapshot@example.test",
+    role: "recruiter",
+    recruiter_status: "active",
+    tenant_status: "active"
+  }, sessionToken, {
+    secret: "test-session-snapshot-secret"
+  });
+
+  const server = createHiringAgentServer(createHiringAgentApp({
+    demoMode: false,
+    appEnv: "prod",
+    deploySha: "test-sha-health-status-snapshot",
+    startedAt: "2026-04-17T00:00:00.000Z",
+    port: 3101,
+    managementSql: sql
+  }), {
+    managementSql: sql,
+    sessionSnapshotSecret: "test-session-snapshot-secret"
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(
+      server,
+      "GET",
+      "/health_status",
+      undefined,
+      `${sessionCookieName}=${sessionToken}; ${sessionSnapshotCookieName}=${snapshot}`
+    );
+    assert.equal(status, 200);
+    assert.equal(body.status_key, "runtime_available");
+    assert.equal(body.auth.authenticated, true);
+    assert.equal(body.auth.recruiter_email, "snapshot@example.test");
+  } finally {
     server.close();
   }
 });
@@ -1509,10 +1562,11 @@ test("hiring-agent: base path mode isolates auth/app routes under /sandbox-001",
         password: "demo"
       })
     });
-    const setCookie = loginResponse.headers.get("set-cookie") ?? "";
+    const rawSetCookie = getSetCookieValues(loginResponse).join("\n");
+    const setCookie = cookieHeaderFromSetCookies(loginResponse);
     assert.equal(loginResponse.status, 200);
     assert.match(setCookie, /^session_sandbox_001=/);
-    assert.match(setCookie, /Path=\/sandbox-001/);
+    assert.match(rawSetCookie, /Path=\/sandbox-001/);
 
     const shellResponse = await fetch(`http://localhost:${port}/sandbox-001/`, {
       headers: { cookie: setCookie }
@@ -1663,7 +1717,7 @@ test("hiring-agent: POST /auth/login sets 30 day cookie without secure outside p
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {
     const response = await loginResponse(server);
-    const setCookie = response.headers.get("set-cookie");
+    const setCookie = getSetCookieValues(response).join("\n");
 
     assert.match(setCookie, /Max-Age=2592000/);
     assert.doesNotMatch(setCookie, /;\s*Secure/i);
@@ -1673,13 +1727,40 @@ test("hiring-agent: POST /auth/login sets 30 day cookie without secure outside p
   }
 });
 
+test("hiring-agent: auth login sets signed snapshot cookie and logout clears it", async () => {
+  const server = createHiringAgentServer(createHiringAgentApp(), {
+    sessionSnapshotSecret: "test-session-snapshot-secret"
+  }).listen(0);
+
+  try {
+    const loginSetCookies = getSetCookieValues(await loginResponse(server));
+    assert.equal(loginSetCookies.length, 2);
+    assert.match(loginSetCookies[0], /^session=/);
+    assert.match(loginSetCookies[1], /^session_auth=/);
+
+    const port = server.address().port;
+    const logoutResponse = await fetch(`http://localhost:${port}/logout`, {
+      method: "GET",
+      redirect: "manual"
+    });
+    const logoutSetCookies = getSetCookieValues(logoutResponse);
+    assert.equal(logoutSetCookies.length, 2);
+    assert.match(logoutSetCookies[0], /^session=/);
+    assert.match(logoutSetCookies[0], /Max-Age=0/);
+    assert.match(logoutSetCookies[1], /^session_auth=/);
+    assert.match(logoutSetCookies[1], /Max-Age=0/);
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: auth cookies include secure in production", async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = "production";
 
   const server = createHiringAgentServer(createHiringAgentApp()).listen(0);
   try {
-    const loginSetCookie = (await loginResponse(server)).headers.get("set-cookie");
+    const loginSetCookie = getSetCookieValues(await loginResponse(server)).join("\n");
     assert.match(loginSetCookie, /;\s*Secure/i);
 
     const port = server.address().port;
@@ -1687,7 +1768,7 @@ test("hiring-agent: auth cookies include secure in production", async () => {
       method: "GET",
       redirect: "manual"
     });
-    const logoutSetCookie = logoutResponse.headers.get("set-cookie");
+    const logoutSetCookie = getSetCookieValues(logoutResponse).join("\n");
     assert.match(logoutSetCookie, /;\s*Secure/i);
   } finally {
     server.close();
@@ -4100,6 +4181,79 @@ test("hiring-agent: management-backed WebSocket accepts job_id without vacancy_i
       });
       ws.on("error", finish);
       setTimeout(() => finish(new Error("timeout")), 5000);
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: management-backed WebSocket opens from signed snapshot before session lookup", async () => {
+  const sessionToken = "sess-ws-snapshot";
+  const snapshot = createSignedSessionSnapshot({
+    recruiter_id: "rec-alpha-001",
+    tenant_id: "tenant-alpha-001",
+    email: "alpha@example.test",
+    role: "recruiter",
+    recruiter_status: "active",
+    tenant_status: "active"
+  }, sessionToken, {
+    secret: "test-session-snapshot-secret"
+  });
+
+  const server = createHiringAgentServer(createHiringAgentApp({
+    demoMode: false,
+    appEnv: "prod",
+    deploySha: "test-sha-ws-snapshot",
+    startedAt: "2026-04-17T00:00:00.000Z",
+    port: 3101
+  }), {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return new Promise(() => {});
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return async () => [];
+      }
+    },
+    sessionSnapshotSecret: "test-session-snapshot-secret"
+  }).listen(0);
+
+  const port = server.address().port;
+  try {
+    await new Promise((resolve, reject) => {
+      const ws = new WsClient(`ws://localhost:${port}/ws`, {
+        headers: {
+          cookie: `session=${sessionToken}; session_auth=${snapshot}`
+        }
+      });
+      const timeout = setTimeout(() => reject(new Error("ws timeout")), 2_000);
+      ws.on("open", () => {
+        clearTimeout(timeout);
+        ws.close();
+        resolve();
+      });
+      ws.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
     });
   } finally {
     server.close();
