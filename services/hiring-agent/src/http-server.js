@@ -1321,6 +1321,7 @@ const CHAT_HTML = `<!DOCTYPE html>
     let wsConnectTimer = null;
     let wsRetryTimer = null;
     let wsGeneration = 0;
+    let wsRetryAttempt = 0;
 
     // ── DOM refs ──────────────────────────────────────────────────────────────
     const workspace = document.getElementById('workspace');
@@ -1362,6 +1363,32 @@ const CHAT_HTML = `<!DOCTYPE html>
       statusDot.title = resolvedTooltip;
       connectionLabel.title = resolvedTooltip;
       connectionCopy.title = resolvedTooltip;
+    }
+
+    function buildHealthErrorStatus(payload) {
+      const errorCode = payload?.error || 'health_status_unavailable';
+      const reason = payload?.details?.operation || errorCode;
+      if (errorCode === 'ERROR_ACCESS_CONTEXT_BACKEND_UNAVAILABLE') {
+        return {
+          status_key: 'runtime_degraded',
+          title: 'Live-канал временно перегружен',
+          message: 'Auth backend восстанавливается. Пока продолжаем через обычные запросы.',
+          runtime: { health_ok: true },
+          details: { reason }
+        };
+      }
+
+      if (errorCode === 'ERROR_ACCESS_CONTEXT_TIMEOUT') {
+        return {
+          status_key: 'runtime_degraded',
+          title: 'Live-канал отвечает медленно',
+          message: 'Auth backend замедлился. Пробуем восстановить подключение автоматически.',
+          runtime: { health_ok: true },
+          details: { reason }
+        };
+      }
+
+      return null;
     }
 
     function updateStatusDevLink(statusPayload) {
@@ -1481,6 +1508,19 @@ const CHAT_HTML = `<!DOCTYPE html>
         }
 
         if (!response.ok) {
+          let payload = null;
+          try {
+            payload = await response.json();
+          } catch (_parseError) {
+            payload = null;
+          }
+
+          const degradedStatus = buildHealthErrorStatus(payload);
+          if (degradedStatus) {
+            applyHealthStatus(degradedStatus, options);
+            return;
+          }
+
           throw new Error('health_status_http_' + response.status);
         }
 
@@ -1522,12 +1562,22 @@ const CHAT_HTML = `<!DOCTYPE html>
       }
     }
 
+    function computeReconnectDelayMs() {
+      const baseDelayMs = 1500;
+      const maxDelayMs = 12000;
+      const exponentialDelay = Math.min(baseDelayMs * (2 ** wsRetryAttempt), maxDelayMs);
+      const jitter = Math.round(exponentialDelay * 0.2 * Math.random());
+      return exponentialDelay + jitter;
+    }
+
     function scheduleReconnect() {
       if (wsRetryTimer) return;
+      const delayMs = computeReconnectDelayMs();
       wsRetryTimer = setTimeout(() => {
         wsRetryTimer = null;
+        wsRetryAttempt += 1;
         connect();
-      }, 3000);
+      }, delayMs);
     }
 
     function setHttpFallbackStatus(copy) {
@@ -1566,6 +1616,7 @@ const CHAT_HTML = `<!DOCTYPE html>
       ws.onopen = () => {
         clearWsTimers();
         preferHttpFallback = false;
+        wsRetryAttempt = 0;
         applyHealthStatus(lastHealthStatus || {
           status_key: 'runtime_available',
           runtime: { health_ok: true }
@@ -1578,7 +1629,10 @@ const CHAT_HTML = `<!DOCTYPE html>
         streaming = false;
         currentAssistant = null;
         if (preferHttpFallback) {
-          setHttpFallbackStatus('Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.');
+          const degradedCopy = ev.code === 1013
+            ? 'Live-канал временно перегружен. Пока продолжаем через обычные запросы.'
+            : 'Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.';
+          setHttpFallbackStatus(degradedCopy);
         } else {
           applyHealthStatus(lastHealthStatus || {
             status_key: 'connecting',
@@ -1597,6 +1651,7 @@ const CHAT_HTML = `<!DOCTYPE html>
         setHttpFallbackStatus('Прямое соединение сейчас недоступно. Можно продолжать через обычные запросы.');
         updateSendEnabled();
         void refreshHealthStatus();
+        scheduleReconnect();
       };
 
       ws.onmessage = (ev) => {
@@ -3227,7 +3282,8 @@ export function createHiringAgentServer(app, options = {}) {
       if (error instanceof AccessContextError) {
         writeJson(response, error.httpStatus, {
           error: error.code,
-          message: error.message
+          message: error.message,
+          details: error.details ?? undefined
         });
         return;
       }
@@ -3265,7 +3321,7 @@ export function createHiringAgentServer(app, options = {}) {
           tenantSql: ctx.tenantSql,
         };
       } catch (err) {
-        console.log("[ws] auth failed (management):", err?.message);
+        console.log("[ws] auth failed (management):", err?.code ?? "unknown", err?.message);
         if (err instanceof AccessContextError && err.httpStatus >= 500) {
           ws.close(1013, "Service unavailable");
         } else {
@@ -3390,7 +3446,8 @@ async function requireAccessContext(request, response, options = {}) {
     if (error instanceof AccessContextError) {
       writeJson(response, error.httpStatus, {
         error: error.code,
-        message: error.message
+        message: error.message,
+        details: error.details ?? undefined
       });
       return null;
     }
