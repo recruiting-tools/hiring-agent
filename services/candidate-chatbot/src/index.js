@@ -4,18 +4,12 @@ import { FakeLlmAdapter } from "./fake-llm-adapter.js";
 import { GeminiAdapter } from "./gemini-adapter.js";
 import { createCandidateChatbot } from "./handlers.js";
 import { createHttpServer } from "./http-server.js";
-import { HhApiClient } from "../../hh-connector/src/hh-api-client.js";
-import { FakeHhClient } from "../../hh-connector/src/hh-client.js";
-import { HhContractMock } from "../../hh-connector/src/hh-contract-mock.js";
 import { InMemoryHiringStore } from "./store.js";
 import { PostgresHiringStore } from "./postgres-store.js";
 import { NotificationDispatcher } from "./notification-dispatcher.js";
 import { FakeTelegramClient } from "./fake-telegram-client.js";
 import { TelegramNotifier } from "./telegram-notifier.js";
-import { runPollOnce } from "../../hh-connector/src/poll-loop.js";
-import { TokenRefresher } from "../../hh-connector/src/token-refresher.js";
-import { HhConnector } from "../../hh-connector/src/hh-connector.js";
-import { CronSender } from "../../hh-connector/src/cron-sender.js";
+import { createHhRuntime } from "./hh-runtime.js";
 
 let store;
 
@@ -82,77 +76,16 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
 const notificationDispatcher = new NotificationDispatcher(store, telegramClient);
 
 const app = createCandidateChatbot({ store, llmAdapter, notificationDispatcher });
-
-const hhRedirectUri = resolveHhRedirectUri(process.env.HH_REDIRECT_URI);
-const hasHhOAuthConfig = process.env.HH_CLIENT_ID || process.env.HH_CLIENT_SECRET || hhRedirectUri;
-if (hasHhOAuthConfig && !(process.env.HH_CLIENT_ID && process.env.HH_CLIENT_SECRET && hhRedirectUri)) {
-  throw new Error("Invalid HH OAuth configuration: set HH_CLIENT_ID, HH_CLIENT_SECRET and HH_REDIRECT_URI (/hh-callback)");
-}
-
-const hhOAuthClient = process.env.HH_CLIENT_ID && process.env.HH_CLIENT_SECRET && hhRedirectUri
-  ? new HhApiClient({
-      clientId: process.env.HH_CLIENT_ID,
-      clientSecret: process.env.HH_CLIENT_SECRET,
-      redirectUri: hhRedirectUri,
-      tokenStore: {
-        getTokens: () => store.getHhOAuthTokens("hh"),
-        setTokens: (tokens) => store.setHhOAuthTokens("hh", tokens)
-      }
-    })
-  : null;
-
-const hhPollClient = process.env.HH_USE_MOCK === "true"
-  ? await HhContractMock.create()
-  : (hhOAuthClient ?? new FakeHhClient());
-
-const tokenRefresher = hhOAuthClient
-  ? new TokenRefresher({ store, hhApiClient: hhOAuthClient })
-  : null;
-
-const hhPollRunner = {
-  async pollAll() {
-    if (tokenRefresher) {
-      await tokenRefresher.refreshIfNeeded();
-    }
-    return runPollOnce({ store, hhClient: hhPollClient, chatbot: app });
-  }
-};
-
-const hhImportRunner = new HhConnector({
+const {
+  hhOAuthClient,
+  hhPollRunner,
+  hhImportRunner,
+  hhSendRunner
+} = await createHhRuntime({
   store,
-  hhClient: hhPollClient,
   chatbot: app,
-  vacancyMappings: []
+  env: process.env
 });
-
-const hhSendRunner = {
-  async sendDue() {
-    const startedAt = Date.now();
-    console.info(JSON.stringify({ event: "hh_send_runner_enter" }));
-    if (tokenRefresher) {
-      const refreshResult = await tokenRefresher.refreshIfNeeded();
-      console.info(JSON.stringify({
-        event: "hh_send_runner_after_refresh",
-        refresh_result: refreshResult,
-        elapsed_ms: Date.now() - startedAt
-      }));
-    }
-    const sender = new CronSender({ store, hhClient: hhPollClient });
-    const results = await sender.tick();
-    console.info(JSON.stringify({
-      event: "hh_send_runner_after_tick",
-      result_count: results.length,
-      elapsed_ms: Date.now() - startedAt
-    }));
-    return {
-      processed: results.length,
-      sent: results.filter((item) => item.sent).length,
-      skipped: results.filter((item) => item.skipped || item.duplicate).length,
-      failed: results.filter((item) => !item.sent && !item.skipped && !item.duplicate).length,
-      results
-    };
-  }
-};
 
 const port = Number(process.env.PORT ?? 3000);
 createHttpServer(app, {
@@ -165,17 +98,3 @@ createHttpServer(app, {
 }).listen(port, () => {
   console.log(`candidate-chatbot listening on :${port}`);
 });
-
-function resolveHhRedirectUri(raw) {
-  if (!raw) return null;
-  try {
-    const parsed = new URL(raw);
-    if (!["/hh-callback", "/hh-callback/"].includes(parsed.pathname)) {
-      throw new Error("Invalid HH callback path");
-    }
-    return `${parsed.origin}${parsed.pathname}`;
-  } catch (error) {
-    console.error(error);
-    return null;
-  }
-}
