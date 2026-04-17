@@ -191,6 +191,34 @@ test("cron sender: tick sets review_status=sent on planned_message after success
   assert.equal(updated.review_status, "sent");
 });
 
+test("cron sender: tick respects batch size limit", async () => {
+  const { store, hhClient } = await makeRuntimeWithNegotiation();
+  const pm1 = makePlannedMessage({
+    planned_message_id: "pm-batch-001",
+    auto_send_after: "2026-04-17T09:00:00.000Z"
+  });
+  const pm2 = makePlannedMessage({
+    planned_message_id: "pm-batch-002",
+    auto_send_after: "2026-04-17T09:01:00.000Z"
+  });
+  store.plannedMessages.push(pm1, pm2);
+
+  const sender = new CronSender({
+    store,
+    hhClient,
+    batchSize: 1,
+    now: () => new Date("2026-04-17T09:05:00.000Z")
+  });
+
+  const results = await sender.tick();
+
+  assert.equal(results.length, 1);
+  assert.equal(hhClient.sentCount(), 1);
+  assert.equal(results[0].planned_message_id, "pm-batch-001");
+  assert.equal(store.plannedMessages.find((m) => m.planned_message_id === "pm-batch-001").review_status, "sent");
+  assert.equal(store.plannedMessages.find((m) => m.planned_message_id === "pm-batch-002").review_status, "pending");
+});
+
 test("send guard: concurrent sends deliver exactly once", async () => {
   const { store, hhClient } = await makeRuntimeWithNegotiation();
   const pm = makePlannedMessage();

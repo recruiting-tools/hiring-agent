@@ -1,17 +1,19 @@
 import { sendHHWithGuard } from "./send-guard.js";
 
 export class CronSender {
-  constructor({ store, hhClient, windowMinutes = 10 }) {
+  constructor({ store, hhClient, windowMinutes = 10, batchSize = 25, now = () => new Date() }) {
     this.store = store;
     this.hhClient = hhClient;
     this.windowMinutes = windowMinutes;
+    this.batchSize = batchSize;
+    this.now = now;
   }
 
   // One iteration: find all messages due for sending, send each
   async tick() {
     const startedAt = Date.now();
     console.info(JSON.stringify({ event: "hh_send_tick_start" }));
-    const due = await this.store.getPlannedMessagesDue(new Date());
+    const due = await this.store.getPlannedMessagesDue(this.now(), this.batchSize);
     console.info(JSON.stringify({
       event: "hh_send_tick_due_loaded",
       due_count: due.length,
@@ -55,6 +57,7 @@ export class CronSender {
     console.info(JSON.stringify({
       event: "hh_send_tick_done",
       due_count: due.length,
+      batch_size: this.batchSize,
       result_count: results.length,
       elapsed_ms: Date.now() - startedAt
     }));

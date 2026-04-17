@@ -682,7 +682,7 @@ export class PostgresHiringStore {
 
   // ─── Cron Sender ─────────────────────────────────────────────────────────────
 
-  async getPlannedMessagesDue(now) {
+  async getPlannedMessagesDue(now, limit = 100) {
     const rows = await this.sql`
       SELECT pm.*, c.channel_thread_id
       FROM chatbot.planned_messages pm
@@ -710,6 +710,8 @@ export class PostgresHiringStore {
           OR da.next_retry_at <= ${now.toISOString()}
         )
         AND pm.sent_at IS NULL
+      ORDER BY pm.auto_send_after ASC, pm.created_at ASC
+      LIMIT ${limit}
     `;
     for (const row of rows) {
       if (!row.channel_thread_id) {
