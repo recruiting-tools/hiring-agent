@@ -34,6 +34,22 @@ function createDeferred() {
   return { promise, resolve, reject };
 }
 
+function createPendingQuery() {
+  const deferred = createDeferred();
+  const keepAlive = setTimeout(() => {}, 60_000);
+  return {
+    promise: deferred.promise,
+    resolve(value = []) {
+      clearTimeout(keepAlive);
+      deferred.resolve(value);
+    },
+    reject(error) {
+      clearTimeout(keepAlive);
+      deferred.reject(error);
+    }
+  };
+}
+
 test.afterEach(() => {
   resetAccessContextCircuitBreaker();
 });
@@ -116,7 +132,7 @@ test("auth: resolveSession renews near-expiry session in background", async () =
 });
 
 test("auth: resolveSession fails fast when management session lookup hangs", async () => {
-  const pending = createDeferred();
+  const pending = createPendingQuery();
   const sql = createMockSql(() => pending.promise);
 
   try {
@@ -130,13 +146,13 @@ test("auth: resolveSession fails fast when management session lookup hangs", asy
       }
     );
   } finally {
-    pending.resolve([]);
+    pending.resolve();
   }
 });
 
 test("auth: resolveSession retries one transient timeout before succeeding", async () => {
   let attempts = 0;
-  const firstAttempt = createDeferred();
+  const firstAttempt = createPendingQuery();
   const sql = createMockSql(() => {
     attempts += 1;
     if (attempts === 1) {
@@ -163,7 +179,7 @@ test("auth: resolveSession retries one transient timeout before succeeding", asy
     assert.equal(attempts, 2);
     assert.equal(recruiter.recruiter_id, "rec-1");
   } finally {
-    firstAttempt.resolve([]);
+    firstAttempt.resolve();
   }
 });
 
