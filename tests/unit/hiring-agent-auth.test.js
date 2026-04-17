@@ -3,7 +3,14 @@ import test from "node:test";
 import {
   resetAccessContextCircuitBreaker
 } from "../../packages/access-context/src/index.js";
-import { createSession, parseCookies, resolveSession } from "../../services/hiring-agent/src/auth.js";
+import {
+  createSession,
+  createSignedSessionSnapshot,
+  parseCookies,
+  resolveSession,
+  resolveSessionFromSignedSnapshot,
+  sessionSnapshotCookieNameFromSessionCookieName
+} from "../../services/hiring-agent/src/auth.js";
 import { createHiringAgentApp } from "../../services/hiring-agent/src/app.js";
 import { createHiringAgentServer } from "../../services/hiring-agent/src/http-server.js";
 
@@ -149,6 +156,58 @@ test("auth: createSession stores 30 day ttl", async () => {
 
   const token = await createSession(sql, "rec-1");
   assert.match(token, /^[a-f0-9]{64}$/);
+});
+
+test("auth: signed session snapshot resolves recruiter without database lookup", () => {
+  const snapshot = createSignedSessionSnapshot({
+    recruiter_id: "rec-1",
+    tenant_id: "tenant-1",
+    email: "rec@example.com",
+    role: "recruiter",
+    recruiter_status: "active",
+    tenant_status: "active"
+  }, "sess-001", {
+    secret: "test-secret",
+    now: 1_000
+  });
+
+  const recruiter = resolveSessionFromSignedSnapshot(snapshot, "sess-001", {
+    secret: "test-secret",
+    now: 2_000
+  });
+
+  assert.deepEqual(recruiter, {
+    recruiter_id: "rec-1",
+    tenant_id: "tenant-1",
+    email: "rec@example.com",
+    role: "recruiter",
+    recruiter_status: "active",
+    tenant_status: "active"
+  });
+});
+
+test("auth: signed session snapshot is rejected when session token changes", () => {
+  const snapshot = createSignedSessionSnapshot({
+    recruiter_id: "rec-1",
+    tenant_id: "tenant-1",
+    email: "rec@example.com",
+    role: "recruiter"
+  }, "sess-001", {
+    secret: "test-secret"
+  });
+
+  const recruiter = resolveSessionFromSignedSnapshot(snapshot, "sess-002", {
+    secret: "test-secret"
+  });
+
+  assert.equal(recruiter, null);
+});
+
+test("auth: session snapshot cookie name follows session cookie name", () => {
+  assert.equal(
+    sessionSnapshotCookieNameFromSessionCookieName("session_sandbox_003"),
+    "session_sandbox_003_auth"
+  );
 });
 
 test("auth: GET / redirects to /login when cookie is missing", async () => {
