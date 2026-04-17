@@ -78,6 +78,7 @@ test("auth: resolveSession returns recruiter from sql row", async () => {
 
 test("auth: resolveSession renews near-expiry session in background", async () => {
   const calls = [];
+  const renewed = createDeferred();
   const sql = createMockSql(({ text, values }) => {
     calls.push({ text, values });
 
@@ -96,6 +97,7 @@ test("auth: resolveSession renews near-expiry session in background", async () =
     assert.match(text, /UPDATE management\.sessions/);
     assert.match(text, /SET expires_at = now\(\) \+ \$1::interval/);
     assert.deepEqual(values, ["30 days", "sess-001"]);
+    renewed.resolve();
     return [];
   });
 
@@ -109,7 +111,7 @@ test("auth: resolveSession renews near-expiry session in background", async () =
     tenant_status: "active"
   });
 
-  await new Promise((resolve) => setImmediate(resolve));
+  await renewed.promise;
   assert.equal(calls.length, 2);
 });
 
