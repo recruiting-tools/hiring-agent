@@ -21,6 +21,11 @@ export function resolveHiringAgentRuntime(env = process.env) {
   const hhVacancyFetchTimeoutMs = Number(env.HH_VACANCY_FETCH_TIMEOUT_MS ?? 15000);
   const deploySha = env.DEPLOY_SHA ?? env.GITHUB_SHA ?? "unknown";
   const startedAt = new Date().toISOString();
+  const postgresOptions = {
+    connect_timeout: Number(env.MANAGEMENT_DB_CONNECT_TIMEOUT_SECONDS ?? 5),
+    idle_timeout: Number(env.MANAGEMENT_DB_IDLE_TIMEOUT_SECONDS ?? 20),
+    max_lifetime: Number(env.MANAGEMENT_DB_MAX_LIFETIME_SECONDS ?? 1800)
+  };
 
   if (appMode === "demo") {
     return {
@@ -42,7 +47,9 @@ export function resolveHiringAgentRuntime(env = process.env) {
         applicationStepsExtractModel: createVacancyApplicationStepsExtractModel
       },
       hhVacancyFetchTimeoutMs,
-      poolRegistry: createPoolRegistry(),
+      poolRegistry: createPoolRegistry({
+        sqlFactory: (connectionString) => postgres(connectionString, postgresOptions)
+      }),
       startupMode: "demo"
     };
   }
@@ -55,7 +62,7 @@ export function resolveHiringAgentRuntime(env = process.env) {
     throw new Error("MANAGEMENT_DATABASE_URL is required unless APP_MODE=demo");
   }
 
-  const managementSql = postgres(managementDatabaseUrl);
+  const managementSql = postgres(managementDatabaseUrl, postgresOptions);
   return {
     port,
     appEnv,
@@ -75,7 +82,9 @@ export function resolveHiringAgentRuntime(env = process.env) {
       applicationStepsExtractModel: createVacancyApplicationStepsExtractModel
     },
     hhVacancyFetchTimeoutMs,
-    poolRegistry: createPoolRegistry(),
+    poolRegistry: createPoolRegistry({
+      sqlFactory: (connectionString) => postgres(connectionString, postgresOptions)
+    }),
     startupMode: "management-auth"
   };
 }

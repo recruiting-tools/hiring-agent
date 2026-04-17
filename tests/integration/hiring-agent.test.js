@@ -51,6 +51,16 @@ async function loginResponse(server) {
   });
 }
 
+function createMockSql(handler) {
+  return async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    return handler({ text, values });
+  };
+}
+
 test.beforeEach(() => {
   clearPlaybookRegistryCache();
 });
@@ -92,6 +102,36 @@ test("hiring-agent: GET /health exposes configured app env in management mode", 
     assert.equal(body.app_env, "prod");
     assert.equal(body.deploy_sha, "test-sha-prod");
   } finally {
+    server.close();
+  }
+});
+
+test("hiring-agent: GET /health_status fails fast when management session lookup hangs", async () => {
+  const sql = createMockSql(() => new Promise(() => {}));
+  const previousTimeout = process.env.ACCESS_CONTEXT_TIMEOUT_MS;
+  process.env.ACCESS_CONTEXT_TIMEOUT_MS = "20";
+
+  const server = createHiringAgentServer(createHiringAgentApp({
+    demoMode: false,
+    appEnv: "prod",
+    deploySha: "test-sha-health-status-timeout",
+    startedAt: "2026-04-17T00:00:00.000Z",
+    port: 3101,
+    managementSql: sql
+  }), {
+    managementSql: sql
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "GET", "/health_status", undefined, "session=sess-timeout");
+    assert.equal(status, 503);
+    assert.equal(body.error, "ERROR_ACCESS_CONTEXT_TIMEOUT");
+  } finally {
+    if (previousTimeout === undefined) {
+      delete process.env.ACCESS_CONTEXT_TIMEOUT_MS;
+    } else {
+      process.env.ACCESS_CONTEXT_TIMEOUT_MS = previousTimeout;
+    }
     server.close();
   }
 });

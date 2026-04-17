@@ -3224,6 +3224,14 @@ export function createHiringAgentServer(app, options = {}) {
         return;
       }
 
+      if (error instanceof AccessContextError) {
+        writeJson(response, error.httpStatus, {
+          error: error.code,
+          message: error.message
+        });
+        return;
+      }
+
       writeJson(response, 500, {
         error: "internal_error",
         message: error instanceof Error ? error.message : "Unknown error"
@@ -3258,7 +3266,11 @@ export function createHiringAgentServer(app, options = {}) {
         };
       } catch (err) {
         console.log("[ws] auth failed (management):", err?.message);
-        ws.close(4001, "Unauthorized");
+        if (err instanceof AccessContextError && err.httpStatus >= 500) {
+          ws.close(1013, "Service unavailable");
+        } else {
+          ws.close(4001, "Unauthorized");
+        }
         return;
       }
     } else {
