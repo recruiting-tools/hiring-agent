@@ -59,9 +59,17 @@ export function createManagementStore(managementSql) {
 
     async getRecruiterByEmail(email) {
       const rows = await managementSql`
-        SELECT recruiter_id, tenant_id, email, password_hash, status, role
-        FROM management.recruiters
-        WHERE email = ${value(email)}
+        SELECT
+          r.recruiter_id,
+          r.tenant_id,
+          r.email,
+          r.password_hash,
+          r.status,
+          r.role,
+          t.status AS tenant_status
+        FROM management.recruiters r
+        JOIN management.tenants t ON t.tenant_id = r.tenant_id
+        WHERE r.email = ${value(email)}
       `;
       return rows[0] ?? null;
     },
