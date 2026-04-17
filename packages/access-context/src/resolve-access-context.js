@@ -1,16 +1,24 @@
 import { AccessContextError, toAccessContextError } from "./access-context-error.js";
+import { withAccessContextTimeout } from "./timeout.js";
 
 export async function resolveAccessContext({
   managementStore,
   poolRegistry,
   appEnv,
-  sessionToken
+  sessionToken,
+  timeoutMs = null
 }) {
   if (!sessionToken) {
     throw new AccessContextError("ERROR_UNAUTHENTICATED", "Session token is required", { httpStatus: 401 });
   }
 
-  const session = await managementStore.getRecruiterSession(sessionToken);
+  const session = await withAccessContextTimeout(
+    managementStore.getRecruiterSession(sessionToken),
+    {
+      timeoutMs,
+      message: "Management session lookup timed out"
+    }
+  );
   if (!session) {
     throw new AccessContextError("ERROR_UNAUTHENTICATED", "Session not found or expired", { httpStatus: 401 });
   }
@@ -27,10 +35,16 @@ export async function resolveAccessContext({
     });
   }
 
-  const binding = await managementStore.getPrimaryBinding({
-    tenantId: session.tenant_id,
-    appEnv
-  });
+  const binding = await withAccessContextTimeout(
+    managementStore.getPrimaryBinding({
+      tenantId: session.tenant_id,
+      appEnv
+    }),
+    {
+      timeoutMs,
+      message: `Tenant binding lookup timed out for tenant ${session.tenant_id}`
+    }
+  );
   if (!binding) {
     throw new AccessContextError(
       "ERROR_BINDING_MISSING",
@@ -47,7 +61,13 @@ export async function resolveAccessContext({
     );
   }
 
-  const databaseConnection = await managementStore.getDatabaseConnection(binding.db_alias);
+  const databaseConnection = await withAccessContextTimeout(
+    managementStore.getDatabaseConnection(binding.db_alias),
+    {
+      timeoutMs,
+      message: `Database connection lookup timed out for alias ${binding.db_alias}`
+    }
+  );
   if (!databaseConnection) {
     throw new AccessContextError(
       "ERROR_DATABASE_CONNECTION_UNAVAILABLE",
