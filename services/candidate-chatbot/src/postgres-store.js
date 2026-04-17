@@ -676,16 +676,32 @@ export class PostgresHiringStore {
   }) {
     if (!channel_message_id) return null;
 
+    const existingRows = await this.sql`
+      SELECT *
+      FROM chatbot.messages
+      WHERE conversation_id = ${conversation_id}
+        AND channel_message_id = ${channel_message_id}
+      LIMIT 1
+    `;
+    const existing = existingRows[0];
+    if (existing) {
+      const updatedRows = await this.sql`
+        UPDATE chatbot.messages
+        SET body = ${body},
+            occurred_at = ${occurred_at}
+        WHERE message_id = ${existing.message_id}
+        RETURNING *
+      `;
+      return { ...updatedRows[0], inserted: false };
+    }
+
     const rows = await this.sql`
       INSERT INTO chatbot.messages
         (message_id, conversation_id, candidate_id, direction, message_type, body, channel, channel_message_id, occurred_at)
       VALUES (${randomUUID()}, ${conversation_id}, ${candidate_id}, ${direction}, 'text', ${body}, ${channel}, ${channel_message_id}, ${occurred_at})
-      ON CONFLICT (conversation_id, channel_message_id) DO UPDATE SET
-        body = EXCLUDED.body,
-        occurred_at = EXCLUDED.occurred_at
       RETURNING *
     `;
-    return rows[0];
+    return { ...rows[0], inserted: true };
   }
 
   // ─── Cron Sender ─────────────────────────────────────────────────────────────

@@ -562,7 +562,7 @@ export class InMemoryHiringStore {
     if (existing) {
       existing.body = body;
       existing.occurred_at = occurred_at;
-      return existing;
+      return { ...existing, inserted: false };
     }
 
     const stored = {
@@ -578,7 +578,7 @@ export class InMemoryHiringStore {
       received_at: new Date().toISOString()
     };
     this.messages.push(stored);
-    return stored;
+    return { ...stored, inserted: true };
   }
 
   // ─── Cron Sender ─────────────────────────────────────────────────────────────
