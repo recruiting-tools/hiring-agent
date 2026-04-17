@@ -14,6 +14,7 @@ function resolveInitialStepIdPostgres(template, collection) {
 
 export class PostgresHiringStore {
   constructor({ connectionString }) {
+    this.connectionString = connectionString;
     this.sql = neon(connectionString);
     // In-memory job registry loaded from DB via seed/loadJobs
     this._jobs = new Map();
@@ -24,6 +25,11 @@ export class PostgresHiringStore {
 
   // Truncate all chatbot tables in dependency order (for test isolation).
   async reset() {
+    if (process.env.POSTGRES_STORE_RESET_ALLOWED !== "true") {
+      throw new Error(
+        `Refusing to reset PostgresHiringStore without POSTGRES_STORE_RESET_ALLOWED=true (connection=${redactConnectionString(this.connectionString)})`
+      );
+    }
     await this.sql`
       TRUNCATE TABLE
         management.feature_flags,
@@ -1195,6 +1201,17 @@ export class PostgresHiringStore {
 function buildResumeDisplayName(resume, fallbackId) {
   const fullName = [resume?.first_name, resume?.last_name].filter(Boolean).join(" ").trim();
   return fullName || resume?.title || fallbackId || "HH candidate";
+}
+
+function redactConnectionString(connectionString) {
+  if (!connectionString) return "unknown";
+  try {
+    const parsed = new URL(connectionString);
+    const dbName = parsed.pathname?.replace(/^\//, "") || "(default)";
+    return `${parsed.hostname}/${dbName}`;
+  } catch {
+    return "unparseable";
+  }
 }
 
 function buildResumeText(resume) {
