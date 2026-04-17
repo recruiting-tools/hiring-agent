@@ -160,6 +160,31 @@ test("duplicate outbound message is blocked by validator", async () => {
   assert.equal(store.plannedMessages[0].body, duplicateMessage);
 });
 
+test("premature acknowledgement is blocked by validator", async () => {
+  const { app, store } = createRuntime({
+    "conv-sales-001": {
+      step_result: "needs_clarification",
+      completed_step_ids: [],
+      rejected_step_id: null,
+      extracted_facts: {},
+      missing_information: ["b2b_sales_experience"],
+      next_message: "Спасибо! Подскажите, пожалуйста, какой у вас был средний чек?",
+      confidence: 0.88,
+      guard_flags: []
+    }
+  });
+
+  const response = await app.postWebhookMessage(requestFor(
+    "conv-sales-001",
+    seed.candidate_fixtures[2].inbound_text
+  ));
+
+  assert.equal(response.status, 202);
+  assert.equal(response.body.step_result, "manual_review");
+  assert.deepEqual(response.body.guard_flags, ["premature_acknowledgement"]);
+  assert.equal(store.plannedMessages.length, 0);
+});
+
 test("pending queue returns created planned message", async () => {
   const { app } = createRuntime();
 
