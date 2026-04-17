@@ -126,6 +126,7 @@ test("hiring-agent: GET /health_status fails fast when management session lookup
     const { status, body } = await req(server, "GET", "/health_status", undefined, "session=sess-timeout");
     assert.equal(status, 503);
     assert.equal(body.error, "ERROR_ACCESS_CONTEXT_TIMEOUT");
+    assert.equal(body.details.operation, "management session lookup");
   } finally {
     if (previousTimeout === undefined) {
       delete process.env.ACCESS_CONTEXT_TIMEOUT_MS;

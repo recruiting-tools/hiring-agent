@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+  resetAccessContextCircuitBreaker
+} from "../../packages/access-context/src/index.js";
 import { createSession, parseCookies, resolveSession } from "../../services/hiring-agent/src/auth.js";
 import { createHiringAgentApp } from "../../services/hiring-agent/src/app.js";
 import { createHiringAgentServer } from "../../services/hiring-agent/src/http-server.js";
@@ -13,6 +16,10 @@ function createMockSql(handler) {
     return handler({ text, values });
   };
 }
+
+test.afterEach(() => {
+  resetAccessContextCircuitBreaker();
+});
 
 test("auth: parseCookies parses cookie header into key/value map", () => {
   assert.deepEqual(
@@ -101,6 +108,34 @@ test("auth: resolveSession fails fast when management session lookup hangs", asy
       return true;
     }
   );
+});
+
+test("auth: resolveSession retries one transient timeout before succeeding", async () => {
+  let attempts = 0;
+  const sql = createMockSql(() => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Promise(() => {});
+    }
+
+    return [{
+      recruiter_id: "rec-1",
+      tenant_id: "tenant-1",
+      email: "rec@example.com",
+      role: "recruiter",
+      recruiter_status: "active",
+      tenant_status: "active"
+    }];
+  });
+
+  const recruiter = await resolveSession(sql, "sess-retry", {
+    timeoutMs: 10,
+    retryCount: 1,
+    retryDelayMs: 1
+  });
+
+  assert.equal(attempts, 2);
+  assert.equal(recruiter.recruiter_id, "rec-1");
 });
 
 test("auth: createSession stores 30 day ttl", async () => {
