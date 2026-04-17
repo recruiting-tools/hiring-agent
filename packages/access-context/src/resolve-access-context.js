@@ -1,5 +1,5 @@
 import { AccessContextError, toAccessContextError } from "./access-context-error.js";
-import { withAccessContextTimeout } from "./timeout.js";
+import { withAccessContextResilience } from "./resilience.js";
 
 export async function resolveAccessContext({
   managementStore,
@@ -12,9 +12,10 @@ export async function resolveAccessContext({
     throw new AccessContextError("ERROR_UNAUTHENTICATED", "Session token is required", { httpStatus: 401 });
   }
 
-  const session = await withAccessContextTimeout(
-    managementStore.getRecruiterSession(sessionToken),
+  const session = await withAccessContextResilience(
+    () => managementStore.getRecruiterSession(sessionToken),
     {
+      operationName: "management session lookup",
       timeoutMs,
       message: "Management session lookup timed out"
     }
@@ -35,12 +36,13 @@ export async function resolveAccessContext({
     });
   }
 
-  const binding = await withAccessContextTimeout(
-    managementStore.getPrimaryBinding({
+  const binding = await withAccessContextResilience(
+    () => managementStore.getPrimaryBinding({
       tenantId: session.tenant_id,
       appEnv
     }),
     {
+      operationName: "tenant binding lookup",
       timeoutMs,
       message: `Tenant binding lookup timed out for tenant ${session.tenant_id}`
     }
@@ -61,9 +63,10 @@ export async function resolveAccessContext({
     );
   }
 
-  const databaseConnection = await withAccessContextTimeout(
-    managementStore.getDatabaseConnection(binding.db_alias),
+  const databaseConnection = await withAccessContextResilience(
+    () => managementStore.getDatabaseConnection(binding.db_alias),
     {
+      operationName: "database connection lookup",
       timeoutMs,
       message: `Database connection lookup timed out for alias ${binding.db_alias}`
     }
