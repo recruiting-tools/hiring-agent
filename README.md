@@ -50,6 +50,26 @@ OPENROUTER_CREATE_VACANCY_APPLICATION_STEPS_MODEL=openai/gpt-5.4-mini
 **CI gate (авто):** `sandbox-gate` workflow — должен быть зелёным для merge
 **Deploy (авто):** `deploy-prod` workflow запускается при merge в main
 
+### External HH Mock
+
+Для реального HTTP smoke против внешнего HH-like mock:
+
+```bash
+HH_EXTERNAL_MOCK_BASE_URL=http://127.0.0.1:19090 \
+HH_EXTERNAL_MOCK_BEARER_TOKEN=mock_access_token \
+pnpm smoke:hh:external-mock
+```
+
+Что проверяет этот сценарий:
+
+- create mock vacancy
+- import negotiations through `HH_API_BASE_URL`
+- poll messages
+- send outbound reply
+- receive delayed applicant reply
+
+CI для этого сценария: `.github/workflows/external-hh-mock-gate.yml`.
+
 ### PR From Session (Коротко)
 
 1. Прогоняешь локальный gate:
