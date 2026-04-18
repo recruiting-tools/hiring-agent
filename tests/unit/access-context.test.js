@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   AccessContextError,
+  createAccessContextMetadataCache,
   createPoolRegistry,
   resolveAccessContext
 } from "../../packages/access-context/src/index.js";
@@ -83,6 +84,146 @@ test("resolveAccessContext returns tenant-scoped context for active recruiter", 
   assert.equal(context.tenantSql, tenantSql);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(renewed, true);
+});
+
+test("resolveAccessContext caches binding and database metadata but not session lookup", async () => {
+  let sessionLookups = 0;
+  let bindingLookups = 0;
+  let databaseLookups = 0;
+  const tenantSql = { tag: "tenant-sql" };
+  const metadataCache = createAccessContextMetadataCache({ ttlMs: 60_000 });
+
+  const managementStore = {
+    async getRecruiterSession() {
+      sessionLookups += 1;
+      return {
+        recruiter_id: "rec-1",
+        email: "rec@example.test",
+        recruiter_status: "active",
+        role: "recruiter",
+        tenant_id: "tenant-1",
+        tenant_status: "active",
+        expires_at: new Date()
+      };
+    },
+    async getPrimaryBinding() {
+      bindingLookups += 1;
+      return {
+        binding_id: "bind-1",
+        db_alias: "db-1",
+        binding_kind: "shared_db",
+        schema_name: null
+      };
+    },
+    async getDatabaseConnection() {
+      databaseLookups += 1;
+      return {
+        db_alias: "db-1",
+        connection_string: "postgres://tenant"
+      };
+    },
+    async renewSessionIfNeeded() {}
+  };
+
+  const poolRegistry = {
+    getOrCreate() {
+      return tenantSql;
+    }
+  };
+
+  const first = await resolveAccessContext({
+    appEnv: "prod",
+    sessionToken: "sess-1",
+    managementStore,
+    metadataCache,
+    poolRegistry
+  });
+  const second = await resolveAccessContext({
+    appEnv: "prod",
+    sessionToken: "sess-1",
+    managementStore,
+    metadataCache,
+    poolRegistry
+  });
+
+  assert.equal(first.tenantSql, tenantSql);
+  assert.equal(second.tenantSql, tenantSql);
+  assert.equal(sessionLookups, 2);
+  assert.equal(bindingLookups, 1);
+  assert.equal(databaseLookups, 1);
+});
+
+test("resolveAccessContext metadata cache expires after ttl", async () => {
+  let nowMs = 1_000;
+  let bindingLookups = 0;
+  let databaseLookups = 0;
+  const metadataCache = createAccessContextMetadataCache({
+    ttlMs: 50,
+    now: () => nowMs
+  });
+
+  const managementStore = {
+    async getRecruiterSession() {
+      return {
+        recruiter_id: "rec-1",
+        email: "rec@example.test",
+        recruiter_status: "active",
+        role: "recruiter",
+        tenant_id: "tenant-1",
+        tenant_status: "active",
+        expires_at: new Date()
+      };
+    },
+    async getPrimaryBinding() {
+      bindingLookups += 1;
+      return {
+        binding_id: "bind-1",
+        db_alias: "db-1",
+        binding_kind: "shared_db",
+        schema_name: null
+      };
+    },
+    async getDatabaseConnection() {
+      databaseLookups += 1;
+      return {
+        db_alias: "db-1",
+        connection_string: "postgres://tenant"
+      };
+    },
+    async renewSessionIfNeeded() {}
+  };
+
+  const poolRegistry = {
+    getOrCreate() {
+      return { tag: "tenant-sql" };
+    }
+  };
+
+  await resolveAccessContext({
+    appEnv: "prod",
+    sessionToken: "sess-1",
+    managementStore,
+    metadataCache,
+    poolRegistry
+  });
+  await resolveAccessContext({
+    appEnv: "prod",
+    sessionToken: "sess-1",
+    managementStore,
+    metadataCache,
+    poolRegistry
+  });
+  nowMs += 51;
+  await resolveAccessContext({
+    appEnv: "prod",
+    sessionToken: "sess-1",
+    managementStore,
+    metadataCache,
+    poolRegistry
+  });
+
+  assert.equal(bindingLookups, 2);
+  assert.equal(databaseLookups, 2);
 });
 
 test("resolveAccessContext rejects suspended recruiter", async () => {
