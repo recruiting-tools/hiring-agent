@@ -32,6 +32,7 @@
     "test:sandbox": "APP_ENV=sandbox HH_USE_MOCK=true pnpm test:all",
     "gate:sandbox": "pnpm test:sandbox && pnpm smoke:sandbox",
     "smoke:hh:external-mock": "node scripts/smoke-hh-external-mock.js",
+    "smoke:hh:external-mock:readonly": "node scripts/smoke-hh-external-mock-readonly.js",
     "smoke:sandbox": "node scripts/smoke-sandbox.js",
     "smoke:sandbox:cloud": "BASE_URL=${SANDBOX_URL:?SANDBOX_URL is required for smoke:sandbox:cloud} node scripts/smoke-sandbox.js",
     "smoke:hiring-agent:create-vacancy": "node scripts/smoke-hiring-agent-create-vacancy.js",

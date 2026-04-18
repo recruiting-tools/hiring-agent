@@ -56,6 +56,11 @@ jobs:
           echo "hh-mock-api failed to start"
           cat /tmp/hh-mock-api.log || true
           exit 1
+      - name: Run external HH read-only smoke
+        env:
+          HH_EXTERNAL_MOCK_BASE_URL: http://127.0.0.1:19090
+          HH_EXTERNAL_MOCK_BEARER_TOKEN: mock_access_token
+        run: pnpm smoke:hh:external-mock:readonly
       - name: Run external HH smoke
         env:
           HH_EXTERNAL_MOCK_BASE_URL: http://127.0.0.1:19090
