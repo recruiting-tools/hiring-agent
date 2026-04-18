@@ -1,9 +1,8 @@
 import { DEFAULT_VALIDATOR_CONFIG } from "./config.js";
 import { normalizeConversationContext } from "./conversation-context.js";
+import { validateOutboundPolicy } from "./outbound-message-policy.js";
 
 const STEP_RESULTS = new Set(["done", "needs_clarification", "reject", "manual_review"]);
-const ACK_OPENER_RE = /^\s*(спасибо|благодарю|понял(?:а)?|да,\s*увидел(?:а)?)/i;
-const REPLY_STYLE_RE = /^\s*(понял(?:а)?|да,\s*увидел(?:а)?)/i;
 
 export function parseLlmOutput(rawOutput) {
   if (typeof rawOutput === "string") {
@@ -72,12 +71,9 @@ export function validateLlmOutput(rawOutput, context, config = DEFAULT_VALIDATOR
     return invalid("duplicate_outbound_message", rawOutput);
   }
 
-  if (nextMessage.trim() !== "" && !normalizedContext.hasPriorOutbound && REPLY_STYLE_RE.test(nextMessage)) {
-    return invalid("reply_style_without_prior_outbound", rawOutput);
-  }
-
-  if (nextMessage.trim() !== "" && completed.length === 0 && ACK_OPENER_RE.test(nextMessage) && !REPLY_STYLE_RE.test(nextMessage)) {
-    return invalid("premature_acknowledgement", rawOutput);
+  const outboundPolicy = validateOutboundPolicy(nextMessage, normalizedContext, output);
+  if (!outboundPolicy.ok) {
+    return invalid(outboundPolicy.reason, rawOutput);
   }
 
   const activeTemplateStep = normalizedContext.activeTemplateStep
