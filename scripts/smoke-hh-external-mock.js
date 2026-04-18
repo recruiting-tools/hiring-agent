@@ -74,7 +74,7 @@ async function main() {
       rejected_step_id: null,
       extracted_facts: {},
       missing_information: ["experience_scope"],
-      next_message: "Спасибо. Уточните, пожалуйста, какие вакансии вы закрывали в последние 12 месяцев и с каким SLA работали?",
+      next_message: "Уточните, пожалуйста, какие вакансии вы закрывали в последние 12 месяцев и с каким SLA работали?",
       confidence: 0.9,
       guard_flags: []
     }
