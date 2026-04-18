@@ -288,3 +288,96 @@ test("internal hh import: rejects invalid window_end", async () => {
     server.close();
   }
 });
+
+test("internal hh send: rejects request without bearer token", async () => {
+  const { app, store } = createRuntime();
+  const server = createHttpServer(app, {
+    store,
+    internalApiToken: "secret-123",
+    hhSendRunner: { sendDue: async () => ({ processed: 0 }) }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/internal/hh-send`, { method: "POST" });
+    const body = await response.json();
+
+    assert.equal(response.status, 401);
+    assert.equal(body.error, "unauthorized");
+  } finally {
+    server.close();
+  }
+});
+
+test("internal hh send: skips when hh_send flag is disabled", async () => {
+  const { app, store } = createRuntime();
+  await store.setFeatureFlag("hh_send", false);
+  let called = false;
+  const server = createHttpServer(app, {
+    store,
+    internalApiToken: "secret-123",
+    hhSendRunner: {
+      async sendDue() {
+        called = true;
+        return { processed: 1 };
+      }
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/internal/hh-send`, {
+      method: "POST",
+      headers: { authorization: "Bearer secret-123" }
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.skipped, true);
+    assert.equal(body.reason, "hh_send_disabled");
+    assert.equal(called, false);
+  } finally {
+    server.close();
+  }
+});
+
+test("internal hh send: runs sender when authorized and hh_send is enabled", async () => {
+  const { app, store } = createRuntime();
+  await store.setFeatureFlag("hh_send", true);
+  let calls = 0;
+  const server = createHttpServer(app, {
+    store,
+    internalApiToken: "secret-123",
+    hhSendRunner: {
+      async sendDue() {
+        calls += 1;
+        return { processed: 3, sent: 2, skipped: 1, failed: 0 };
+      }
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/internal/hh-send`, {
+      method: "POST",
+      headers: { authorization: "Bearer secret-123" }
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.processed, 3);
+    assert.equal(body.sent, 2);
+    assert.equal(body.skipped, 1);
+    assert.equal(calls, 1);
+  } finally {
+    server.close();
+  }
+});

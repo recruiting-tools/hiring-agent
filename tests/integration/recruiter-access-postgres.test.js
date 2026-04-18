@@ -10,6 +10,7 @@ import {
 import { PostgresHiringStore } from "../../services/candidate-chatbot/src/postgres-store.js";
 
 const DB_URL = process.env.CHATBOT_DATABASE_URL;
+process.env.POSTGRES_STORE_RESET_ALLOWED = "true";
 
 if (!DB_URL) {
   console.log("Skipping recruiter access postgres tests: CHATBOT_DATABASE_URL not set");

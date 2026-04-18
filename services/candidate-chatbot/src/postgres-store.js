@@ -14,6 +14,7 @@ function resolveInitialStepIdPostgres(template, collection) {
 
 export class PostgresHiringStore {
   constructor({ connectionString }) {
+    this.connectionString = connectionString;
     this.sql = neon(connectionString);
     // In-memory job registry loaded from DB via seed/loadJobs
     this._jobs = new Map();
@@ -24,6 +25,11 @@ export class PostgresHiringStore {
 
   // Truncate all chatbot tables in dependency order (for test isolation).
   async reset() {
+    if (process.env.POSTGRES_STORE_RESET_ALLOWED !== "true") {
+      throw new Error(
+        `Refusing to reset PostgresHiringStore without POSTGRES_STORE_RESET_ALLOWED=true (connection=${redactConnectionString(this.connectionString)})`
+      );
+    }
     await this.sql`
       TRUNCATE TABLE
         management.feature_flags,
@@ -670,19 +676,37 @@ export class PostgresHiringStore {
   }) {
     if (!channel_message_id) return null;
 
+    const existingRows = await this.sql`
+      SELECT *
+      FROM chatbot.messages
+      WHERE conversation_id = ${conversation_id}
+        AND channel_message_id = ${channel_message_id}
+      LIMIT 1
+    `;
+    const existing = existingRows[0];
+    if (existing) {
+      const updatedRows = await this.sql`
+        UPDATE chatbot.messages
+        SET body = ${body},
+            occurred_at = ${occurred_at}
+        WHERE message_id = ${existing.message_id}
+        RETURNING *
+      `;
+      return { ...updatedRows[0], inserted: false };
+    }
+
     const rows = await this.sql`
       INSERT INTO chatbot.messages
         (message_id, conversation_id, candidate_id, direction, message_type, body, channel, channel_message_id, occurred_at)
       VALUES (${randomUUID()}, ${conversation_id}, ${candidate_id}, ${direction}, 'text', ${body}, ${channel}, ${channel_message_id}, ${occurred_at})
-      ON CONFLICT (conversation_id, channel_message_id) DO NOTHING
       RETURNING *
     `;
-    return rows[0];
+    return { ...rows[0], inserted: true };
   }
 
   // ─── Cron Sender ─────────────────────────────────────────────────────────────
 
-  async getPlannedMessagesDue(now) {
+  async getPlannedMessagesDue(now, limit = 100) {
     const rows = await this.sql`
       SELECT pm.*, c.channel_thread_id
       FROM chatbot.planned_messages pm
@@ -710,6 +734,8 @@ export class PostgresHiringStore {
           OR da.next_retry_at <= ${now.toISOString()}
         )
         AND pm.sent_at IS NULL
+      ORDER BY pm.auto_send_after ASC, pm.created_at ASC
+      LIMIT ${limit}
     `;
     for (const row of rows) {
       if (!row.channel_thread_id) {
@@ -792,7 +818,9 @@ export class PostgresHiringStore {
   async markPlannedMessageSent({ planned_message_id, sent_at, hh_message_id }) {
     await this.sql`
       UPDATE chatbot.planned_messages
-      SET review_status = 'sent', sent_at = ${sent_at}
+      SET review_status = 'sent',
+          sent_at = ${sent_at},
+          hh_message_id = COALESCE(${hh_message_id ?? null}, hh_message_id)
       WHERE planned_message_id = ${planned_message_id}
     `;
     if (hh_message_id) {
@@ -1193,6 +1221,17 @@ export class PostgresHiringStore {
 function buildResumeDisplayName(resume, fallbackId) {
   const fullName = [resume?.first_name, resume?.last_name].filter(Boolean).join(" ").trim();
   return fullName || resume?.title || fallbackId || "HH candidate";
+}
+
+function redactConnectionString(connectionString) {
+  if (!connectionString) return "unknown";
+  try {
+    const parsed = new URL(connectionString);
+    const dbName = parsed.pathname?.replace(/^\//, "") || "(default)";
+    return `${parsed.hostname}/${dbName}`;
+  } catch {
+    return "unparseable";
+  }
 }
 
 function buildResumeText(resume) {

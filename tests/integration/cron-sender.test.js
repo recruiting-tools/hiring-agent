@@ -6,7 +6,7 @@ import { createCandidateChatbot } from "../../services/candidate-chatbot/src/han
 import { InMemoryHiringStore } from "../../services/candidate-chatbot/src/store.js";
 import { FakeHhClient } from "../../services/hh-connector/src/hh-client.js";
 import { CronSender } from "../../services/hh-connector/src/cron-sender.js";
-import { sendHHWithGuard } from "../../services/hh-connector/src/send-guard.js";
+import { reconcileSentHhMessage, sendHHWithGuard } from "../../services/hh-connector/src/send-guard.js";
 
 const seed = JSON.parse(await readFile(new URL("../fixtures/iteration-1-seed.json", import.meta.url), "utf8"));
 
@@ -189,6 +189,99 @@ test("cron sender: tick sets review_status=sent on planned_message after success
 
   const updated = store.plannedMessages.find((m) => m.planned_message_id === pm.planned_message_id);
   assert.equal(updated.review_status, "sent");
+});
+
+test("cron sender: sendHHWithGuard mirrors outbound HH message into history immediately", async () => {
+  const { store, hhClient } = await makeRuntimeWithNegotiation();
+  const pm = makePlannedMessage();
+  store.plannedMessages.push(pm);
+
+  const result = await sendHHWithGuard({
+    store,
+    hhClient,
+    plannedMessage: pm,
+    hhNegotiationId: "neg-001"
+  });
+
+  const updated = store.plannedMessages.find((m) => m.planned_message_id === pm.planned_message_id);
+  assert.equal(updated.review_status, "sent");
+  assert.equal(updated.hh_message_id, result.hh_message_id);
+
+  const outbound = store.messages.find(
+    (message) => message.conversation_id === pm.conversation_id && message.channel_message_id === result.hh_message_id
+  );
+  assert.ok(outbound, "outbound HH message should appear in local conversation history immediately");
+  assert.equal(outbound.direction, "outbound");
+  assert.equal(outbound.body, pm.body);
+
+  const pollState = await store.getHhPollState("neg-001");
+  assert.equal(pollState.awaiting_reply, true);
+  assert.equal(pollState.last_sender, "employer");
+});
+
+test("reconcileSentHhMessage creates idempotent local state for direct HH sends", async () => {
+  const { store } = await makeRuntimeWithNegotiation();
+  const pm = makePlannedMessage({ planned_message_id: "pm-direct-001" });
+  store.plannedMessages.push(pm);
+
+  await reconcileSentHhMessage({
+    store,
+    plannedMessage: pm,
+    hhNegotiationId: "neg-001",
+    hhMessageId: "hh-direct-001",
+    sentAt: "2026-04-17T09:00:00.000Z"
+  });
+  await reconcileSentHhMessage({
+    store,
+    plannedMessage: pm,
+    hhNegotiationId: "neg-001",
+    hhMessageId: "hh-direct-001",
+    sentAt: "2026-04-17T09:00:00.000Z"
+  });
+
+  const deliveredAttempts = store.deliveryAttempts.filter(
+    (attempt) => attempt.planned_message_id === pm.planned_message_id && attempt.status === "delivered"
+  );
+  assert.equal(deliveredAttempts.length, 1);
+  assert.equal(deliveredAttempts[0].hh_message_id, "hh-direct-001");
+
+  const updated = store.plannedMessages.find((m) => m.planned_message_id === pm.planned_message_id);
+  assert.equal(updated.review_status, "sent");
+  assert.equal(updated.hh_message_id, "hh-direct-001");
+
+  const outboundMessages = store.messages.filter(
+    (message) => message.conversation_id === pm.conversation_id && message.channel_message_id === "hh-direct-001"
+  );
+  assert.equal(outboundMessages.length, 1);
+  assert.equal(outboundMessages[0].direction, "outbound");
+});
+
+test("cron sender: tick respects batch size limit", async () => {
+  const { store, hhClient } = await makeRuntimeWithNegotiation();
+  const pm1 = makePlannedMessage({
+    planned_message_id: "pm-batch-001",
+    auto_send_after: "2026-04-17T09:00:00.000Z"
+  });
+  const pm2 = makePlannedMessage({
+    planned_message_id: "pm-batch-002",
+    auto_send_after: "2026-04-17T09:01:00.000Z"
+  });
+  store.plannedMessages.push(pm1, pm2);
+
+  const sender = new CronSender({
+    store,
+    hhClient,
+    batchSize: 1,
+    now: () => new Date("2026-04-17T09:05:00.000Z")
+  });
+
+  const results = await sender.tick();
+
+  assert.equal(results.length, 1);
+  assert.equal(hhClient.sentCount(), 1);
+  assert.equal(results[0].planned_message_id, "pm-batch-001");
+  assert.equal(store.plannedMessages.find((m) => m.planned_message_id === "pm-batch-001").review_status, "sent");
+  assert.equal(store.plannedMessages.find((m) => m.planned_message_id === "pm-batch-002").review_status, "pending");
 });
 
 test("send guard: concurrent sends deliver exactly once", async () => {

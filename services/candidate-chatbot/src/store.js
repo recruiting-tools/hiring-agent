@@ -559,7 +559,11 @@ export class InMemoryHiringStore {
     const existing = this.messages.find(
       (message) => message.conversation_id === conversation_id && message.channel_message_id === channel_message_id
     );
-    if (existing) return null;
+    if (existing) {
+      existing.body = body;
+      existing.occurred_at = occurred_at;
+      return { ...existing, inserted: false };
+    }
 
     const stored = {
       message_id: this.nextId("msg"),
@@ -574,12 +578,12 @@ export class InMemoryHiringStore {
       received_at: new Date().toISOString()
     };
     this.messages.push(stored);
-    return stored;
+    return { ...stored, inserted: true };
   }
 
   // ─── Cron Sender ─────────────────────────────────────────────────────────────
 
-  async getPlannedMessagesDue(now) {
+  async getPlannedMessagesDue(now, limit = 100) {
     return this.plannedMessages
       .filter((pm) => {
         if (!["pending", "approved"].includes(pm.review_status)) return false;
@@ -603,7 +607,13 @@ export class InMemoryHiringStore {
         const conv = this.conversations.get(pm.conversation_id);
         if (!conv) throw new Error(`Missing conversation for planned_message ${pm.planned_message_id}`);
         return { ...pm, channel_thread_id: conv.channel_thread_id };
-      });
+      })
+      .sort((left, right) => {
+        const leftTs = new Date(left.auto_send_after ?? 0).getTime();
+        const rightTs = new Date(right.auto_send_after ?? 0).getTime();
+        return leftTs - rightTs;
+      })
+      .slice(0, limit);
   }
 
   // ─── Delivery Attempts ───────────────────────────────────────────────────────
@@ -662,6 +672,7 @@ export class InMemoryHiringStore {
     if (pm) {
       pm.review_status = "sent";
       pm.sent_at = sent_at;
+      if (hh_message_id) pm.hh_message_id = hh_message_id;
     }
     if (hh_message_id) {
       const attempt = this.deliveryAttempts.find(
