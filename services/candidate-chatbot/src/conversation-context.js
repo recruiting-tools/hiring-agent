@@ -34,18 +34,21 @@ export function buildConversationContext({
   history = [],
   lastOutboundBody = null,
   hasPriorOutbound = null,
-  activeTemplateStep = null
+  activeTemplateStep = null,
+  lastMessage = null,
+  lastInboundMessage = null,
+  lastOutboundMessage = null
 }) {
   const orderedHistory = Array.isArray(history) ? history : [];
-  const lastMessage = orderedHistory.at(-1) ?? null;
-  const lastInboundMessage = findLastByDirection(orderedHistory, "inbound");
-  const lastOutboundMessage = findLastByDirection(orderedHistory, "outbound");
+  const resolvedLastMessage = lastMessage ?? orderedHistory.at(-1) ?? null;
+  const resolvedLastInboundMessage = lastInboundMessage ?? findLastByDirection(orderedHistory, "inbound");
+  const resolvedLastOutboundMessage = lastOutboundMessage ?? findLastByDirection(orderedHistory, "outbound");
   const activePendingStep = pendingSteps[0] ?? null;
   const resolvedActiveTemplateStep = activeTemplateStep
     ?? pendingTemplateSteps.find((step) => step.id === activePendingStep?.step_id)
     ?? null;
-  const resolvedLastOutboundBody = lastOutboundBody ?? lastOutboundMessage?.body ?? null;
-  const resolvedHasPriorOutbound = hasPriorOutbound ?? (lastOutboundMessage !== null) ?? false;
+  const resolvedLastOutboundBody = lastOutboundBody ?? resolvedLastOutboundMessage?.body ?? null;
+  const resolvedHasPriorOutbound = hasPriorOutbound ?? (resolvedLastOutboundMessage !== null) ?? false;
 
   return {
     conversation,
@@ -56,9 +59,9 @@ export function buildConversationContext({
     pendingSteps,
     pendingTemplateSteps,
     history: orderedHistory,
-    lastMessage,
-    lastInboundMessage,
-    lastOutboundMessage,
+    lastMessage: resolvedLastMessage,
+    lastInboundMessage: resolvedLastInboundMessage,
+    lastOutboundMessage: resolvedLastOutboundMessage,
     lastOutboundBody: resolvedLastOutboundBody,
     hasPriorOutbound: resolvedHasPriorOutbound,
     activePendingStep,

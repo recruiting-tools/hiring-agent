@@ -10,7 +10,8 @@ const context = {
     { id: "b2b_sales_experience", kind: "question" }
   ],
   lastOutboundBody: null,
-  hasPriorOutbound: false
+  hasPriorOutbound: false,
+  lastMessage: { direction: "inbound", body: "Ответ кандидата" }
 };
 
 function validOutput(overrides = {}) {
