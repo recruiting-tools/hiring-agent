@@ -1,5 +1,10 @@
 export { AccessContextError, toAccessContextError } from "./access-context-error.js";
 export { createManagementStore } from "./management-store.js";
+export {
+  createAccessContextMetadataCache,
+  DEFAULT_ACCESS_CONTEXT_METADATA_CACHE_TTL_MS,
+  resolveAccessContextMetadataCacheTtlMs
+} from "./metadata-cache.js";
 export { createPoolRegistry } from "./pool-registry.js";
 export { resolveAccessContext } from "./resolve-access-context.js";
 export {

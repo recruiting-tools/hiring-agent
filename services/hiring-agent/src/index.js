@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import {
+  createAccessContextMetadataCache,
   createManagementStore,
   createPoolRegistry
 } from "../../../packages/access-context/src/index.js";
@@ -47,6 +48,9 @@ export function resolveHiringAgentRuntime(env = process.env) {
         applicationStepsExtractModel: createVacancyApplicationStepsExtractModel
       },
       hhVacancyFetchTimeoutMs,
+      accessContextMetadataCache: createAccessContextMetadataCache({
+        ttlMs: env.ACCESS_CONTEXT_METADATA_CACHE_TTL_MS
+      }),
       poolRegistry: createPoolRegistry({
         sqlFactory: (connectionString) => postgres(connectionString, postgresOptions)
       }),
@@ -82,6 +86,9 @@ export function resolveHiringAgentRuntime(env = process.env) {
       applicationStepsExtractModel: createVacancyApplicationStepsExtractModel
     },
     hhVacancyFetchTimeoutMs,
+    accessContextMetadataCache: createAccessContextMetadataCache({
+      ttlMs: env.ACCESS_CONTEXT_METADATA_CACHE_TTL_MS
+    }),
     poolRegistry: createPoolRegistry({
       sqlFactory: (connectionString) => postgres(connectionString, postgresOptions)
     }),
@@ -106,6 +113,7 @@ export function startHiringAgent(env = process.env) {
   const server = createHiringAgentServer(app, {
     managementSql: runtime.managementSql,
     managementStore: runtime.managementStore,
+    accessContextMetadataCache: runtime.accessContextMetadataCache,
     poolRegistry: runtime.poolRegistry,
     appEnv: runtime.appEnv
   });
