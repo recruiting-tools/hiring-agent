@@ -19,10 +19,14 @@ jobs:
         with:
           repository: kobzevvv/hh-mock-api
           path: _external/hh-mock-api
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+          run_install: false
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-      - run: corepack enable pnpm
+          cache: pnpm
       - name: Install hiring-agent deps
         run: pnpm install --frozen-lockfile
       - name: Install hh-mock-api deps
