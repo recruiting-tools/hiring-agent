@@ -1,4 +1,5 @@
 import { DEFAULT_VALIDATOR_CONFIG } from "./config.js";
+import { normalizeConversationContext } from "./conversation-context.js";
 
 const STEP_RESULTS = new Set(["done", "needs_clarification", "reject", "manual_review"]);
 const ACK_OPENER_RE = /^\s*(спасибо|благодарю|понял(?:а)?|да,\s*увидел(?:а)?)/i;
@@ -12,6 +13,7 @@ export function parseLlmOutput(rawOutput) {
 }
 
 export function validateLlmOutput(rawOutput, context, config = DEFAULT_VALIDATOR_CONFIG) {
+  const normalizedContext = normalizeConversationContext(context);
   let output;
   try {
     output = parseLlmOutput(rawOutput);
@@ -27,7 +29,7 @@ export function validateLlmOutput(rawOutput, context, config = DEFAULT_VALIDATOR
     return invalid("invalid_step_result", rawOutput);
   }
 
-  const pendingStepIds = new Set(context.pendingSteps.map((step) => step.step_id));
+  const pendingStepIds = new Set(normalizedContext.pendingSteps.map((step) => step.step_id));
   const completed = output.completed_step_ids;
   if (!Array.isArray(completed)) {
     return invalid("completed_step_ids_not_array", rawOutput);
@@ -66,11 +68,11 @@ export function validateLlmOutput(rawOutput, context, config = DEFAULT_VALIDATOR
     return invalid("next_message_too_long", rawOutput);
   }
 
-  if (context.lastOutboundBody && normalize(nextMessage) === normalize(context.lastOutboundBody)) {
+  if (normalizedContext.lastOutboundBody && normalize(nextMessage) === normalize(normalizedContext.lastOutboundBody)) {
     return invalid("duplicate_outbound_message", rawOutput);
   }
 
-  if (nextMessage.trim() !== "" && !context.hasPriorOutbound && REPLY_STYLE_RE.test(nextMessage)) {
+  if (nextMessage.trim() !== "" && !normalizedContext.hasPriorOutbound && REPLY_STYLE_RE.test(nextMessage)) {
     return invalid("reply_style_without_prior_outbound", rawOutput);
   }
 
@@ -78,9 +80,10 @@ export function validateLlmOutput(rawOutput, context, config = DEFAULT_VALIDATOR
     return invalid("premature_acknowledgement", rawOutput);
   }
 
-  const activeTemplateStep = context.pendingTemplateSteps.find(
-    (step) => step.id === context.pendingSteps[0]?.step_id
-  );
+  const activeTemplateStep = normalizedContext.activeTemplateStep
+    ?? normalizedContext.pendingTemplateSteps.find(
+      (step) => step.id === normalizedContext.pendingSteps[0]?.step_id
+    );
   if (activeTemplateStep?.kind === "tool" && /https?:\/\//i.test(nextMessage)) {
     return invalid("tool_step_fake_url", rawOutput);
   }

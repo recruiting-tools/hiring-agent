@@ -16,7 +16,14 @@ export class GeminiAdapter {
   }
 
   async evaluate({ job, candidate, pendingSteps, pendingTemplateSteps, history, inboundMessage }) {
-    const prompt = buildPrompt({ job, candidate, pendingSteps, pendingTemplateSteps, history, inboundMessage });
+    const prompt = buildPrompt({
+      job,
+      candidate,
+      pendingSteps,
+      pendingTemplateSteps,
+      history,
+      inboundMessage
+    });
     const model = this.genAI.getGenerativeModel({
       model: this.modelName,
       generationConfig: { responseMimeType: "application/json" }

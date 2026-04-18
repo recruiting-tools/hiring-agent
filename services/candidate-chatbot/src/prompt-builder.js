@@ -1,3 +1,5 @@
+import { normalizeConversationContext } from "./conversation-context.js";
+
 const HISTORY_WINDOW = 10;
 
 const JSON_SCHEMA = `{
@@ -11,7 +13,16 @@ const JSON_SCHEMA = `{
   "guard_flags": []
 }`;
 
-export function buildPrompt({ job, candidate, pendingSteps, pendingTemplateSteps, history, inboundMessage }) {
+export function buildPrompt(input) {
+  const context = normalizeConversationContext(input);
+  const {
+    job,
+    candidate,
+    pendingTemplateSteps,
+    history,
+    inboundMessage
+  } = context;
+
   const stepLines = pendingTemplateSteps
     .map((tplStep) => {
       const lines = [`### Шаг: ${tplStep.id}`];

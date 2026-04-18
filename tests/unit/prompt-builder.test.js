@@ -125,3 +125,19 @@ test("json schema is embedded in prompt", () => {
   assert.ok(prompt.includes("next_message"), "JSON schema key next_message must appear");
   assert.ok(prompt.includes("confidence"), "JSON schema key confidence must appear");
 });
+
+test("prompt accepts prebuilt conversationContext", () => {
+  const prompt = buildPrompt({
+    conversationContext: {
+      job,
+      candidate,
+      pendingSteps,
+      pendingTemplateSteps,
+      history,
+      inboundMessage
+    }
+  });
+
+  assert.ok(prompt.includes("Проверить опыт тестирования от 3 лет"));
+  assert.ok(prompt.includes("Использовал Selenium, Cypress и Playwright."));
+});
