@@ -1,0 +1,64 @@
+name: External HH Mock Gate
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Checkout public hh-mock-api
+        uses: actions/checkout@v5
+        with:
+          repository: kobzevvv/hh-mock-api
+          path: _external/hh-mock-api
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: corepack enable pnpm
+      - name: Install hiring-agent deps
+        run: pnpm install --frozen-lockfile
+      - name: Install hh-mock-api deps
+        working-directory: _external/hh-mock-api
+        run: npm ci
+      - name: Build hh-mock-api
+        working-directory: _external/hh-mock-api
+        run: npm run build
+      - name: Start hh-mock-api
+        working-directory: _external/hh-mock-api
+        env:
+          PORT: "19090"
+          HOST: "127.0.0.1"
+          HH_MOCK_AUTH_MODE: bearer
+          HH_MOCK_BEARER_TOKEN: mock_access_token
+        run: |
+          npm start > /tmp/hh-mock-api.log 2>&1 &
+          echo $! > /tmp/hh-mock-api.pid
+      - name: Wait for hh-mock-api
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:19090/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "hh-mock-api failed to start"
+          cat /tmp/hh-mock-api.log || true
+          exit 1
+      - name: Run external HH smoke
+        env:
+          HH_EXTERNAL_MOCK_BASE_URL: http://127.0.0.1:19090
+          HH_EXTERNAL_MOCK_BEARER_TOKEN: mock_access_token
+        run: pnpm smoke:hh:external-mock
+      - name: Stop hh-mock-api
+        if: always()
+        run: |
+          kill "$(cat /tmp/hh-mock-api.pid)" || true
+          cat /tmp/hh-mock-api.log || true
