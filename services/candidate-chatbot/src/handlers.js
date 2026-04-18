@@ -46,7 +46,8 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig, not
       const validation = validateLlmOutput(rawLlmOutput, {
         pendingSteps,
         pendingTemplateSteps,
-        lastOutboundBody: await store.getLastOutboundBody(conversation.conversation_id)
+        lastOutboundBody: await store.getLastOutboundBody(conversation.conversation_id),
+        hasPriorOutbound: (await store.getHistory(conversation.conversation_id)).some((message) => message.direction === "outbound")
       }, validatorConfig);
 
       if (!validation.ok) {

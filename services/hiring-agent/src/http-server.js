@@ -3056,6 +3056,7 @@ async function handleChatWs(ws, msg, wsContext, app) {
 export function createHiringAgentServer(app, options = {}) {
   const managementSql = options.managementSql ?? options.sql ?? null;
   const managementStore = options.managementStore ?? null;
+  const accessContextMetadataCache = options.accessContextMetadataCache ?? null;
   const poolRegistry = options.poolRegistry ?? null;
   const appEnv = options.appEnv ?? "local";
   const appBasePath = normalizeBasePath(options.appBasePath ?? process.env.APP_BASE_PATH ?? "");
@@ -3182,6 +3183,7 @@ export function createHiringAgentServer(app, options = {}) {
 
       if (request.method === "GET" && normalizedPath === "/") {
         const accessContext = await requireAccessContext(request, response, {
+          accessContextMetadataCache,
           managementStore,
           poolRegistry,
           appEnv,
@@ -3211,6 +3213,7 @@ export function createHiringAgentServer(app, options = {}) {
 
       if (request.method === "GET" && normalizedPath === "/chat/communication-examples") {
         const accessContext = await requireAccessContext(request, response, {
+          accessContextMetadataCache,
           managementStore,
           poolRegistry,
           appEnv,
@@ -3245,6 +3248,7 @@ export function createHiringAgentServer(app, options = {}) {
 
       if (request.method === "GET" && (normalizedPath === "/api/jobs" || normalizedPath === "/api/vacancies")) {
         const accessContext = await requireAccessContext(request, response, {
+          accessContextMetadataCache,
           managementStore,
           poolRegistry,
           appEnv,
@@ -3262,6 +3266,7 @@ export function createHiringAgentServer(app, options = {}) {
 
       if (request.method === "POST" && normalizedPath === "/api/chat") {
         const accessContext = await requireAccessContext(request, response, {
+          accessContextMetadataCache,
           managementStore,
           poolRegistry,
           appEnv,
@@ -3355,6 +3360,7 @@ export function createHiringAgentServer(app, options = {}) {
         tenantSql: null,
         ensureAccessContext: managementStore && poolRegistry
           ? createLazyAccessContextResolver({
+            accessContextMetadataCache,
             managementStore,
             poolRegistry,
             appEnv,
@@ -3365,6 +3371,7 @@ export function createHiringAgentServer(app, options = {}) {
     } else if (managementStore && poolRegistry) {
       try {
         const ctx = await resolveAccessContext({
+          metadataCache: accessContextMetadataCache,
           managementStore,
           poolRegistry,
           appEnv,
@@ -3468,6 +3475,7 @@ function createLazyAccessContextResolver(options = {}) {
   return async () => {
     if (!pendingPromise) {
       pendingPromise = resolveAccessContext({
+        metadataCache: options.accessContextMetadataCache ?? null,
         managementStore: options.managementStore,
         poolRegistry: options.poolRegistry,
         appEnv: options.appEnv ?? "local",
@@ -3521,6 +3529,7 @@ async function requireAccessContext(request, response, options = {}) {
 
   try {
     return await resolveAccessContext({
+      metadataCache: options.accessContextMetadataCache ?? null,
       managementStore: options.managementStore,
       poolRegistry: options.poolRegistry,
       appEnv: options.appEnv ?? "local",

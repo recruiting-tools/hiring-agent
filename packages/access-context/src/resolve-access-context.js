@@ -6,6 +6,7 @@ export async function resolveAccessContext({
   poolRegistry,
   appEnv,
   sessionToken,
+  metadataCache = null,
   timeoutMs = null
 }) {
   if (!sessionToken) {
@@ -37,10 +38,26 @@ export async function resolveAccessContext({
   }
 
   const binding = await withAccessContextResilience(
-    () => managementStore.getPrimaryBinding({
-      tenantId: session.tenant_id,
-      appEnv
-    }),
+    async () => {
+      const cachedBinding = metadataCache?.getBinding({
+        appEnv,
+        tenantId: session.tenant_id
+      });
+      if (cachedBinding) return cachedBinding;
+
+      const resolvedBinding = await managementStore.getPrimaryBinding({
+        tenantId: session.tenant_id,
+        appEnv
+      });
+      if (resolvedBinding && resolvedBinding.binding_kind !== "shared_schema") {
+        metadataCache?.setBinding({
+          appEnv,
+          tenantId: session.tenant_id,
+          binding: resolvedBinding
+        });
+      }
+      return resolvedBinding;
+    },
     {
       operationName: "tenant binding lookup",
       timeoutMs,
@@ -64,7 +81,23 @@ export async function resolveAccessContext({
   }
 
   const databaseConnection = await withAccessContextResilience(
-    () => managementStore.getDatabaseConnection(binding.db_alias),
+    async () => {
+      const cachedConnection = metadataCache?.getDatabaseConnection({
+        appEnv,
+        dbAlias: binding.db_alias
+      });
+      if (cachedConnection) return cachedConnection;
+
+      const resolvedConnection = await managementStore.getDatabaseConnection(binding.db_alias);
+      if (resolvedConnection?.connection_string) {
+        metadataCache?.setDatabaseConnection({
+          appEnv,
+          dbAlias: binding.db_alias,
+          databaseConnection: resolvedConnection
+        });
+      }
+      return resolvedConnection;
+    },
     {
       operationName: "database connection lookup",
       timeoutMs,
