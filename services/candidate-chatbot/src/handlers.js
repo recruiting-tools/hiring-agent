@@ -1,3 +1,4 @@
+import { loadConversationContext } from "./conversation-context.js";
 import { validateLlmOutput } from "./validator.js";
 
 export function createCandidateChatbot({ store, llmAdapter, validatorConfig, notificationDispatcher }) {
@@ -32,23 +33,23 @@ export function createCandidateChatbot({ store, llmAdapter, validatorConfig, not
       const pendingSteps = await store.getPendingSteps(run.pipeline_run_id);
       const pendingTemplateSteps = pendingSteps.map((step) => store.getTemplateStep(job.job_id, step.step_id)).filter(Boolean);
 
-      const rawLlmOutput = await llmAdapter.evaluate({
+      const conversationContext = await loadConversationContext({
+        store,
         conversation,
         run,
         job,
         candidate,
         inboundMessage,
         pendingSteps,
-        pendingTemplateSteps,
-        history: await store.getHistory(conversation.conversation_id)
+        pendingTemplateSteps
       });
 
-      const validation = validateLlmOutput(rawLlmOutput, {
-        pendingSteps,
-        pendingTemplateSteps,
-        lastOutboundBody: await store.getLastOutboundBody(conversation.conversation_id),
-        hasPriorOutbound: (await store.getHistory(conversation.conversation_id)).some((message) => message.direction === "outbound")
-      }, validatorConfig);
+      const rawLlmOutput = await llmAdapter.evaluate({
+        ...conversationContext,
+        conversationContext
+      });
+
+      const validation = validateLlmOutput(rawLlmOutput, conversationContext, validatorConfig);
 
       if (!validation.ok) {
         await store.markManualReview({

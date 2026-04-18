@@ -61,3 +61,14 @@ test("validator allows reply-style opener when prior outbound exists", () => {
 
   assert.equal(result.ok, true);
 });
+
+test("validator accepts prebuilt conversationContext input", () => {
+  const result = validateLlmOutput(validOutput(), {
+    conversationContext: {
+      ...context,
+      activeTemplateStep: context.pendingTemplateSteps[0]
+    }
+  });
+
+  assert.equal(result.ok, true);
+});
