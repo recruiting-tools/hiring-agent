@@ -85,6 +85,45 @@ test("communication plan: creates draft on initial generation", async () => {
   assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
 });
 
+test("communication plan: repairs invalid stored communication state before generating draft", async () => {
+  const store = createVacancySql({
+    vacancy_id: "vac-2repair",
+    title: "Менеджер по продажам",
+    must_haves: ["B2B продажи"],
+    application_steps: [{ name: "Первичный скрининг", in_our_scope: true, script: "Привет + вопрос" }],
+    communication_plan: { stale: true },
+    communication_plan_draft: { broken: true },
+    communication_examples: { stale: true },
+    communication_examples_plan_hash: "legacy-hash"
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-2repair",
+    recruiterInput: "настроить общение с кандидатами",
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify({
+          scenario_title: "Фокус на мотивации",
+          goal: "Назначить интервью",
+          steps: [
+            { step: "Приветствие + вопрос", reminders_count: 1, comment: "Открыть разговор" },
+            { step: "Проверка релевантного опыта", reminders_count: 1, comment: "Короткий скрининг" },
+            { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП/графику" },
+            { step: "Приглашение на интервью", reminders_count: 2, comment: "Фиксируем слот" }
+          ]
+        });
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(store.getVacancy().communication_plan, null);
+  assert.equal(store.getVacancy().communication_examples_plan_hash, null);
+  assert.deepEqual(store.getVacancy().communication_examples, []);
+  assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
+});
+
 test("communication plan: retries once when first LLM draft is invalid", async () => {
   const store = createVacancySql({
     vacancy_id: "vac-2a",
@@ -296,6 +335,48 @@ test("communication plan: start command generates and stores examples", async ()
   );
 });
 
+test("communication plan: start command tolerates examples constraint errors", async () => {
+  const savedPlan = {
+    scenario_title: "Сценарий",
+    goal: "Собеседование",
+    steps: [
+      { step: "Приветствие и уточняющий вопрос?", reminders_count: 1, comment: "Установить контакт" },
+      { step: "Квалификация", reminders_count: 1, comment: "Понять релевантность" },
+      { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП и графику" },
+      { step: "Приглашение на интервью", reminders_count: 2, comment: "Согласовать слот" }
+    ]
+  };
+
+  const store = createVacancySql({
+    vacancy_id: "vac-4aa",
+    title: "Менеджер по продажам",
+    communication_plan: savedPlan,
+    communication_plan_draft: null,
+    communication_examples: [],
+    failOnExamplesUpdateConstraint: true
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-4aa",
+    recruiterInput: "настроить общение: запустить сценарий коммуникаций",
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify([
+          { title: "Деловой", message: "Добрый день! Что для вас ключевое в новой роли сейчас?" },
+          { title: "Теплый", message: "Здравствуйте! Расскажите, что мотивирует вас рассматривать смену работы?" },
+          { title: "Живой", message: "Привет! Что важно получить от следующего работодателя в первую очередь?" }
+        ]);
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.examples.length, 3);
+  assert.match(result.reply.note, /не удалось/i);
+  assert.equal(store.getVacancy().communication_examples.length, 0);
+});
+
 test("communication plan: generate conversations command stores recruiter-candidate dialogs", async () => {
   const savedPlan = {
     scenario_title: "Сценарий",
@@ -347,6 +428,60 @@ test("communication plan: generate conversations command stores recruiter-candid
   assert.equal(result.reply.examples.length, 0);
   assert.equal(store.getVacancy().communication_examples.length, 1);
   assert.equal(typeof store.getVacancy().communication_examples_plan_hash, "string");
+});
+
+test("communication plan: generate conversations tolerates examples constraint errors", async () => {
+  const savedPlan = {
+    scenario_title: "Сценарий",
+    goal: "Собеседование",
+    steps: [
+      { step: "Приветствие и уточняющий вопрос?", reminders_count: 1, comment: "Установить контакт" },
+      { step: "Квалификация", reminders_count: 1, comment: "Понять релевантность" },
+      { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП и графику" },
+      { step: "Приглашение на интервью", reminders_count: 2, comment: "Согласовать слот" }
+    ]
+  };
+
+  const store = createVacancySql({
+    vacancy_id: "vac-4bb",
+    title: "Менеджер по продажам",
+    communication_plan: savedPlan,
+    communication_plan_draft: null,
+    communication_examples: [
+      { title: "Деловой", message: "Добрый день! Что для вас ключевое в новой роли?" }
+    ],
+    failOnExamplesUpdateConstraint: true
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-4bb",
+    recruiterInput: "настроить общение: сгенерировать примеры общения",
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify([
+          {
+            title: "Сильный опыт B2B",
+            summary: "Кандидат 5 лет в B2B, мотивация на рост дохода",
+            turns: [
+              { speaker: "recruiter", message: "Здравствуйте! Готовы обсудить новую роль?" },
+              { speaker: "candidate", message: "Да, рассматриваю варианты." },
+              { speaker: "recruiter", message: "Какой у вас опыт B2B-продаж?" },
+              { speaker: "candidate", message: "5 лет, сложные сделки до 6 месяцев." },
+              { speaker: "recruiter", message: "Подходит. Готовы к интервью завтра?" },
+              { speaker: "candidate", message: "Да, завтра после 14:00 удобно." }
+            ]
+          }
+        ]);
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.conversation_examples.length, 1);
+  assert.match(result.reply.note, /не удалось/i);
+  assert.equal(store.getVacancy().communication_examples.length, 1);
+  assert.equal(store.getVacancy().communication_examples[0].title, "Деловой");
 });
 
 test("communication plan: generate conversations can continue from transient draft reply", async () => {
@@ -631,6 +766,7 @@ function createVacancySql(initialVacancy) {
     jobRecord = null,
     noInitialVacancy = false,
     failOnDraftUpdateConstraint = false,
+    failOnExamplesUpdateConstraint = false,
     ...initialVacancyData
   } = structuredClone(initialVacancy ?? {});
 
@@ -678,6 +814,11 @@ function createVacancySql(initialVacancy) {
       }
 
       if (text.includes("INSERT INTO chatbot.vacancies")) {
+        assert.match(text, /communication_plan/);
+        assert.match(text, /communication_plan_draft/);
+        assert.match(text, /communication_examples/);
+        assert.match(text, /communication_examples_plan_hash/);
+        assert.match(text, /'pending',\s*NULL,\s*NULL,\s*'\[\]'::jsonb,\s*NULL/);
         vacancy = {
           must_haves: [],
           nice_haves: [],
@@ -692,15 +833,37 @@ function createVacancySql(initialVacancy) {
           raw_text: values[1],
           job_id: values[2]
         };
+        assertVacancyCommunicationConstraints(vacancy);
+        return [structuredClone(vacancy)];
+      }
+
+      if (
+        text.includes("SET")
+        && text.includes("communication_plan =")
+        && text.includes("communication_plan_draft =")
+        && text.includes("communication_examples =")
+        && text.includes("communication_examples_plan_hash =")
+        && text.includes("RETURNING *")
+      ) {
+        if (!vacancy) throw new Error("No vacancy to update");
+        vacancy.communication_plan = values[0] ? JSON.parse(values[0]) : null;
+        vacancy.communication_plan_draft = values[1] ? JSON.parse(values[1]) : null;
+        vacancy.communication_examples = values[2] ? JSON.parse(values[2]) : [];
+        vacancy.communication_examples_plan_hash = values[3] ?? null;
+        assertVacancyCommunicationConstraints(vacancy);
         return [structuredClone(vacancy)];
       }
 
       if (text.includes("SET") && text.includes("communication_plan =") && text.includes("communication_plan_draft = NULL")) {
+        if (failOnExamplesUpdateConstraint) {
+          throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_examples_array"');
+        }
         if (!vacancy) throw new Error("No vacancy to update");
         vacancy.communication_plan = values[0] ? JSON.parse(values[0]) : null;
         vacancy.communication_plan_draft = null;
         vacancy.communication_examples = values[1] ? JSON.parse(values[1]) : [];
         vacancy.communication_examples_plan_hash = values[2] ?? null;
+        assertVacancyCommunicationConstraints(vacancy);
         return [];
       }
 
@@ -710,13 +873,18 @@ function createVacancySql(initialVacancy) {
         }
         if (!vacancy) throw new Error("No vacancy to update");
         vacancy.communication_plan_draft = values[0] ? JSON.parse(values[0]) : null;
+        assertVacancyCommunicationConstraints(vacancy);
         return [];
       }
 
       if (text.includes("SET") && text.includes("communication_examples")) {
+        if (failOnExamplesUpdateConstraint) {
+          throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_examples_array"');
+        }
         if (!vacancy) throw new Error("No vacancy to update");
         vacancy.communication_examples = values[0] ? JSON.parse(values[0]) : [];
         vacancy.communication_examples_plan_hash = values[1] ?? null;
+        assertVacancyCommunicationConstraints(vacancy);
         return [];
       }
 
@@ -727,4 +895,29 @@ function createVacancySql(initialVacancy) {
 
 function computePlanHashForTest(plan) {
   return createHash("sha256").update(JSON.stringify(plan)).digest("hex");
+}
+
+function assertVacancyCommunicationConstraints(vacancy) {
+  if (!vacancy) return;
+
+  if (!matchesCommunicationPlanContract(vacancy.communication_plan)) {
+    throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_plan_contract"');
+  }
+
+  if (!matchesCommunicationPlanContract(vacancy.communication_plan_draft)) {
+    throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_plan_draft_contract"');
+  }
+
+  if (!Array.isArray(vacancy.communication_examples)) {
+    throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_examples_array"');
+  }
+}
+
+function matchesCommunicationPlanContract(plan) {
+  if (plan == null) return true;
+  if (!plan || typeof plan !== "object" || Array.isArray(plan)) return false;
+  if (!Object.hasOwn(plan, "scenario_title")) return false;
+  if (!Object.hasOwn(plan, "goal")) return false;
+  if (!Object.hasOwn(plan, "steps")) return false;
+  return Array.isArray(plan.steps) && plan.steps.length >= 4 && plan.steps.length <= 7;
 }
