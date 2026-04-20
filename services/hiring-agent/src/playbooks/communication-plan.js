@@ -52,11 +52,13 @@ export async function runCommunicationPlanPlaybook({
     };
   }
 
-  const { vacancy, resolvedVacancyId } = await findVacancy({
+  const resolved = await findVacancy({
     tenantSql,
     vacancyId,
     jobId
   });
+  let vacancy = resolved.vacancy;
+  const resolvedVacancyId = resolved.resolvedVacancyId;
   if (!vacancy) {
     return {
       reply: {
@@ -65,6 +67,11 @@ export async function runCommunicationPlanPlaybook({
       }
     };
   }
+  vacancy = await repairVacancyCommunicationState({
+    tenantSql,
+    vacancy,
+    vacancyId: resolvedVacancyId
+  });
 
   const action = detectAction(recruiterInput);
   const savedPlan = normalizePlan(vacancy.communication_plan);
@@ -125,7 +132,7 @@ export async function runCommunicationPlanPlaybook({
         WHERE vacancy_id = ${resolvedVacancyId}
       `;
     } catch (error) {
-      if (isCommunicationPlanContractError(error)) {
+      if (isCommunicationPlanContractError(error) || isCommunicationExamplesConstraintError(error)) {
         return {
           reply: buildCommunicationPlanReply({
             plan: effectiveDraftPlan,
@@ -186,14 +193,30 @@ export async function runCommunicationPlanPlaybook({
       ...currentExampleSets.conversationExamples
     ];
 
-    await tenantSql`
-      UPDATE chatbot.vacancies
-      SET
-        communication_examples = ${JSON.stringify(mergedExamples)}::jsonb,
-        communication_examples_plan_hash = ${computePlanHash(planForExamples)},
-        updated_at = now()
-      WHERE vacancy_id = ${resolvedVacancyId}
-    `;
+    try {
+      await tenantSql`
+        UPDATE chatbot.vacancies
+        SET
+          communication_examples = ${JSON.stringify(mergedExamples)}::jsonb,
+          communication_examples_plan_hash = ${computePlanHash(planForExamples)},
+          updated_at = now()
+        WHERE vacancy_id = ${resolvedVacancyId}
+      `;
+    } catch (error) {
+      if (isCommunicationExamplesConstraintError(error)) {
+        return {
+          reply: buildCommunicationPlanReply({
+            plan: planForExamples,
+            firstMessageExamples: generatedExampleSets.firstMessageExamples,
+            conversationExamples: currentExampleSets.conversationExamples,
+            note: "Примеры первого сообщения собраны, но сохранить их в базе не удалось. Можно повторить позже.",
+            isConfigured: Boolean(savedPlan) && !effectiveDraftPlan,
+            vacancyId: resolvedVacancyId
+          })
+        };
+      }
+      throw error;
+    }
 
     return {
       reply: buildCommunicationPlanReply({
@@ -241,14 +264,30 @@ export async function runCommunicationPlanPlaybook({
       ...generatedExampleSets.conversationExamples
     ];
 
-    await tenantSql`
-      UPDATE chatbot.vacancies
-      SET
-        communication_examples = ${JSON.stringify(mergedExamples)}::jsonb,
-        communication_examples_plan_hash = ${computePlanHash(planForExamples)},
-        updated_at = now()
-      WHERE vacancy_id = ${resolvedVacancyId}
-    `;
+    try {
+      await tenantSql`
+        UPDATE chatbot.vacancies
+        SET
+          communication_examples = ${JSON.stringify(mergedExamples)}::jsonb,
+          communication_examples_plan_hash = ${computePlanHash(planForExamples)},
+          updated_at = now()
+        WHERE vacancy_id = ${resolvedVacancyId}
+      `;
+    } catch (error) {
+      if (isCommunicationExamplesConstraintError(error)) {
+        return {
+          reply: buildCommunicationPlanReply({
+            plan: planForExamples,
+            firstMessageExamples: currentExampleSets.firstMessageExamples,
+            conversationExamples: generatedExampleSets.conversationExamples,
+            note: "Тренировочные диалоги собраны, но сохранить их в базе не удалось. Можно повторить позже.",
+            isConfigured: Boolean(savedPlan) && !effectiveDraftPlan,
+            vacancyId: resolvedVacancyId
+          })
+        };
+      }
+      throw error;
+    }
 
     return {
       reply: buildCommunicationPlanReply({
@@ -809,6 +848,58 @@ function normalizeTransientContext(rawContext) {
   };
 }
 
+async function repairVacancyCommunicationState({ tenantSql, vacancy, vacancyId }) {
+  if (!tenantSql || !vacancy || !vacancyId) {
+    return vacancy;
+  }
+
+  const normalizedSavedPlan = normalizePlan(vacancy.communication_plan);
+  const normalizedDraftPlan = normalizePlan(vacancy.communication_plan_draft);
+  const hasExamplesArray = Array.isArray(vacancy.communication_examples);
+  const nextExamplesPlanHash = (
+    typeof vacancy.communication_examples_plan_hash === "string"
+    && vacancy.communication_examples_plan_hash.trim().length > 0
+    && hasExamplesArray
+    && vacancy.communication_examples.length > 0
+  )
+    ? vacancy.communication_examples_plan_hash
+    : null;
+
+  const needsRepair = (
+    (vacancy.communication_plan != null && !normalizedSavedPlan)
+    || (vacancy.communication_plan_draft != null && !normalizedDraftPlan)
+    || !hasExamplesArray
+    || (
+      vacancy.communication_examples_plan_hash != null
+      && nextExamplesPlanHash == null
+    )
+  );
+
+  if (!needsRepair) {
+    return vacancy;
+  }
+
+  const rows = await tenantSql`
+    UPDATE chatbot.vacancies
+    SET
+      communication_plan = ${normalizedSavedPlan ? JSON.stringify(normalizedSavedPlan) : null}::jsonb,
+      communication_plan_draft = ${normalizedDraftPlan ? JSON.stringify(normalizedDraftPlan) : null}::jsonb,
+      communication_examples = ${JSON.stringify(hasExamplesArray ? vacancy.communication_examples : [])}::jsonb,
+      communication_examples_plan_hash = ${nextExamplesPlanHash},
+      updated_at = now()
+    WHERE vacancy_id = ${vacancyId}
+    RETURNING *
+  `;
+
+  return rows[0] ?? {
+    ...vacancy,
+    communication_plan: normalizedSavedPlan,
+    communication_plan_draft: normalizedDraftPlan,
+    communication_examples: hasExamplesArray ? vacancy.communication_examples : [],
+    communication_examples_plan_hash: nextExamplesPlanHash
+  };
+}
+
 function isCommunicationPlanDraftConstraintError(error) {
   const message = String(error?.message ?? "");
   return message.includes("chk_vacancies_communication_plan_draft_contract");
@@ -820,6 +911,11 @@ function isCommunicationPlanContractError(error) {
     message.includes("chk_vacancies_communication_plan_contract")
     || message.includes("chk_vacancies_communication_plan_draft_contract")
   );
+}
+
+function isCommunicationExamplesConstraintError(error) {
+  const message = String(error?.message ?? "");
+  return message.includes("chk_vacancies_communication_examples_array");
 }
 
 async function generateWithModel(llmAdapter, prompt, model) {
@@ -922,14 +1018,22 @@ async function findVacancy({ tenantSql, vacancyId, jobId }) {
           raw_text,
           job_id,
           status,
-          extraction_status
+          extraction_status,
+          communication_plan,
+          communication_plan_draft,
+          communication_examples,
+          communication_examples_plan_hash
         )
         VALUES (
           ${job.title ?? "Новая вакансия"},
           ${job.description ?? null},
           ${job.job_id},
           'draft',
-          'pending'
+          'pending',
+          NULL,
+          NULL,
+          '[]'::jsonb,
+          NULL
         )
         RETURNING *
       `;
