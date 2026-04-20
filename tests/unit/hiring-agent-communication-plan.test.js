@@ -124,6 +124,44 @@ test("communication plan: repairs invalid stored communication state before gene
   assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
 });
 
+test("communication plan: falls back to local repair when db repair hits examples constraint", async () => {
+  const store = createVacancySql({
+    vacancy_id: "vac-2repair-fallback",
+    title: "Менеджер по продажам",
+    must_haves: ["B2B продажи"],
+    application_steps: [{ name: "Первичный скрининг", in_our_scope: true, script: "Привет + вопрос" }],
+    communication_plan: { stale: true },
+    communication_plan_draft: { broken: true },
+    communication_examples: { stale: true },
+    communication_examples_plan_hash: "legacy-hash",
+    failOnExamplesUpdateConstraint: true
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-2repair-fallback",
+    recruiterInput: "настроить общение с кандидатами",
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify({
+          scenario_title: "Фокус на мотивации",
+          goal: "Назначить интервью",
+          steps: [
+            { step: "Приветствие + вопрос", reminders_count: 1, comment: "Открыть разговор" },
+            { step: "Проверка релевантного опыта", reminders_count: 1, comment: "Короткий скрининг" },
+            { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП/графику" },
+            { step: "Приглашение на интервью", reminders_count: 2, comment: "Фиксируем слот" }
+          ]
+        });
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.is_configured, false);
+  assert.match(result.reply.note, /черновик не сохранился/i);
+});
+
 test("communication plan: retries once when first LLM draft is invalid", async () => {
   const store = createVacancySql({
     vacancy_id: "vac-2a",
@@ -884,6 +922,9 @@ function createVacancySql(initialVacancy) {
         && text.includes("communication_examples_plan_hash =")
         && text.includes("RETURNING *")
       ) {
+        if (failOnExamplesUpdateConstraint) {
+          throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_examples_array"');
+        }
         if (!vacancy) throw new Error("No vacancy to update");
         vacancy.communication_plan = values[0] ? JSON.parse(values[0]) : null;
         vacancy.communication_plan_draft = values[1] ? JSON.parse(values[1]) : null;
