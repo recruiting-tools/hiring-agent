@@ -879,25 +879,42 @@ async function repairVacancyCommunicationState({ tenantSql, vacancy, vacancyId }
     return vacancy;
   }
 
-  const rows = await tenantSql`
-    UPDATE chatbot.vacancies
-    SET
-      communication_plan = ${normalizedSavedPlan ? JSON.stringify(normalizedSavedPlan) : null}::jsonb,
-      communication_plan_draft = ${normalizedDraftPlan ? JSON.stringify(normalizedDraftPlan) : null}::jsonb,
-      communication_examples = ${JSON.stringify(hasExamplesArray ? vacancy.communication_examples : [])}::jsonb,
-      communication_examples_plan_hash = ${nextExamplesPlanHash},
-      updated_at = now()
-    WHERE vacancy_id = ${vacancyId}
-    RETURNING *
-  `;
+  try {
+    const rows = await tenantSql`
+      UPDATE chatbot.vacancies
+      SET
+        communication_plan = ${normalizedSavedPlan ? JSON.stringify(normalizedSavedPlan) : null}::jsonb,
+        communication_plan_draft = ${normalizedDraftPlan ? JSON.stringify(normalizedDraftPlan) : null}::jsonb,
+        communication_examples = ${JSON.stringify(hasExamplesArray ? vacancy.communication_examples : [])}::jsonb,
+        communication_examples_plan_hash = ${nextExamplesPlanHash},
+        updated_at = now()
+      WHERE vacancy_id = ${vacancyId}
+      RETURNING *
+    `;
 
-  return rows[0] ?? {
-    ...vacancy,
-    communication_plan: normalizedSavedPlan,
-    communication_plan_draft: normalizedDraftPlan,
-    communication_examples: hasExamplesArray ? vacancy.communication_examples : [],
-    communication_examples_plan_hash: nextExamplesPlanHash
-  };
+    return rows[0] ?? {
+      ...vacancy,
+      communication_plan: normalizedSavedPlan,
+      communication_plan_draft: normalizedDraftPlan,
+      communication_examples: hasExamplesArray ? vacancy.communication_examples : [],
+      communication_examples_plan_hash: nextExamplesPlanHash
+    };
+  } catch (error) {
+    if (
+      isCommunicationPlanContractError(error)
+      || isCommunicationPlanDraftConstraintError(error)
+      || isCommunicationExamplesConstraintError(error)
+    ) {
+      return {
+        ...vacancy,
+        communication_plan: normalizedSavedPlan,
+        communication_plan_draft: normalizedDraftPlan,
+        communication_examples: hasExamplesArray ? vacancy.communication_examples : [],
+        communication_examples_plan_hash: nextExamplesPlanHash
+      };
+    }
+    throw error;
+  }
 }
 
 function isCommunicationPlanDraftConstraintError(error) {
