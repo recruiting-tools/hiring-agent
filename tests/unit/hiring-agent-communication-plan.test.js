@@ -162,6 +162,47 @@ test("communication plan: falls back to local repair when db repair hits example
   assert.match(result.reply.note, /черновик не сохранился/i);
 });
 
+test("communication plan: force-persists draft after broken row blocks narrow updates", async () => {
+  const store = createVacancySql({
+    vacancy_id: "vac-2repair-force",
+    title: "Менеджер по продажам",
+    must_haves: ["B2B продажи"],
+    application_steps: [{ name: "Первичный скрининг", in_our_scope: true, script: "Привет + вопрос" }],
+    communication_plan: { stale: true },
+    communication_plan_draft: { broken: true },
+    communication_examples: { stale: true },
+    communication_examples_plan_hash: "legacy-hash",
+    examplesConstraintFailureCount: 2
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-2repair-force",
+    recruiterInput: "настроить общение с кандидатами",
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify({
+          scenario_title: "Фокус на мотивации",
+          goal: "Назначить интервью",
+          steps: [
+            { step: "Приветствие + вопрос", reminders_count: 1, comment: "Открыть разговор" },
+            { step: "Проверка релевантного опыта", reminders_count: 1, comment: "Короткий скрининг" },
+            { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП/графику" },
+            { step: "Приглашение на интервью", reminders_count: 2, comment: "Фиксируем слот" }
+          ]
+        });
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.note, "Сформировал один рабочий сценарий в табличном формате.");
+  assert.equal(store.getVacancy().communication_plan, null);
+  assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
+  assert.deepEqual(store.getVacancy().communication_examples, []);
+  assert.equal(store.getVacancy().communication_examples_plan_hash, null);
+});
+
 test("communication plan: retries once when first LLM draft is invalid", async () => {
   const store = createVacancySql({
     vacancy_id: "vac-2a",
@@ -217,7 +258,7 @@ test("communication plan: retries once when first LLM draft is invalid", async (
   assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
 });
 
-test("communication plan: returns non-500 reply when draft save hits draft constraint", async () => {
+test("communication plan: can recover draft save when full snapshot rewrite succeeds", async () => {
   const store = createVacancySql({
     vacancy_id: "vac-2b",
     title: "Менеджер по продажам",
@@ -253,7 +294,7 @@ test("communication plan: returns non-500 reply when draft save hits draft const
 
   assert.equal(result.reply.kind, "communication_plan");
   assert.equal(result.reply.is_configured, false);
-  assert.match(result.reply.note, /черновик не сохранился/i);
+  assert.equal(result.reply.note, "Сформировал один рабочий сценарий в табличном формате.");
 });
 
 test("communication plan: returns non-500 reply when draft save hits examples constraint", async () => {
@@ -561,6 +602,58 @@ test("communication plan: generate conversations tolerates examples constraint e
   assert.equal(store.getVacancy().communication_examples[0].title, "Деловой");
 });
 
+test("communication plan: force-persists generated conversations after first examples constraint failure", async () => {
+  const savedPlan = {
+    scenario_title: "Сценарий",
+    goal: "Собеседование",
+    steps: [
+      { step: "Приветствие и уточняющий вопрос?", reminders_count: 1, comment: "Установить контакт" },
+      { step: "Квалификация", reminders_count: 1, comment: "Понять релевантность" },
+      { step: "Сверка условий", reminders_count: 1, comment: "Ожидания по ЗП и графику" },
+      { step: "Приглашение на интервью", reminders_count: 2, comment: "Согласовать слот" }
+    ]
+  };
+
+  const store = createVacancySql({
+    vacancy_id: "vac-4bc",
+    title: "Менеджер по продажам",
+    communication_plan: savedPlan,
+    communication_plan_draft: null,
+    communication_examples: { stale: true },
+    communication_examples_plan_hash: "legacy-hash",
+    examplesConstraintFailureCount: 2
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-4bc",
+    recruiterInput: "настроить общение: сгенерировать примеры общения",
+    llmAdapter: {
+      async generate() {
+        return JSON.stringify([
+          {
+            title: "Сильный опыт B2B",
+            summary: "Кандидат 5 лет в B2B, мотивация на рост дохода",
+            turns: [
+              { speaker: "recruiter", message: "Здравствуйте! Готовы обсудить новую роль?" },
+              { speaker: "candidate", message: "Да, рассматриваю варианты." },
+              { speaker: "recruiter", message: "Какой у вас опыт B2B-продаж?" },
+              { speaker: "candidate", message: "5 лет, сложные сделки до 6 месяцев." },
+              { speaker: "recruiter", message: "Подходит. Готовы к интервью завтра?" },
+              { speaker: "candidate", message: "Да, завтра после 14:00 удобно." }
+            ]
+          }
+        ]);
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.note, "Сгенерировал тренировочные примеры общения с кандидатом по этому сценарию.");
+  assert.equal(store.getVacancy().communication_examples.length, 1);
+  assert.equal(typeof store.getVacancy().communication_examples_plan_hash, "string");
+});
+
 test("communication plan: generate conversations can continue from transient draft reply", async () => {
   const store = createVacancySql({
     vacancy_id: "vac-4c",
@@ -844,10 +937,14 @@ function createVacancySql(initialVacancy) {
     noInitialVacancy = false,
     failOnDraftUpdateConstraint = false,
     failOnExamplesUpdateConstraint = false,
+    examplesConstraintFailureCount = null,
     ...initialVacancyData
   } = structuredClone(initialVacancy ?? {});
 
   let sequence = 1;
+  let remainingExamplesConstraintFailures = Number.isFinite(examplesConstraintFailureCount)
+    ? Math.max(0, Number(examplesConstraintFailureCount))
+    : (failOnExamplesUpdateConstraint ? Number.POSITIVE_INFINITY : 0);
   let vacancy = noInitialVacancy ? null : {
     must_haves: [],
     nice_haves: [],
@@ -868,6 +965,11 @@ function createVacancySql(initialVacancy) {
       const text = strings.reduce((acc, chunk, index) => (
         acc + chunk + (index < values.length ? `$${index + 1}` : "")
       ), "");
+      const shouldFailExamplesConstraint = () => {
+        if (remainingExamplesConstraintFailures <= 0) return false;
+        remainingExamplesConstraintFailures -= 1;
+        return true;
+      };
 
       if (text.includes("SELECT *") && text.includes("FROM chatbot.vacancies") && text.includes("WHERE vacancy_id")) {
         if (!vacancy) return [];
@@ -922,20 +1024,24 @@ function createVacancySql(initialVacancy) {
         && text.includes("communication_examples_plan_hash =")
         && text.includes("RETURNING *")
       ) {
-        if (failOnExamplesUpdateConstraint) {
+        if (shouldFailExamplesConstraint()) {
           throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_examples_array"');
         }
         if (!vacancy) throw new Error("No vacancy to update");
+        const hasPlanTimestampToggle = text.includes("communication_plan_updated_at = CASE");
+        const draftIndex = hasPlanTimestampToggle ? 2 : 1;
+        const examplesIndex = hasPlanTimestampToggle ? 3 : 2;
+        const hashIndex = hasPlanTimestampToggle ? 4 : 3;
         vacancy.communication_plan = values[0] ? JSON.parse(values[0]) : null;
-        vacancy.communication_plan_draft = values[1] ? JSON.parse(values[1]) : null;
-        vacancy.communication_examples = values[2] ? JSON.parse(values[2]) : [];
-        vacancy.communication_examples_plan_hash = values[3] ?? null;
+        vacancy.communication_plan_draft = values[draftIndex] ? JSON.parse(values[draftIndex]) : null;
+        vacancy.communication_examples = values[examplesIndex] ? JSON.parse(values[examplesIndex]) : [];
+        vacancy.communication_examples_plan_hash = values[hashIndex] ?? null;
         assertVacancyCommunicationConstraints(vacancy);
         return [structuredClone(vacancy)];
       }
 
       if (text.includes("SET") && text.includes("communication_plan =") && text.includes("communication_plan_draft = NULL")) {
-        if (failOnExamplesUpdateConstraint) {
+        if (shouldFailExamplesConstraint()) {
           throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_examples_array"');
         }
         if (!vacancy) throw new Error("No vacancy to update");
@@ -951,7 +1057,7 @@ function createVacancySql(initialVacancy) {
         if (failOnDraftUpdateConstraint) {
           throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_plan_draft_contract"');
         }
-        if (failOnExamplesUpdateConstraint) {
+        if (shouldFailExamplesConstraint()) {
           throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_examples_array"');
         }
         if (!vacancy) throw new Error("No vacancy to update");
@@ -961,7 +1067,7 @@ function createVacancySql(initialVacancy) {
       }
 
       if (text.includes("SET") && text.includes("communication_examples")) {
-        if (failOnExamplesUpdateConstraint) {
+        if (shouldFailExamplesConstraint()) {
           throw new Error('new row for relation "vacancies" violates check constraint "chk_vacancies_communication_examples_array"');
         }
         if (!vacancy) throw new Error("No vacancy to update");
