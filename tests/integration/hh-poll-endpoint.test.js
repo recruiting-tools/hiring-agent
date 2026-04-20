@@ -5,6 +5,8 @@ import { FakeLlmAdapter } from "../../services/candidate-chatbot/src/fake-llm-ad
 import { createCandidateChatbot } from "../../services/candidate-chatbot/src/handlers.js";
 import { createHttpServer } from "../../services/candidate-chatbot/src/http-server.js";
 import { InMemoryHiringStore } from "../../services/candidate-chatbot/src/store.js";
+import { FakeHhClient } from "../../services/hh-connector/src/hh-client.js";
+import { runPollOnce } from "../../services/hh-connector/src/poll-loop.js";
 
 const seed = JSON.parse(await readFile(new URL("../fixtures/iteration-1-seed.json", import.meta.url), "utf8"));
 
@@ -102,6 +104,61 @@ test("internal hh poll: runs poller when authorized and hh_import is enabled", a
     assert.equal(body.ok, true);
     assert.equal(body.polled, 2);
     assert.equal(calls, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test("internal hh poll: returns 200 when one due HH negotiation is missing upstream", async () => {
+  const { app, store } = createRuntime();
+  const hhClient = new FakeHhClient();
+  hhClient.getMessages = async () => {
+    const error = new Error("HH API request failed with status 404");
+    error.status = 404;
+    throw error;
+  };
+  await store.setFeatureFlag("hh_import", true);
+  await store.upsertHhNegotiation({
+    hh_negotiation_id: "neg-missing",
+    job_id: "job-zakup-china",
+    candidate_id: "cand-zakup-good",
+    hh_vacancy_id: "hh-vac-001",
+    hh_collection: "response",
+    channel_thread_id: "conv-zakup-001"
+  });
+  await store.upsertHhPollState("neg-missing", {
+    last_polled_at: null,
+    hh_updated_at: null,
+    last_sender: null,
+    awaiting_reply: false,
+    next_poll_at: new Date(Date.now() - 1000).toISOString()
+  });
+
+  const server = createHttpServer(app, {
+    store,
+    internalApiToken: "secret-123",
+    hhPollRunner: {
+      async pollAll() {
+        return runPollOnce({ store, hhClient, chatbot: app });
+      }
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/internal/hh-poll`, {
+      method: "POST",
+      headers: { authorization: "Bearer secret-123" }
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+
+    const pollState = await store.getHhPollState("neg-missing");
+    assert.ok(new Date(pollState.next_poll_at).getTime() > Date.now() + (29 * 24 * 60 * 60 * 1000));
   } finally {
     server.close();
   }

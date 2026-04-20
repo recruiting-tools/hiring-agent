@@ -176,6 +176,68 @@ test("hh connector: pollAll only polls negotiations where next_poll_at <= now", 
   assert.equal(futureMessages.length, 0, "neg-future should not have been polled");
 });
 
+test("hh connector: pollAll skips missing HH negotiation with long backoff and continues", async () => {
+  const { store, hhClient, connector } = makeRuntime();
+  hhClient.getMessages = async (hhNegotiationId) => {
+    if (hhNegotiationId === "neg-missing") {
+      const error = new Error("HH API request failed with status 404");
+      error.status = 404;
+      throw error;
+    }
+    return [
+      { id: "msg-good-1", author: "applicant", text: "Привет", created_at: "2026-04-12T10:00:00Z" }
+    ];
+  };
+
+  await store.upsertHhNegotiation({
+    hh_negotiation_id: "neg-missing",
+    job_id: "job-zakup-china",
+    candidate_id: "cand-zakup-good",
+    hh_vacancy_id: "hh-vac-001",
+    hh_collection: "response",
+    channel_thread_id: "conv-zakup-001"
+  });
+  await store.upsertHhPollState("neg-missing", {
+    last_polled_at: null,
+    hh_updated_at: "2026-04-12T09:55:00Z",
+    last_sender: "employer",
+    awaiting_reply: true,
+    next_poll_at: new Date(Date.now() - 1000).toISOString()
+  });
+
+  await store.upsertHhNegotiation({
+    hh_negotiation_id: "neg-good",
+    job_id: "job-zakup-china",
+    candidate_id: "cand-zakup-good",
+    hh_vacancy_id: "hh-vac-001",
+    hh_collection: "response",
+    channel_thread_id: "conv-zakup-001"
+  });
+  await store.upsertHhPollState("neg-good", {
+    last_polled_at: null,
+    hh_updated_at: null,
+    last_sender: null,
+    awaiting_reply: false,
+    next_poll_at: new Date(Date.now() - 1000).toISOString()
+  });
+
+  const result = await connector.pollAll();
+
+  assert.equal(result.due_count, 2);
+  assert.equal(result.processed, 1);
+  assert.equal(result.failed, 0);
+  assert.equal(result.results[0].reason, "hh_negotiation_not_found");
+  assert.equal(result.results[0].skipped, true);
+
+  const missingState = await store.getHhPollState("neg-missing");
+  assert.equal(missingState.awaiting_reply, false);
+  assert.equal(missingState.last_sender, "employer");
+  assert.ok(new Date(missingState.next_poll_at).getTime() > Date.now() + (29 * 24 * 60 * 60 * 1000));
+
+  const goodState = await store.getHhPollState("neg-good");
+  assert.ok(goodState.last_polled_at, "good negotiation should still be processed");
+});
+
 test("hh connector: syncApplicants imports negotiations and messages for mapped vacancies", async () => {
   const store = new InMemoryHiringStore(seed);
   const llmAdapter = new FakeLlmAdapter();
