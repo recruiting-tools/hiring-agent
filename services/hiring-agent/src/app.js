@@ -946,14 +946,22 @@ async function seedVacancyFromJob(tenantSql, job) {
       title,
       raw_text,
       status,
-      extraction_status
+      extraction_status,
+      communication_plan,
+      communication_plan_draft,
+      communication_examples,
+      communication_examples_plan_hash
     ) VALUES (
       ${job.job_id},
       ${job.job_id},
       ${job.title ?? "Без названия"},
       ${job.description ?? ""},
       'active',
-      'pending'
+      'pending',
+      NULL,
+      NULL,
+      '[]'::jsonb,
+      NULL
     )
     ON CONFLICT (vacancy_id) DO NOTHING
   `;
