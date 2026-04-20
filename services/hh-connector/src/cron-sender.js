@@ -1,4 +1,4 @@
-import { sendHHWithGuard } from "./send-guard.js";
+import { createHhDeliveryOrchestrator } from "./hh-delivery-orchestrator.js";
 
 export class CronSender {
   constructor({ store, hhClient, windowMinutes = 10, batchSize = 25, now = () => new Date() }) {
@@ -12,6 +12,11 @@ export class CronSender {
   // One iteration: find all messages due for sending, send each
   async tick() {
     const startedAt = Date.now();
+    const delivery = createHhDeliveryOrchestrator({
+      store: this.store,
+      hhClient: this.hhClient,
+      now: this.now
+    });
     console.info(JSON.stringify({ event: "hh_send_tick_start" }));
     const due = await this.store.getPlannedMessagesDue(this.now(), this.batchSize);
     console.info(JSON.stringify({
@@ -38,9 +43,7 @@ export class CronSender {
         }));
         continue;
       }
-      const result = await sendHHWithGuard({
-        store: this.store,
-        hhClient: this.hhClient,
+      const result = await delivery.sendPlannedMessage({
         plannedMessage: msg,
         hhNegotiationId: negotiation.hh_negotiation_id
       });
