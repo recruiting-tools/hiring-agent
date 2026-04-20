@@ -118,6 +118,7 @@ export async function runCommunicationPlanPlaybook({
 
     const draftHash = computePlanHash(effectiveDraftPlan);
     const syncedExamples = effectiveDraftExamples;
+    const syncedExampleSets = splitExamples(syncedExamples);
 
     try {
       await tenantSql`
@@ -133,11 +134,32 @@ export async function runCommunicationPlanPlaybook({
       `;
     } catch (error) {
       if (isCommunicationPlanContractError(error) || isCommunicationExamplesConstraintError(error)) {
+        const repaired = await tryForcePersistCommunicationSnapshot({
+          tenantSql,
+          vacancyId: resolvedVacancyId,
+          communicationPlan: effectiveDraftPlan,
+          communicationPlanDraft: null,
+          communicationExamples: syncedExamples,
+          communicationExamplesPlanHash: syncedExamples.length > 0 ? draftHash : null,
+          updatePlanTimestamp: true
+        });
+        if (repaired) {
+          return {
+            reply: buildCommunicationPlanReply({
+              plan: effectiveDraftPlan,
+              firstMessageExamples: syncedExampleSets.firstMessageExamples,
+              conversationExamples: syncedExampleSets.conversationExamples,
+              note: "Настройка сохранена в базе для этой вакансии.",
+              isConfigured: true,
+              vacancyId: resolvedVacancyId
+            })
+          };
+        }
         return {
           reply: buildCommunicationPlanReply({
             plan: effectiveDraftPlan,
-            firstMessageExamples: splitExamples(syncedExamples).firstMessageExamples,
-            conversationExamples: splitExamples(syncedExamples).conversationExamples,
+            firstMessageExamples: syncedExampleSets.firstMessageExamples,
+            conversationExamples: syncedExampleSets.conversationExamples,
             note: "Сценарий собран, но сохранить настройку в базе не удалось. Попробуйте снова через минуту.",
             isConfigured: false,
             vacancyId: resolvedVacancyId
@@ -192,18 +214,39 @@ export async function runCommunicationPlanPlaybook({
       ...generatedExampleSets.firstMessageExamples,
       ...currentExampleSets.conversationExamples
     ];
+    const mergedExamplesPlanHash = computePlanHash(planForExamples);
 
     try {
       await tenantSql`
         UPDATE chatbot.vacancies
         SET
           communication_examples = ${JSON.stringify(mergedExamples)}::jsonb,
-          communication_examples_plan_hash = ${computePlanHash(planForExamples)},
+          communication_examples_plan_hash = ${mergedExamplesPlanHash},
           updated_at = now()
         WHERE vacancy_id = ${resolvedVacancyId}
       `;
     } catch (error) {
       if (isCommunicationExamplesConstraintError(error)) {
+        const repaired = await tryForcePersistCommunicationSnapshot({
+          tenantSql,
+          vacancyId: resolvedVacancyId,
+          communicationPlan: savedPlan,
+          communicationPlanDraft: effectiveDraftPlan ?? null,
+          communicationExamples: mergedExamples,
+          communicationExamplesPlanHash: mergedExamplesPlanHash
+        });
+        if (repaired) {
+          return {
+            reply: buildCommunicationPlanReply({
+              plan: planForExamples,
+              firstMessageExamples: generatedExampleSets.firstMessageExamples,
+              conversationExamples: currentExampleSets.conversationExamples,
+              note: "Сгенерировал примеры первого сообщения по текущему сценарию.",
+              isConfigured: Boolean(savedPlan) && !effectiveDraftPlan,
+              vacancyId: resolvedVacancyId
+            })
+          };
+        }
         return {
           reply: buildCommunicationPlanReply({
             plan: planForExamples,
@@ -263,18 +306,39 @@ export async function runCommunicationPlanPlaybook({
       ...currentExampleSets.firstMessageExamples,
       ...generatedExampleSets.conversationExamples
     ];
+    const mergedExamplesPlanHash = computePlanHash(planForExamples);
 
     try {
       await tenantSql`
         UPDATE chatbot.vacancies
         SET
           communication_examples = ${JSON.stringify(mergedExamples)}::jsonb,
-          communication_examples_plan_hash = ${computePlanHash(planForExamples)},
+          communication_examples_plan_hash = ${mergedExamplesPlanHash},
           updated_at = now()
         WHERE vacancy_id = ${resolvedVacancyId}
       `;
     } catch (error) {
       if (isCommunicationExamplesConstraintError(error)) {
+        const repaired = await tryForcePersistCommunicationSnapshot({
+          tenantSql,
+          vacancyId: resolvedVacancyId,
+          communicationPlan: savedPlan,
+          communicationPlanDraft: effectiveDraftPlan ?? null,
+          communicationExamples: mergedExamples,
+          communicationExamplesPlanHash: mergedExamplesPlanHash
+        });
+        if (repaired) {
+          return {
+            reply: buildCommunicationPlanReply({
+              plan: planForExamples,
+              firstMessageExamples: currentExampleSets.firstMessageExamples,
+              conversationExamples: generatedExampleSets.conversationExamples,
+              note: "Сгенерировал тренировочные примеры общения с кандидатом по этому сценарию.",
+              isConfigured: Boolean(savedPlan) && !effectiveDraftPlan,
+              vacancyId: resolvedVacancyId
+            })
+          };
+        }
         return {
           reply: buildCommunicationPlanReply({
             plan: planForExamples,
@@ -361,6 +425,13 @@ export async function runCommunicationPlanPlaybook({
     };
   }
 
+  const draftScopedExamples = resolveExamplesForPlan({
+    plan: draft,
+    examples,
+    examplesPlanHash: vacancy.communication_examples_plan_hash
+  });
+  const draftScopedExampleSets = splitExamples(draftScopedExamples);
+
   try {
     await tenantSql`
       UPDATE chatbot.vacancies
@@ -371,19 +442,33 @@ export async function runCommunicationPlanPlaybook({
     `;
   } catch (error) {
     if (isCommunicationPlanDraftConstraintError(error) || isCommunicationExamplesConstraintError(error)) {
+      const repaired = await tryForcePersistCommunicationSnapshot({
+        tenantSql,
+        vacancyId: resolvedVacancyId,
+        communicationPlan: savedPlan,
+        communicationPlanDraft: draft,
+        communicationExamples: draftScopedExamples,
+        communicationExamplesPlanHash: draftScopedExamples.length > 0 ? computePlanHash(draft) : null
+      });
+      if (repaired) {
+        return {
+          reply: buildCommunicationPlanReply({
+            plan: draft,
+            firstMessageExamples: draftScopedExampleSets.firstMessageExamples,
+            conversationExamples: draftScopedExampleSets.conversationExamples,
+            note: action === ACTION_EDIT
+              ? "Обновил черновик сценария. Проверьте и сохраните, если подходит."
+              : "Сформировал один рабочий сценарий в табличном формате.",
+            isConfigured: false,
+            vacancyId: resolvedVacancyId
+          })
+        };
+      }
       return {
         reply: buildCommunicationPlanReply({
           plan: draft,
-          firstMessageExamples: splitExamples(resolveExamplesForPlan({
-            plan: draft,
-            examples,
-            examplesPlanHash: vacancy.communication_examples_plan_hash
-          })).firstMessageExamples,
-          conversationExamples: splitExamples(resolveExamplesForPlan({
-            plan: draft,
-            examples,
-            examplesPlanHash: vacancy.communication_examples_plan_hash
-          })).conversationExamples,
+          firstMessageExamples: draftScopedExampleSets.firstMessageExamples,
+          conversationExamples: draftScopedExampleSets.conversationExamples,
           note: "Сценарий сформирован, но черновик не сохранился в базе. Можно продолжить и сохранить позже.",
           isConfigured: false,
           vacancyId: resolvedVacancyId
@@ -396,16 +481,8 @@ export async function runCommunicationPlanPlaybook({
   return {
     reply: buildCommunicationPlanReply({
       plan: draft,
-      firstMessageExamples: splitExamples(resolveExamplesForPlan({
-        plan: draft,
-        examples,
-        examplesPlanHash: vacancy.communication_examples_plan_hash
-      })).firstMessageExamples,
-      conversationExamples: splitExamples(resolveExamplesForPlan({
-        plan: draft,
-        examples,
-        examplesPlanHash: vacancy.communication_examples_plan_hash
-      })).conversationExamples,
+      firstMessageExamples: draftScopedExampleSets.firstMessageExamples,
+      conversationExamples: draftScopedExampleSets.conversationExamples,
       note: action === ACTION_EDIT
         ? "Обновил черновик сценария. Проверьте и сохраните, если подходит."
         : "Сформировал один рабочий сценарий в табличном формате.",
@@ -846,6 +923,67 @@ function normalizeTransientContext(rawContext) {
     plan,
     examples
   };
+}
+
+async function tryForcePersistCommunicationSnapshot({
+  tenantSql,
+  vacancyId,
+  communicationPlan = null,
+  communicationPlanDraft = null,
+  communicationExamples = [],
+  communicationExamplesPlanHash = null,
+  updatePlanTimestamp = false
+}) {
+  if (!tenantSql || !vacancyId) {
+    return null;
+  }
+
+  const normalizedPlan = normalizePlan(communicationPlan);
+  const normalizedDraft = normalizePlan(communicationPlanDraft);
+  const normalizedExamples = normalizeExamples(communicationExamples);
+  const nextExamplesPlanHash = (
+    normalizedExamples.length > 0
+    && typeof communicationExamplesPlanHash === "string"
+    && communicationExamplesPlanHash.trim().length > 0
+  )
+    ? communicationExamplesPlanHash.trim()
+    : null;
+
+  try {
+    const rows = await tenantSql`
+      UPDATE chatbot.vacancies
+      SET
+        communication_plan = ${normalizedPlan ? JSON.stringify(normalizedPlan) : null}::jsonb,
+        communication_plan_updated_at = CASE
+          WHEN ${updatePlanTimestamp}
+            THEN now()
+          ELSE communication_plan_updated_at
+        END,
+        communication_plan_draft = ${normalizedDraft ? JSON.stringify(normalizedDraft) : null}::jsonb,
+        communication_examples = ${JSON.stringify(normalizedExamples)}::jsonb,
+        communication_examples_plan_hash = ${nextExamplesPlanHash},
+        updated_at = now()
+      WHERE vacancy_id = ${vacancyId}
+      RETURNING *
+    `;
+
+    return rows[0] ?? {
+      vacancy_id: vacancyId,
+      communication_plan: normalizedPlan,
+      communication_plan_draft: normalizedDraft,
+      communication_examples: normalizedExamples,
+      communication_examples_plan_hash: nextExamplesPlanHash
+    };
+  } catch (error) {
+    if (
+      isCommunicationPlanContractError(error)
+      || isCommunicationPlanDraftConstraintError(error)
+      || isCommunicationExamplesConstraintError(error)
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function repairVacancyCommunicationState({ tenantSql, vacancy, vacancyId }) {
