@@ -370,7 +370,7 @@ export async function runCommunicationPlanPlaybook({
       WHERE vacancy_id = ${resolvedVacancyId}
     `;
   } catch (error) {
-    if (isCommunicationPlanDraftConstraintError(error)) {
+    if (isCommunicationPlanDraftConstraintError(error) || isCommunicationExamplesConstraintError(error)) {
       return {
         reply: buildCommunicationPlanReply({
           plan: draft,
