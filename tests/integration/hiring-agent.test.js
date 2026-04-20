@@ -2965,6 +2965,164 @@ test("hiring-agent: management-backed setup_communication returns structured com
   }
 });
 
+test("hiring-agent: management-backed setup_communication seeds vacancy with explicit communication defaults", async () => {
+  const llmCalls = [];
+  let seededVacancy = null;
+  const managementSql = async (strings) => {
+    const text = strings.join("");
+
+    if (text.includes("FROM management.playbook_definitions d") && text.includes("d.trigger_description")) {
+      return [{
+        playbook_key: "setup_communication",
+        name: "Настроить общение с кандидатами",
+        trigger_description: "communication",
+        status: "available",
+        sort_order: 1,
+        step_count: 1
+      }];
+    }
+
+    throw new Error(`Unexpected management query: ${text}`);
+  };
+
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((result, chunk, index) => (
+      result + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (/FROM chatbot\.vacancies/.test(text) && /WHERE vacancy_id = \$1/.test(text)) {
+      assert.deepEqual(values, ["job-owned"]);
+      return seededVacancy ? [seededVacancy] : [];
+    }
+
+    if (/FROM chatbot\.jobs/.test(text) && /WHERE job_id = \$1\s+AND client_id = \$2/.test(text)) {
+      assert.deepEqual(values, ["job-owned", "tenant-alpha-001"]);
+      return [{
+        job_id: "job-owned",
+        title: "Менеджер по продажам",
+        description: "B2B продажи, юридический консалтинг"
+      }];
+    }
+
+    if (/FROM chatbot\.vacancies/.test(text) && /WHERE job_id = \$1/.test(text)) {
+      assert.deepEqual(values, ["job-owned"]);
+      return seededVacancy ? [seededVacancy] : [];
+    }
+
+    if (/INSERT INTO chatbot\.vacancies/.test(text)) {
+      assert.match(text, /communication_plan/);
+      assert.match(text, /communication_plan_draft/);
+      assert.match(text, /communication_examples/);
+      assert.match(text, /communication_examples_plan_hash/);
+      assert.match(text, /'pending',\s*NULL,\s*NULL,\s*'\[\]'::jsonb,\s*NULL/);
+      assert.deepEqual(values, [
+        "job-owned",
+        "job-owned",
+        "Менеджер по продажам",
+        "B2B продажи, юридический консалтинг"
+      ]);
+      seededVacancy = {
+        vacancy_id: "job-owned",
+        job_id: "job-owned",
+        title: "Менеджер по продажам",
+        must_haves: ["B2B продажи"],
+        nice_haves: [],
+        work_conditions: {},
+        application_steps: [],
+        communication_plan: null,
+        communication_plan_draft: null,
+        communication_examples: [],
+        communication_examples_plan_hash: null
+      };
+      return [];
+    }
+
+    if (/UPDATE chatbot\.vacancies/.test(text) && /communication_plan_draft/.test(text)) {
+      assert.equal(values.at(-1), "job-owned");
+      seededVacancy = {
+        ...seededVacancy,
+        communication_plan_draft: values[0] ? JSON.parse(values[0]) : null
+      };
+      return [];
+    }
+
+    throw new Error(`Unexpected query: ${text}`);
+  };
+
+  const app = createHiringAgentApp({
+    demoMode: false,
+    managementSql,
+    llmAdapter: {
+      async generate(prompt) {
+        llmCalls.push(prompt);
+        return JSON.stringify({
+          scenario_title: "Базовый скрининг менеджера по продажам",
+          goal: "Договоренность о созвоне",
+          steps: [
+            { step: "Здравствуйте! Подскажите, вам интересны новые предложения?", reminders_count: 1, comment: "Открыть диалог" },
+            { step: "Уточнить релевантный опыт", reminders_count: 1, comment: "Скрининг" },
+            { step: "Сверить ожидания по условиям", reminders_count: 1, comment: "Понять fit" },
+            { step: "Пригласить на следующий этап", reminders_count: 2, comment: "Зафиксировать интервью" }
+          ]
+        });
+      }
+    }
+  });
+  const server = createHiringAgentServer(app, {
+    appEnv: "prod",
+    managementSql,
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(server, "POST", "/api/chat", {
+      message: "настроить общение с кандидатами",
+      action: "start_playbook",
+      playbook_key: "setup_communication",
+      vacancy_id: "job-owned"
+    }, "session=sess-alpha");
+    assert.equal(status, 200);
+    assert.equal(body.reply.kind, "communication_plan");
+    assert.equal(body.reply.scenario_title, "Базовый скрининг менеджера по продажам");
+    assert.equal(llmCalls.length, 1);
+    assert.equal(seededVacancy?.vacancy_id, "job-owned");
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: management-backed setup_communication supports vacancy_id distinct from job_id", async () => {
   const llmCalls = [];
   const managementSql = async (strings) => {
