@@ -1711,6 +1711,107 @@ test("hiring-agent: GET /chat/communication-examples returns HTML report for job
   }
 });
 
+test("hiring-agent: GET /chat/communication-examples tolerates legacy communication plan shape", async () => {
+  const tenantSql = async (strings, ...values) => {
+    const text = strings.reduce((acc, chunk, index) => (
+      acc + chunk + (index < values.length ? `$${index + 1}` : "")
+    ), "");
+
+    if (text.includes("FROM chatbot.vacancies") && text.includes("WHERE job_id = $1")) {
+      assert.deepEqual(values, ["job-test-legacy"]);
+      return [{
+        vacancy_id: "vac-test-legacy",
+        job_id: "job-test-legacy",
+        title: "Менеджер по продажам",
+        updated_at: "2026-04-20T10:00:00.000Z",
+        communication_plan: {
+          scenario_title: "Скрининг B2B-кандидата",
+          goal: "Понять опыт и договориться о следующем шаге",
+          steps: [
+            {
+              id: "intro",
+              goal: "Уточнить B2B-опыт",
+              message: "Здравствуйте! Подскажите, был ли у вас именно B2B-опыт?"
+            },
+            {
+              id: "check",
+              goal: "Уточнить средний чек",
+              message: "Какой у вас обычно был средний чек или средний контракт?"
+            },
+            {
+              id: "pitch",
+              goal: "Предложить план действий",
+              message: "Давайте я отправлю наш план действий, и если он откликнется, продолжим."
+            },
+            {
+              id: "next_step",
+              goal: "Согласовать следующий шаг",
+              message: "Если вам ок, отправляю план и сразу предлагаю следующий шаг."
+            }
+          ]
+        },
+        communication_plan_draft: null,
+        communication_examples: []
+      }];
+    }
+
+    return [];
+  };
+
+  const server = createHiringAgentServer(createHiringAgentApp(), {
+    appEnv: "prod",
+    managementStore: {
+      async getRecruiterSession() {
+        return {
+          recruiter_id: "rec-alpha-001",
+          email: "alpha@example.test",
+          recruiter_status: "active",
+          role: "recruiter",
+          tenant_id: "tenant-alpha-001",
+          tenant_status: "active",
+          expires_at: new Date()
+        };
+      },
+      async getPrimaryBinding() {
+        return {
+          binding_id: "bind-1",
+          db_alias: "db-alpha",
+          binding_kind: "shared_db",
+          schema_name: null
+        };
+      },
+      async getDatabaseConnection() {
+        return {
+          db_alias: "db-alpha",
+          connection_string: "postgres://alpha"
+        };
+      },
+      async renewSessionIfNeeded() {}
+    },
+    poolRegistry: {
+      getOrCreate() {
+        return tenantSql;
+      }
+    }
+  }).listen(0);
+
+  try {
+    const { status, body } = await req(
+      server,
+      "GET",
+      "/chat/communication-examples?job_id=job-test-legacy",
+      undefined,
+      "session=sess-alpha"
+    );
+    assert.equal(status, 200);
+    assert.match(body, /Скрининг B2B-кандидата/);
+    assert.match(body, /Уточнить B2B-опыт/);
+    assert.match(body, /Здравствуйте! Подскажите, был ли у вас именно B2B-опыт\?/);
+  } finally {
+    server.close();
+  }
+});
+
 test("hiring-agent: POST /auth/login sets 30 day cookie without secure outside production", async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = "test";

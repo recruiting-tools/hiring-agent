@@ -3834,11 +3834,15 @@ function normalizeReportPlan(raw) {
   return {
     scenarioTitle: String(raw.scenario_title ?? "Сценарий").trim() || "Сценарий",
     goal: String(raw.goal ?? "Договориться о следующем шаге").trim() || "Договориться о следующем шаге",
-    steps: rows.map((row) => ({
-      step: String(row?.step ?? "").trim(),
-      remindersCount: Number.isFinite(Number(row?.reminders_count)) ? Math.round(Number(row.reminders_count)) : 0,
-      comment: String(row?.comment ?? "").trim()
-    })).filter((row) => row.step.length > 0)
+    steps: rows.map((row) => {
+      const step = String(row?.step ?? row?.goal ?? row?.message ?? "").trim();
+      if (!step) return null;
+      return {
+        step,
+        remindersCount: Number.isFinite(Number(row?.reminders_count)) ? Math.round(Number(row.reminders_count)) : 0,
+        comment: String(row?.comment ?? row?.message ?? "").trim()
+      };
+    }).filter(Boolean)
   };
 }
 

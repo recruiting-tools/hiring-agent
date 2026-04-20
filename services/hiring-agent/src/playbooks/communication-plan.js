@@ -770,22 +770,7 @@ function normalizePlan(rawPlan) {
   const rows = Array.isArray(rawPlan.steps) ? rawPlan.steps : [];
   if (rows.length < 4 || rows.length > 7) return null;
   const steps = rows
-    .map((row) => {
-      const step = cleanText(row?.step, "");
-      if (!step) return null;
-      const remindersRaw = Number(
-        row?.reminders_count ?? row?.reminders ?? row?.reminder_count ?? 0
-      );
-      if (!Number.isFinite(remindersRaw)) return null;
-      const remindersCount = Math.round(remindersRaw);
-      if (remindersCount < 0 || remindersCount > 3) return null;
-
-      return {
-        step,
-        reminders_count: remindersCount,
-        comment: cleanText(row?.comment, "—")
-      };
-    })
+    .map(normalizePlanStep)
     .filter(Boolean);
 
   if (steps.length !== rows.length) return null;
@@ -796,6 +781,52 @@ function normalizePlan(rawPlan) {
     goal,
     steps
   };
+}
+
+function normalizePlanStep(row) {
+  const step = cleanText(row?.step, "");
+  if (step) {
+    const remindersRaw = Number(
+      row?.reminders_count ?? row?.reminders ?? row?.reminder_count ?? 0
+    );
+    if (!Number.isFinite(remindersRaw)) return null;
+    const remindersCount = Math.round(remindersRaw);
+    if (remindersCount < 0 || remindersCount > 3) return null;
+
+    return {
+      step,
+      reminders_count: remindersCount,
+      comment: cleanText(row?.comment, "—")
+    };
+  }
+
+  const legacyGoal = cleanText(row?.goal, "");
+  const legacyMessage = cleanText(row?.message ?? row?.text, "");
+  if (!legacyGoal && !legacyMessage) return null;
+
+  return {
+    step: legacyGoal || legacyMessage,
+    reminders_count: 0,
+    comment: legacyMessage || "—"
+  };
+}
+
+function hasCanonicalPlanShape(rawPlan) {
+  if (!rawPlan || typeof rawPlan !== "object" || Array.isArray(rawPlan)) return false;
+  const rows = Array.isArray(rawPlan.steps) ? rawPlan.steps : [];
+  if (rows.length < 4 || rows.length > 7) return false;
+
+  return rows.every((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+    if (!cleanText(row.step, "")) return false;
+
+    const remindersRaw = Number(
+      row.reminders_count ?? row.reminders ?? row.reminder_count ?? 0
+    );
+    if (!Number.isFinite(remindersRaw)) return false;
+    const remindersCount = Math.round(remindersRaw);
+    return remindersCount >= 0 && remindersCount <= 3;
+  });
 }
 
 function normalizeExamples(rawExamples) {
@@ -993,6 +1024,8 @@ async function repairVacancyCommunicationState({ tenantSql, vacancy, vacancyId }
 
   const normalizedSavedPlan = normalizePlan(vacancy.communication_plan);
   const normalizedDraftPlan = normalizePlan(vacancy.communication_plan_draft);
+  const canonicalSavedPlan = vacancy.communication_plan == null || hasCanonicalPlanShape(vacancy.communication_plan);
+  const canonicalDraftPlan = vacancy.communication_plan_draft == null || hasCanonicalPlanShape(vacancy.communication_plan_draft);
   const hasExamplesArray = Array.isArray(vacancy.communication_examples);
   const nextExamplesPlanHash = (
     typeof vacancy.communication_examples_plan_hash === "string"
@@ -1006,6 +1039,8 @@ async function repairVacancyCommunicationState({ tenantSql, vacancy, vacancyId }
   const needsRepair = (
     (vacancy.communication_plan != null && !normalizedSavedPlan)
     || (vacancy.communication_plan_draft != null && !normalizedDraftPlan)
+    || !canonicalSavedPlan
+    || !canonicalDraftPlan
     || !hasExamplesArray
     || (
       vacancy.communication_examples_plan_hash != null

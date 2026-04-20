@@ -85,6 +85,63 @@ test("communication plan: creates draft on initial generation", async () => {
   assert.equal(store.getVacancy().communication_plan_draft.scenario_title, "Фокус на мотивации");
 });
 
+test("communication plan: canonicalizes legacy stored plan before preview", async () => {
+  const legacyPlan = {
+    scenario_title: "Скрининг B2B-кандидата",
+    goal: "Понять опыт и договориться о следующем шаге",
+    steps: [
+      {
+        id: "b2b_sales_experience",
+        goal: "Уточнить, был ли у кандидата именно B2B-опыт",
+        message: "Здравствуйте! Подскажите, был ли у вас именно B2B-опыт?"
+      },
+      {
+        id: "average_check",
+        goal: "Уточнить средний чек или средний контракт",
+        message: "Какой у вас обычно был средний чек или средний контракт?"
+      },
+      {
+        id: "offer_plan",
+        goal: "Предложить отправить план действий",
+        message: "Давайте я вам отправлю наш план действий, если вам это откликается, то продолжим."
+      },
+      {
+        id: "send_plan_or_close",
+        goal: "При согласии отправить план, при отказе мягко завершить",
+        message: "Если вам ок, отправляю план и сразу предлагаю следующий шаг."
+      }
+    ]
+  };
+
+  const store = createVacancySql({
+    vacancy_id: "vac-legacy-plan",
+    title: "Менеджер по продажам",
+    communication_plan: legacyPlan,
+    communication_plan_draft: null,
+    communication_examples: []
+  });
+
+  const result = await runCommunicationPlanPlaybook({
+    tenantSql: store.sql,
+    vacancyId: "vac-legacy-plan",
+    recruiterInput: "настроить общение с кандидатами",
+    llmAdapter: {
+      async generate() {
+        throw new Error("LLM must not be called for canonicalized legacy plan preview");
+      }
+    }
+  });
+
+  assert.equal(result.reply.kind, "communication_plan");
+  assert.equal(result.reply.is_configured, true);
+  assert.equal(store.getVacancy().communication_plan.steps[0].step, "Уточнить, был ли у кандидата именно B2B-опыт");
+  assert.equal(store.getVacancy().communication_plan.steps[0].reminders_count, 0);
+  assert.equal(
+    store.getVacancy().communication_plan.steps[0].comment,
+    "Здравствуйте! Подскажите, был ли у вас именно B2B-опыт?"
+  );
+});
+
 test("communication plan: repairs invalid stored communication state before generating draft", async () => {
   const store = createVacancySql({
     vacancy_id: "vac-2repair",

@@ -23,6 +23,7 @@
     "bootstrap:management:recruiters": "node scripts/bootstrap-management-recruiters.js",
     "bootstrap:management:bindings": "node scripts/bootstrap-database-bindings.js",
     "check:management-readiness": "node scripts/check-management-readiness.js",
+    "repair:vacancy-communication-state": "node scripts/repair-vacancy-communication-state.js",
     "check:hh-cutover-readiness": "node scripts/check-hh-cutover-readiness.js",
     "seed:dev": "node scripts/seed-dev-db.js",
     "seed:sandbox": "node scripts/seed-sandbox-db.js",
