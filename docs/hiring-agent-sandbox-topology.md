@@ -36,7 +36,7 @@
 
 ### Data plane
 
-- project: `round-leaf-16031956`
+- project: `<dev-project-id>`
 - branch: `sandbox`
 - envs:
   - `CHATBOT_DATABASE_URL`
@@ -44,7 +44,7 @@
 
 ### Control plane
 
-- project: `orange-silence-65083641`
+- project: `<management-project-id>`
 - branch: `sandbox`
 - env:
   - `MANAGEMENT_DATABASE_URL`

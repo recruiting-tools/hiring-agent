@@ -4,7 +4,7 @@ Date: 2026-04-13
 
 ## Symptom
 
-Login to `https://hiring-chat.recruiter-assistant.com/login` succeeds, but the first authenticated request returns:
+Login to `https://<hiring-agent-host>/login` succeeds, but the first authenticated request returns:
 
 ```json
 {"error":"ERROR_BINDING_MISSING","message":"Primary tenant DB binding is missing for tenant client-prod-001 in local"}

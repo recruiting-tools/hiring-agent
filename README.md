@@ -6,9 +6,9 @@
 
 | Сервис | Папка | Домен | Инфра |
 |---|---|---|---|
-| `candidate-chatbot` | `services/candidate-chatbot` | `candidate-chatbot.recruiter-assistant.com` | Cloud Run europe-west1 |
+| `candidate-chatbot` | `services/candidate-chatbot` | `https://<candidate-chatbot-host>` | Cloud Run |
 | `hiring-mcp` | `services/hiring-mcp` | внутренний | GCP VM |
-| `hiring-agent` | `services/hiring-agent` | `hiring-chat.recruiter-assistant.com` | GCP VM |
+| `hiring-agent` | `services/hiring-agent` | `https://<hiring-agent-host>` | GCP VM |
 | `hh-connector` | `services/hh-connector` | внутренний | GCP VM |
 
 ## Быстрый старт
@@ -23,9 +23,9 @@ pnpm test:watch    # watch mode
 
 ```bash
 # ~/.zshrc
-V2_NEON_ORG_ID=org-bold-wave-46400152
-MANAGEMENT_DATABASE_URL=...   # management DB (shared, all tenants) — Neon project: orange-silence-65083641
-CHATBOT_DATABASE_URL=...      # demo tenant chatbot DB — Neon project: round-leaf-16031956
+V2_NEON_ORG_ID=<neon-org-id>
+MANAGEMENT_DATABASE_URL=...   # management DB (shared, all tenants)
+CHATBOT_DATABASE_URL=...      # demo tenant chatbot DB
 GEMINI_API_KEY=...            # уже есть в shell
 OPENROUTER_API_KEY=...
 OPENROUTER_MODEL=google/gemini-2.5-flash
@@ -145,7 +145,7 @@ gh run list --workflow "Deploy hiring-agent to VM" --limit 5
 gh run view <run-id> --log-failed
 
 # VM
-ssh -i ~/.ssh/google_compute_engine vova@34.31.217.176
+ssh -i ~/.ssh/google_compute_engine <vm-user>@<vm-host>
 pm2 list
 pm2 logs hiring-agent
 curl -sf http://127.0.0.1:3101/health | jq
@@ -158,8 +158,8 @@ ss -tlnp | grep ':3101 '
 
 ```bash
 pnpm monitor:hiring-agent -- \
-  --base-url https://hiring-chat.recruiter-assistant.com \
-  --ssh-target vova@34.31.217.176
+  --base-url https://<hiring-agent-host> \
+  --ssh-target <vm-user>@<vm-host>
 ```
 
 Что проверяет скрипт `scripts/monitor-hiring-agent.js`:
@@ -172,22 +172,96 @@ pnpm monitor:hiring-agent -- \
 Опционально для полноценной auth + ws проверки:
 
 ```bash
-MONITOR_EMAIL='demo@hiring-agent.app' \
+MONITOR_EMAIL='operator@example.test' \
 MONITOR_PASSWORD='<password>' \
-pnpm monitor:hiring-agent -- --require-auth-ws --ssh-target vova@34.31.217.176
+pnpm monitor:hiring-agent -- --require-auth-ws --ssh-target <vm-user>@<vm-host>
 ```
 
 Непрерывный watch:
 
 ```bash
-watch -n 30 'pnpm monitor:hiring-agent -- --ssh-target vova@34.31.217.176'
+watch -n 30 'pnpm monitor:hiring-agent -- --base-url https://<hiring-agent-host> --ssh-target <vm-user>@<vm-host>'
 ```
 
 Пример cron (алерт в stderr/syslog по non-zero exit):
 
 ```cron
-*/2 * * * * cd /opt/hiring-agent && /usr/bin/node scripts/monitor-hiring-agent.js --ssh-target vova@localhost >> /var/log/hiring-agent-monitor.log 2>&1
+*/2 * * * * cd /opt/hiring-agent && MONITOR_BASE_URL=https://<hiring-agent-host> /usr/bin/node scripts/monitor-hiring-agent.js --ssh-target <vm-user>@localhost >> /var/log/hiring-agent-monitor.log 2>&1
 ```
+
+### Password Rotation (Non-Demo Recruiter)
+
+Для non-demo аккаунтов используйте отдельный скрипт ротации в `management.recruiters`.
+По умолчанию он:
+- обновляет `password_hash`;
+- отзывает все активные `management.sessions` для рекрутера.
+
+```bash
+ROTATION_FILE="$HOME/.config/hiring-agent/credentials/management-password-rotation-$(date +%F).json"
+mkdir -p "$(dirname "$ROTATION_FILE")"
+
+MANAGEMENT_DATABASE_URL='<management-db-url>' \
+pnpm auth:rotate-recruiter-password -- \
+  --email recruiter@example.test \
+  --json > "$ROTATION_FILE"
+
+chmod 600 "$ROTATION_FILE"
+jq -r '.generated_password' "$ROTATION_FILE"
+```
+
+Важно:
+- `ROTATION_FILE` хранит новый пароль, не коммитить его в git.
+- если нужно оставить текущие сессии активными, добавьте `--keep-sessions=true`.
+
+### Demo Login Password Rotation
+
+Для demo-аккаунта используется тот же скрипт, но удобнее запускать его либо с локально экспортированным `MANAGEMENT_DATABASE_URL`, либо с URL, вытащенным из production `.env`.
+
+Сгенерировать новый случайный пароль:
+
+```bash
+MANAGEMENT_DATABASE_URL='<management-db-url>' \
+node scripts/rotate-management-recruiter-password.js \
+  --email demo@example.test \
+  --json
+```
+
+Вывести только новый пароль:
+
+```bash
+MANAGEMENT_DATABASE_URL='<management-db-url>' \
+node scripts/rotate-management-recruiter-password.js \
+  --email demo@example.test \
+  --json | jq -r '.generated_password'
+```
+
+Если `MANAGEMENT_DATABASE_URL` нужен именно из production VM:
+
+```bash
+MANAGEMENT_DATABASE_URL="$(
+  ssh -i ~/.ssh/google_compute_engine <vm-user>@<vm-host> \
+    \"grep '^MANAGEMENT_DATABASE_URL=' /opt/hiring-agent/.env | sed 's/^MANAGEMENT_DATABASE_URL=//'\" \
+)" \
+node scripts/rotate-management-recruiter-password.js \
+  --email demo@example.test \
+  --json
+```
+
+Если нужен свой пароль, а не случайный:
+
+```bash
+MANAGEMENT_DATABASE_URL='<management-db-url>' \
+node scripts/rotate-management-recruiter-password.js \
+  --email demo@example.test \
+  --password 'YourNewPassword123' \
+  --json
+```
+
+Что делает скрипт:
+- находит рекрутера по `--email` или `--recruiter-id`;
+- если `--password` не задан, генерирует случайный пароль внутри `scripts/rotate-management-recruiter-password.js`;
+- обновляет `management.recruiters.password_hash`;
+- по умолчанию отзывает все активные `management.sessions`.
 
 ### Chat Smoke (2 levels)
 
@@ -207,6 +281,17 @@ SANDBOX_DEMO_EMAIL='<email>' \
 SANDBOX_DEMO_PASSWORD='<password>' \
 pnpm smoke:hiring-agent:sandbox
 ```
+
+Для текущих slot URLs используйте:
+- `sandbox-1` → `https://<hiring-agent-host>/sandbox-001`
+- `sandbox-2` → `https://<hiring-agent-host>/sandbox-002`
+- `sandbox-3` → `https://<hiring-agent-host>/sandbox-003`
+
+Sandbox creds синхронизированы через GitHub Environments `sandbox-1/2/3`:
+- `HIRING_AGENT_SANDBOX_DEMO_EMAIL`
+- `HIRING_AGENT_SANDBOX_DEMO_PASSWORD`
+
+Локальный шаблон лежит в `.env.sandbox.example`.
 
 3) Оба уровня подряд:
 ```bash
@@ -246,36 +331,36 @@ pnpm smoke:hiring-agent:both
 
 5. **Text2SQL только поверх marts**: `output_data_marts.candidate_funnel` — единственная таблица для аналитических запросов. Не давать LLM доступ к operational tables.
 
-6. **DNS**: `recruiter-assistant.com` управляется через **Google Cloud DNS** (NS: `ns-cloud-a*.googledomains.com`). Зона `recruiter-assistant` в проекте `skillset-analytics-487510` (аккаунт `vladimir@skillset.ae`). НЕ Cloudflare, НЕ Google Domains UI. Публичные эндпоинты кандидатов — только GCP (Cloud Run).
+6. **DNS**: публичная зона и прод-хосты должны храниться в инфраструктурных секретах/vars и не хардкодиться в коде или runbook'ах public-репозитория.
 
-7. **Домен**: `recruiter-assistant.com` — единственный. `recruiter-asisstant.com` (двойная s) — не продлевать.
+7. **Домен**: используйте один canonical public domain и один canonical auth host для `hiring-agent`.
 
-### Neon (V2 org)
+### Neon
 
-- Org ID: `org-bold-wave-46400152`
-- Management DB project: `orange-silence-65083641`
-- Dev client DB project: `round-leaf-16031956`
-- API key: тот же `NEON_API_KEY` (один аккаунт, разные org)
-- Всегда указывать `--org-id` в neonctl командах
+- Org ID: `<neon-org-id>`
+- Management DB project: `<management-project-id>`
+- Dev client DB project: `<dev-client-project-id>`
+- API key: `NEON_API_KEY`
+- В `neonctl` командах явно указывайте `--org-id` и `--project-id`
 
 ### GCP
 
 | Ресурс | Значение |
 |---|---|
-| Deploy-проект | `project-5d8dd8a0-67af-44ba-b6e` (аккаунт `ludmilachramcova@gmail.com`) |
+| Deploy-проект | `<gcp-project-id>` |
 | Регион | `europe-west1` |
-| VM IP | `34.31.217.176` |
-| VM hostname | `claude-code-vm` |
-| VM user | `vova` (SSH: `~/.ssh/google_compute_engine`) |
+| VM IP | `<vm-public-ip>` |
+| VM hostname | `<vm-hostname>` |
+| VM user | `<vm-user>` (SSH: `~/.ssh/google_compute_engine`) |
 | VM app dir | `/opt/hiring-agent` |
 | PM2 process | `hiring-agent` (порт 3101) |
 | Port 3100 | Skillset Next.js app — не трогать |
-| SSL cert | `/etc/letsencrypt/live/hiring-chat.recruiter-assistant.com/` (certbot, автообновление) |
-| DNS зона | Cloud DNS `recruiter-assistant` в проекте `skillset-analytics-487510` (аккаунт `vladimir@skillset.ae`) |
+| SSL cert | `/etc/letsencrypt/live/<hiring-agent-host>/` (certbot, автообновление) |
+| DNS зона | `<dns-zone>` в проекте `<dns-project-id>` |
 
 **SSH на VM:**
 ```bash
-ssh -i ~/.ssh/google_compute_engine vova@34.31.217.176
+ssh -i ~/.ssh/google_compute_engine <vm-user>@<vm-host>
 ```
 
 **Управление сервисом:**
@@ -287,16 +372,16 @@ pm2 restart hiring-agent --update-env
 ```
 
 **Важно для логина hiring-agent:**
-`hiring-chat.recruiter-assistant.com/login` использует `management.recruiters` и `management.sessions`.
+`https://<hiring-agent-host>/login` использует `management.recruiters` и `management.sessions`.
 Если нужно завести или обновить demo/login доступ для `hiring-agent`, canonical path — `pnpm bootstrap:demo-user`,
 а не legacy script `pnpm bootstrap:recruiter-access`, который меняет только `chatbot.recruiters`.
 
 **Добавить DNS-запись:**
 ```bash
-gcloud dns record-sets create <name>.recruiter-assistant.com. \
-  --zone=recruiter-assistant \
-  --project=skillset-analytics-487510 \
-  --account=vladimir@skillset.ae \
+gcloud dns record-sets create <name>.<public-domain>. \
+  --zone=<dns-zone> \
+  --project=<dns-project-id> \
+  --account=<gcp-account-email> \
   --type=A --ttl=300 --rrdatas=<IP>
 ```
 
@@ -312,19 +397,19 @@ gcloud dns record-sets create <name>.recruiter-assistant.com. \
 
 1. **НЕ использовать `--source` напрямую** — зависает в агент-сессии (exit 144). `deploy.sh` делает `gcloud builds submit` + `gcloud run deploy --image` раздельно.
 
-2. **Domain mapping** — только от `ludmilachramcova@gmail.com` (домен `recruiter-assistant.com` верифицирован на ней):
+2. **Domain mapping** — выполнять только из аккаунта, на котором подтвержден публичный домен:
    ```bash
-   gcloud config set account ludmilachramcova@gmail.com
+   gcloud config set account <gcp-account-email>
    gcloud beta run domain-mappings create \
      --service=candidate-chatbot-v2 \
-     --domain=candidate-chatbot.recruiter-assistant.com \
+     --domain=<candidate-chatbot-host> \
      --region=europe-west1 \
-     --project=project-5d8dd8a0-67af-44ba-b6e
-   gcloud config set account vladimir@skillset.ae   # вернуть
+     --project=<gcp-project-id>
+   gcloud config set account <default-gcloud-account>   # вернуть
    ```
-   `vladimir@skillset.ae` и `kobzevvv@gmail.com` для domain mapping **не подходят**.
+   Используйте только тот аккаунт, на котором подтвержден домен.
 
-3. **CNAME** `candidate-chatbot.recruiter-assistant.com → ghs.googlehosted.com` уже стоит. Не трогать.
+3. **CNAME** `<candidate-chatbot-host> → ghs.googlehosted.com` должен быть заранее настроен.
 
 4. **SSL-сертификат** выпускается автоматически ~15–60 мин после создания маппинга.
 
@@ -344,12 +429,12 @@ gcloud dns record-sets create <name>.recruiter-assistant.com. \
 | 3.4 | `POST /internal/hh-poll` — защищённый endpoint для Cloud Scheduler | 🤖 |
 | 3.5 | Cloud Scheduler job: каждые 60 сек → `POST /internal/hh-poll` | 🤖 |
 | 3.6 | OAuth flow: открыть URL как работодатель hh.ru, передать `?code=` Claude | 👤 |
-| 3.7 | Откликнуться на `https://hh.ru/vacancy/132032392` | 👤 |
+| 3.7 | Откликнуться на тестовую HH-вакансию | 👤 |
 | 3.8 | Включить отправку: `UPDATE management.feature_flags SET enabled=true WHERE flag='hh_send'` | 👤+🤖 |
 
 **HH OAuth URL** (открыть как работодатель):
 ```
-https://hh.ru/oauth/authorize?response_type=code&client_id=THFMPVJIDL4MHTM5EE4AFS96MTUDOFOF9UURDFI539OOJF8VCCLKJLENSOI0PCEJ&redirect_uri=https://recruiter-assistant.com/hh-callback/
+https://hh.ru/oauth/authorize?response_type=code&client_id=<hh-client-id>&redirect_uri=https://<public-domain>/hh-callback/
 ```
 
 **Production readiness gate** (перед включением `hh_send=true`):
@@ -370,8 +455,8 @@ https://hh.ru/oauth/authorize?response_type=code&client_id=THFMPVJIDL4MHTM5EE4AF
 
 | # | Что | Кто |
 |---|-----|-----|
-| 4.1 | `setWebhook` → `https://candidate-chatbot.recruiter-assistant.com/tg/webhook` | 🤖 |
-| 4.2 | Seed подписок в `chatbot.recruiter_subscriptions` для `rec-tok-prod-001` | 🤖 |
+| 4.1 | `setWebhook` → `https://<candidate-chatbot-host>/tg/webhook` | 🤖 |
+| 4.2 | Seed подписок в `chatbot.recruiter_subscriptions` для `<prod-recruiter-token>` | 🤖 |
 | 4.3 | Написать `/start` боту `@hiring_agnet_bot` | 👤 |
 
 ---
