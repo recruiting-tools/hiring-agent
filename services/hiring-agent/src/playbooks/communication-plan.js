@@ -124,10 +124,10 @@ export async function runCommunicationPlanPlaybook({
       await tenantSql`
         UPDATE chatbot.vacancies
         SET
-          communication_plan = ${JSON.stringify(effectiveDraftPlan)}::jsonb,
+          communication_plan = ${jsonbValue(tenantSql, effectiveDraftPlan)}::jsonb,
           communication_plan_updated_at = now(),
           communication_plan_draft = NULL,
-          communication_examples = ${JSON.stringify(syncedExamples)}::jsonb,
+          communication_examples = ${jsonbValue(tenantSql, syncedExamples)}::jsonb,
           communication_examples_plan_hash = ${syncedExamples.length > 0 ? draftHash : null},
           updated_at = now()
         WHERE vacancy_id = ${resolvedVacancyId}
@@ -220,7 +220,7 @@ export async function runCommunicationPlanPlaybook({
       await tenantSql`
         UPDATE chatbot.vacancies
         SET
-          communication_examples = ${JSON.stringify(mergedExamples)}::jsonb,
+          communication_examples = ${jsonbValue(tenantSql, mergedExamples)}::jsonb,
           communication_examples_plan_hash = ${mergedExamplesPlanHash},
           updated_at = now()
         WHERE vacancy_id = ${resolvedVacancyId}
@@ -312,7 +312,7 @@ export async function runCommunicationPlanPlaybook({
       await tenantSql`
         UPDATE chatbot.vacancies
         SET
-          communication_examples = ${JSON.stringify(mergedExamples)}::jsonb,
+          communication_examples = ${jsonbValue(tenantSql, mergedExamples)}::jsonb,
           communication_examples_plan_hash = ${mergedExamplesPlanHash},
           updated_at = now()
         WHERE vacancy_id = ${resolvedVacancyId}
@@ -436,7 +436,7 @@ export async function runCommunicationPlanPlaybook({
     await tenantSql`
       UPDATE chatbot.vacancies
       SET
-        communication_plan_draft = ${JSON.stringify(draft)}::jsonb,
+        communication_plan_draft = ${jsonbValue(tenantSql, draft)}::jsonb,
         updated_at = now()
       WHERE vacancy_id = ${resolvedVacancyId}
     `;
@@ -956,6 +956,11 @@ function normalizeTransientContext(rawContext) {
   };
 }
 
+function jsonbValue(sql, value) {
+  if (value == null) return null;
+  return typeof sql?.json === "function" ? sql.json(value) : JSON.stringify(value);
+}
+
 async function tryForcePersistCommunicationSnapshot({
   tenantSql,
   vacancyId,
@@ -984,14 +989,14 @@ async function tryForcePersistCommunicationSnapshot({
     const rows = await tenantSql`
       UPDATE chatbot.vacancies
       SET
-        communication_plan = ${normalizedPlan ? JSON.stringify(normalizedPlan) : null}::jsonb,
+        communication_plan = ${normalizedPlan ? jsonbValue(tenantSql, normalizedPlan) : null}::jsonb,
         communication_plan_updated_at = CASE
           WHEN ${updatePlanTimestamp}
             THEN now()
           ELSE communication_plan_updated_at
         END,
-        communication_plan_draft = ${normalizedDraft ? JSON.stringify(normalizedDraft) : null}::jsonb,
-        communication_examples = ${JSON.stringify(normalizedExamples)}::jsonb,
+        communication_plan_draft = ${normalizedDraft ? jsonbValue(tenantSql, normalizedDraft) : null}::jsonb,
+        communication_examples = ${jsonbValue(tenantSql, normalizedExamples)}::jsonb,
         communication_examples_plan_hash = ${nextExamplesPlanHash},
         updated_at = now()
       WHERE vacancy_id = ${vacancyId}
@@ -1056,9 +1061,9 @@ async function repairVacancyCommunicationState({ tenantSql, vacancy, vacancyId }
     const rows = await tenantSql`
       UPDATE chatbot.vacancies
       SET
-        communication_plan = ${normalizedSavedPlan ? JSON.stringify(normalizedSavedPlan) : null}::jsonb,
-        communication_plan_draft = ${normalizedDraftPlan ? JSON.stringify(normalizedDraftPlan) : null}::jsonb,
-        communication_examples = ${JSON.stringify(hasExamplesArray ? vacancy.communication_examples : [])}::jsonb,
+        communication_plan = ${normalizedSavedPlan ? jsonbValue(tenantSql, normalizedSavedPlan) : null}::jsonb,
+        communication_plan_draft = ${normalizedDraftPlan ? jsonbValue(tenantSql, normalizedDraftPlan) : null}::jsonb,
+        communication_examples = ${jsonbValue(tenantSql, hasExamplesArray ? vacancy.communication_examples : [])}::jsonb,
         communication_examples_plan_hash = ${nextExamplesPlanHash},
         updated_at = now()
       WHERE vacancy_id = ${vacancyId}

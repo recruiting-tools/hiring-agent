@@ -74,9 +74,9 @@ try {
         await tenantSql`
           UPDATE chatbot.vacancies
           SET
-            communication_plan = ${item.nextState.communication_plan ? JSON.stringify(item.nextState.communication_plan) : null}::jsonb,
-            communication_plan_draft = ${item.nextState.communication_plan_draft ? JSON.stringify(item.nextState.communication_plan_draft) : null}::jsonb,
-            communication_examples = ${JSON.stringify(item.nextState.communication_examples)}::jsonb,
+            communication_plan = ${item.nextState.communication_plan ? tenantSql.json(item.nextState.communication_plan) : null}::jsonb,
+            communication_plan_draft = ${item.nextState.communication_plan_draft ? tenantSql.json(item.nextState.communication_plan_draft) : null}::jsonb,
+            communication_examples = ${tenantSql.json(item.nextState.communication_examples)}::jsonb,
             communication_examples_plan_hash = ${item.nextState.communication_examples_plan_hash},
             updated_at = now()
           WHERE vacancy_id = ${item.vacancy_id}
